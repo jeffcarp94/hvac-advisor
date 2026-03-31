@@ -2,7 +2,7 @@
     "name": "HVAC Advisor — Platinum III 250 DT",
     "short_name": "HVAC Advisor",
     "description": "Thermodynamic HVAC analysis for Coach House Platinum III 250 DT motorhome",
-    "start_url": "/index.html",
+    "start_url": ".",
     "display": "standalone",
     "background_color": "#0f1117",
     "theme_color": "#1a1a2e",
