@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.1 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -18,10 +18,13 @@
         .header{padding:20px 0 16px;position:sticky;top:0;background:var(--bg-deep);z-index:100;border-bottom:1px solid var(--border);}
         .header-tag{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--accent-blue);margin-bottom:4px;}
         .header-title{font-size:20px;font-weight:800;letter-spacing:-0.02em;line-height:1.2;}
+        .header-version{font-size:13px;font-weight:500;color:var(--text-muted);margin-left:6px;}
         .header-sub{font-size:12px;color:var(--text-secondary);margin-top:2px;}
-        .period-toggle{display:flex;background:var(--bg-card);border-radius:var(--radius);padding:4px;margin:16px 0;border:1px solid var(--border);}
+        .period-toggle{display:flex;background:var(--bg-card);border-radius:var(--radius);padding:4px;margin:16px 0 4px;border:1px solid var(--border);}
         .period-btn{flex:1;padding:12px 0;border:none;border-radius:var(--radius-sm);font-family:var(--font-display);font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s;background:transparent;color:var(--text-muted);}
         .period-btn.active{background:var(--accent-blue);color:#fff;box-shadow:0 2px 8px rgba(74,124,255,0.3);}
+        .setpoint-display{text-align:center;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);padding:6px 0 12px;letter-spacing:0.02em;}
+        .setpoint-display span{color:var(--text-secondary);font-weight:600;}
         .input-section{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
         .input-section-title{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:12px;}
         .input-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);}
@@ -42,12 +45,12 @@
         .result-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
         .result-card-title{font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;}
         .risk-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-family:var(--font-mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;}
-        .risk-badge.none{background:rgba(34,197,94,0.15);color:var(--risk-none);}
+        .risk-badge.safe{background:rgba(34,197,94,0.15);color:var(--risk-none);}
         .risk-badge.low{background:rgba(132,204,22,0.15);color:var(--risk-low);}
         .risk-badge.moderate{background:rgba(245,158,11,0.15);color:var(--risk-moderate);}
         .risk-badge.high{background:rgba(239,68,68,0.15);color:var(--risk-high);}
         .risk-dot{width:7px;height:7px;border-radius:50%;}
-        .risk-dot.none{background:var(--risk-none);}.risk-dot.low{background:var(--risk-low);}
+        .risk-dot.safe{background:var(--risk-none);}.risk-dot.low{background:var(--risk-low);}
         .risk-dot.moderate{background:var(--risk-moderate);}
         .risk-dot.high{background:var(--risk-high);animation:pulse-dot 1.5s infinite;}
         @keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:0.4}}
@@ -74,13 +77,14 @@
         .footer-note{margin-top:20px;padding:12px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:10px;color:var(--text-muted);line-height:1.6;font-family:var(--font-mono);}
         .install-banner{display:none;background:var(--bg-card);border:1px solid var(--accent-blue);border-radius:var(--radius);padding:12px 16px;margin-bottom:12px;font-size:13px;color:var(--text-secondary);}
         .install-banner button{background:var(--accent-blue);color:#fff;border:none;padding:8px 16px;border-radius:var(--radius-sm);font-weight:700;font-size:12px;cursor:pointer;margin-top:8px;}
+        .section-divider{margin:16px 0 12px;padding:8px 0;border-top:2px solid var(--accent-blue);font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent-blue);}
     </style>
 </head>
 <body>
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor</div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.1</span></div>
         <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -97,9 +101,10 @@
     </div>
 
     <div class="period-toggle">
-        <button class="period-btn active" data-period="day" onclick="setPeriod('day')">☀ Daytime · 72°F</button>
-        <button class="period-btn" data-period="night" onclick="setPeriod('night')">☽ Overnight · 68°F</button>
+        <button class="period-btn active" data-period="day" onclick="setPeriod('day')">☀ Daytime</button>
+        <button class="period-btn" data-period="night" onclick="setPeriod('night')">☽ Overnight</button>
     </div>
+    <div class="setpoint-display" id="setpointDisplay">Cool <span>72°F</span> · Heat <span>70°F</span></div>
 
     <div class="input-section"><div class="input-section-title">Temperature</div>
         <div class="input-row"><div><div class="input-label" id="tempLabel">Forecast High</div><div class="input-unit">°F</div></div>
@@ -134,51 +139,16 @@
 
     <button class="analyze-btn" onclick="analyze()">Analyze HVAC Requirements</button>
 
-    <div class="results" id="results">
-        <div class="result-card">
-            <div class="result-card-header">
-                <div class="result-card-title" id="resultPeriodTitle">Daytime Analysis</div>
-                <div class="risk-badge none" id="riskBadge"><div class="risk-dot none"></div><span>None</span></div>
-            </div>
-            <div class="result-primary" id="resultSystem">—</div>
-            <div class="result-detail"><div class="result-detail-label">Fan Mode</div><div class="result-detail-value" id="resultFan">—</div></div>
-            <div class="result-detail"><div class="result-detail-label">Freeze Risk</div><div class="result-detail-value" id="resultFreezeRisk">—</div></div>
-            <div class="result-detail"><div class="result-detail-label">Dehumidifier</div><div class="result-detail-value" id="resultDehum">—</div></div>
-            <div id="mitigationBox" class="mitigation-box" style="display:none;"><strong>Mitigation</strong><span id="mitigationText"></span></div>
-            <div class="load-bar-container">
-                <div class="load-bar-title">Thermal Load Breakdown</div>
-                <div class="load-bar-row"><div class="load-bar-label" id="solarLabel">Solar</div><div class="load-bar-track"><div class="load-bar-fill" id="barSolar" style="width:0;background:var(--accent-amber);"></div></div><div class="load-bar-value" id="valSolar">—</div></div>
-                <div class="load-bar-row"><div class="load-bar-label">Conductive</div><div class="load-bar-track"><div class="load-bar-fill" id="barCond" style="width:0;background:var(--accent-cyan);"></div></div><div class="load-bar-value" id="valCond">—</div></div>
-                <div class="load-bar-row"><div class="load-bar-label">Metabolic</div><div class="load-bar-track"><div class="load-bar-fill" id="barMeta" style="width:0;background:var(--accent-purple);"></div></div><div class="load-bar-value" id="valMeta">—</div></div>
-                <div class="load-bar-row"><div class="load-bar-label">Appliance</div><div class="load-bar-track"><div class="load-bar-fill" id="barAppl" style="width:0;background:var(--text-muted);"></div></div><div class="load-bar-value" id="valAppl">—</div></div>
-                <div class="load-bar-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;"><div class="load-bar-label" style="font-weight:700;color:var(--text-primary);">Net Load</div><div class="load-bar-track"><div class="load-bar-fill" id="barNet" style="width:0;background:var(--accent-blue);"></div></div><div class="load-bar-value" id="valNet" style="color:var(--text-primary);font-weight:700;">—</div></div>
-            </div>
-            <div class="diag-panel">
-                <div class="diag-title">Diagnostics</div>
-                <div class="diag-row"><span class="diag-key">Dew Point</span><span class="diag-val" id="diagDp">—</span></div>
-                <div class="diag-row"><span class="diag-key">Est. Coil Temp</span><span class="diag-val" id="diagCoil">—</span></div>
-                <div class="diag-row"><span class="diag-key">UA (corrected)</span><span class="diag-val" id="diagUA">—</span></div>
-                <div class="diag-row"><span class="diag-key">Total Load</span><span class="diag-val" id="diagLoad">—</span></div>
-                <div class="diag-row"><span class="diag-key">Latent Fraction</span><span class="diag-val" id="diagLatent">—</span></div>
-            </div>
-        </div>
-    </div>
+    <div class="results" id="results"></div>
+
     <div class="footer-note">Model based on HVAC engineering estimates calibrated to Coach House Platinum III 250 DT. Dometic 15,000 BTU rooftop AC w/ heat pump. UA=136.6 BTU/hr/°F · R-wall=7 · R-glass=1 · Shell=641 ft² · Glass=45 ft².</div>
 </div>
 
 <script>
 let state={period:'day',temp:78,rh:65,cloud:1.0,wind:5,precip:'none'};
-let forecast={day:null,night:null,location:null,fetched:false};
+let forecast={day:null,night:null,bedtime:null,worstCase:null,location:null,fetched:false};
 
-const C={
-    shellArea:641,glassArea:45,rShell:7,rGlass:1,
-    acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,
-    metaSleep:1000,metaAwake:1400,dehumWaste:500,
-    solarPeak:250,shellSHGC:0.035,glassSHGC:0.70,
-    shellSunFrac:0.50,glassSunFrac:0.50,
-    thermalRetention:0.15,soakTau:2.0,
-    dayCool:72,nightCool:68,dayHeat:70,nightHeat:66
-};
+const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:500,solarPeak:250,shellSHGC:0.035,glassSHGC:0.70,shellSunFrac:0.50,glassSunFrac:0.50,thermalRetention:0.15,soakTau:2.0,dayCool:72,nightCool:68,dayHeat:70,nightHeat:66,comfortFloor:65};
 const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
 
 const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/1.0','Accept':'application/geo+json'};
@@ -188,175 +158,91 @@ async function retrieveWeather(){
     if(!/^\d{5}$/.test(zip)){showStatus('Enter a valid 5-digit zip code',true);return;}
     setBtnLoad('retrieveBtn',true);showStatus('Looking up zip code...',false);
     try{
-        let r;
-        try{r=await fetch(`https://api.zippopotam.us/us/${zip}`);}
+        let r;try{r=await fetch(`https://api.zippopotam.us/us/${zip}`);}
         catch(e){throw new Error('Network error — browsers block fetch from file:// URLs. Use a local server or the GPS button.');}
         if(!r.ok)throw new Error('Zip code not found');
-        const g=await r.json();
-        const lat=parseFloat(g.places[0].latitude),lon=parseFloat(g.places[0].longitude);
+        const g=await r.json();const lat=parseFloat(g.places[0].latitude),lon=parseFloat(g.places[0].longitude);
         const name=g.places[0]['place name']+', '+g.places[0]['state abbreviation'];
-        showStatus('Fetching NWS forecast...',false);
-        await fetchNWS(lat,lon,name);
+        showStatus('Fetching NWS forecast...',false);await fetchNWS(lat,lon,name);
     }catch(e){
         showStatus(e.message,true);
-        if(window.location.protocol==='file:')document.getElementById('weatherStatus').innerHTML+=
-            '<br><br><span style="color:var(--text-secondary)">Run: <code style="color:var(--accent-cyan)">python3 -m http.server 8000</code> then open <code style="color:var(--accent-cyan)">http://localhost:8000</code></span>';
+        if(window.location.protocol==='file:')document.getElementById('weatherStatus').innerHTML+='<br><br><span style="color:var(--text-secondary)">Run: <code style="color:var(--accent-cyan)">python3 -m http.server 8000</code> then open <code style="color:var(--accent-cyan)">http://localhost:8000</code></span>';
         forecast.fetched=false;
     }finally{setBtnLoad('retrieveBtn',false);}
 }
-
 async function useMyLocation(){
     if(!navigator.geolocation){showStatus('Geolocation not supported',true);return;}
-    const btn=document.getElementById('gpsBtn');
-    btn.textContent='◎ Locating...';btn.style.opacity='0.6';
+    const btn=document.getElementById('gpsBtn');btn.textContent='◎ Locating...';btn.style.opacity='0.6';
     showStatus('Requesting location...',false);
-    try{
-        const pos=await new Promise((ok,no)=>navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:false,timeout:10000,maximumAge:300000}));
-        showStatus('Fetching NWS forecast...',false);
-        await fetchNWS(pos.coords.latitude,pos.coords.longitude,null);
-    }catch(e){
-        const m=e.code===1?'Location permission denied':e.code===2?'Location unavailable':e.code===3?'Timed out':e.message;
-        showStatus('Error: '+m,true);forecast.fetched=false;
+    try{const pos=await new Promise((ok,no)=>navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:false,timeout:10000,maximumAge:300000}));
+        showStatus('Fetching NWS forecast...',false);await fetchNWS(pos.coords.latitude,pos.coords.longitude,null);
+    }catch(e){const m=e.code===1?'Location permission denied':e.code===2?'Location unavailable':e.code===3?'Timed out':e.message;showStatus('Error: '+m,true);forecast.fetched=false;
     }finally{btn.textContent='◎ Use My Location';btn.style.opacity='1';}
 }
-
 async function fetchNWS(lat,lon,placeName){
-    let r1;
-    try{r1=await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,{headers:NWS_H});}
-    catch(e){throw new Error('NWS grid lookup failed: '+e.message);}
+    let r1;try{r1=await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,{headers:NWS_H});}catch(e){throw new Error('NWS grid lookup failed: '+e.message);}
     if(!r1.ok)throw new Error('NWS point error ('+r1.status+')');
-    const p1=await r1.json();
-    const fcUrl=p1.properties.forecast;
-    const gid=p1.properties.gridId,gx=p1.properties.gridX,gy=p1.properties.gridY;
-    const city=p1.properties.relativeLocation?.properties?.city||'';
-    const st=p1.properties.relativeLocation?.properties?.state||'';
+    const p1=await r1.json();const fcUrl=p1.properties.forecast,gid=p1.properties.gridId,gx=p1.properties.gridX,gy=p1.properties.gridY;
+    const city=p1.properties.relativeLocation?.properties?.city||'',st=p1.properties.relativeLocation?.properties?.state||'';
     const loc=placeName||(city&&st?city+', '+st:lat.toFixed(2)+', '+lon.toFixed(2));
-
-    let r2;
-    try{r2=await fetch(fcUrl,{headers:NWS_H});}catch(e){throw new Error('NWS forecast failed: '+e.message);}
+    let r2;try{r2=await fetch(fcUrl,{headers:NWS_H});}catch(e){throw new Error('NWS forecast failed: '+e.message);}
     if(!r2.ok)throw new Error('NWS forecast error ('+r2.status+')');
-    const f2=await r2.json();
-    const periods=f2.properties.periods;
-
-    let humVals=null;
-    try{
-        const r3=await fetch(`https://api.weather.gov/gridpoints/${gid}/${gx},${gy}`,{headers:NWS_H});
-        if(r3.ok){const g3=await r3.json();humVals=g3.properties.relativeHumidity?.values||null;}
-    }catch(e){}
-
+    const f2=await r2.json();const periods=f2.properties.periods;
+    let humVals=null,tempVals=null;
+    try{const r3=await fetch(`https://api.weather.gov/gridpoints/${gid}/${gx},${gy}`,{headers:NWS_H});if(r3.ok){const g3=await r3.json();humVals=g3.properties.relativeHumidity?.values||null;tempVals=g3.properties.temperature?.values||null;}}catch(e){}
     let dayP=null,nightP=null;
-    for(const p of periods){
-        if(p.isDaytime&&!dayP)dayP=p;
-        if(!p.isDaytime&&!nightP)nightP=p;
-        if(dayP&&nightP)break;
-    }
+    for(const p of periods){if(p.isDaytime&&!dayP)dayP=p;if(!p.isDaytime&&!nightP)nightP=p;if(dayP&&nightP)break;}
     if(!dayP||!nightP)throw new Error('Could not parse forecast periods');
-
-    const dayRH=extractMaxRH(humVals,dayP.startTime,dayP.endTime);
-    const nightRH=extractMaxRH(humVals,nightP.startTime,nightP.endTime);
-
-    forecast.day=parsePeriod(dayP,dayRH);
-    forecast.night=parsePeriod(nightP,nightRH);
+    forecast.day=parsePeriod(dayP,extractMaxRH(humVals,dayP.startTime,dayP.endTime));
+    forecast.night=parsePeriod(nightP,extractMaxRH(humVals,nightP.startTime,nightP.endTime));
+    const nightStart=new Date(nightP.startTime),nightEnd=new Date(nightP.endTime);
+    forecast.bedtime=extractBedtimeData(tempVals,humVals,nightStart,nightEnd,nightP);
+    forecast.worstCase=extractWorstCaseData(tempVals,humVals,nightStart,nightEnd,nightP);
     forecast.location=loc;forecast.fetched=true;
-
     document.getElementById('weatherLocation').textContent=loc+' — '+dayP.name+' / '+nightP.name;
     document.getElementById('weatherLocation').style.display='block';
-    showStatus('Forecast retrieved successfully',false);
-    applyForecast(state.period);analyze();
+    showStatus('Forecast retrieved successfully',false);applyForecast(state.period);analyze();
 }
-
-function extractMaxRH(vals,startISO,endISO){
-    if(!vals||!vals.length)return null;
-    const s=new Date(startISO).getTime(),e=new Date(endISO).getTime();
-    let maxRH=null;
-    for(const v of vals){
-        const t=new Date(v.validTime.split('/')[0]).getTime();
-        const dm=v.validTime.match(/\/PT(\d+)H/);
-        const dur=dm?parseInt(dm[1])*3600000:3600000;
-        if(t+dur>s&&t<e&&v.value!=null){
-            if(maxRH===null||v.value>maxRH)maxRH=v.value;
-        }
-    }
-    return maxRH!==null?Math.round(maxRH):null;
-}
-
-function parsePeriod(p,extractedRH){
-    const temp=p.temperature;
-    let rh=extractedRH!=null?extractedRH:(p.isDaytime?50:75);
-
-    // Rain humidity floor: >=50% precip probability + rain indicated => floor at 90%
-    const precipProb=p.probabilityOfPrecipitation?.value||0;
-    const sf=(p.shortForecast||'').toLowerCase();
-    const hasRain=sf.includes('rain')||sf.includes('shower')||sf.includes('storm')||sf.includes('drizzle');
-    if(hasRain&&precipProb>=50&&rh<90)rh=90;
-
-    // Wind: use MINIMUM from range (worst case for freeze risk)
-    let wind=5;
-    const wn=(p.windSpeed||'').match(/(\d+)/g);
-    if(wn&&wn.length>=2)wind=parseInt(wn[0]);
-    else if(wn&&wn.length===1)wind=parseInt(wn[0]);
-
-    // Cloud cover
-    let cloud=0.6;
-    if(/^sunny$|^clear$/.test(sf))cloud=1.0;
-    else if(sf.includes('mostly sunny')||sf.includes('mostly clear'))cloud=0.8;
-    else if(sf.includes('partly sunny')||sf.includes('partly cloudy'))cloud=0.6;
-    else if(sf.includes('mostly cloudy'))cloud=0.3;
-    else if(sf.includes('cloudy')||sf.includes('overcast')||sf.includes('fog'))cloud=0.1;
-    else if(sf.includes('sunny')||sf.includes('clear'))cloud=1.0;
-
-    // Precipitation
-    let precip='none';
-    if(hasRain)precip='rain';
-    else if(sf.includes('snow')||sf.includes('sleet')||sf.includes('ice')||sf.includes('flurr'))precip='snow';
-
-    return{temp,rh,cloud,wind,precip};
-}
-
-function applyForecast(period){
-    const d=period==='day'?forecast.day:forecast.night;if(!d)return;
-    state.temp=d.temp;state.rh=d.rh;state.cloud=d.cloud;state.wind=d.wind;state.precip=d.precip;
-    document.getElementById('tempValue').textContent=d.temp;
-    document.getElementById('rhValue').textContent=d.rh;
-    document.getElementById('windValue').textContent=d.wind;
-    document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>c.classList.remove('active'));
-    let best=null,bd=Infinity;
-    document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>{const dist=Math.abs(parseFloat(c.dataset.val)-d.cloud);if(dist<bd){bd=dist;best=c;}});
-    if(best)best.classList.add('active');
-    document.querySelectorAll('#precipGroup .selector-chip').forEach(c=>c.classList.toggle('active',c.dataset.val===d.precip));
-}
-
+function extractMaxRH(vals,sISO,eISO){if(!vals||!vals.length)return null;const s=new Date(sISO).getTime(),e=new Date(eISO).getTime();let mx=null;for(const v of vals){const t=new Date(v.validTime.split('/')[0]).getTime();const dm=v.validTime.match(/\/PT(\d+)H/);const dur=dm?parseInt(dm[1])*3600000:3600000;if(t+dur>s&&t<e&&v.value!=null){if(mx===null||v.value>mx)mx=v.value;}}return mx!==null?Math.round(mx):null;}
+function extractHourlyTemp(tv,tgt){if(!tv||!tv.length)return null;const t0=tgt.getTime();let c=null,cd=Infinity;for(const v of tv){const t=new Date(v.validTime.split('/')[0]).getTime();const d=Math.abs(t-t0);if(d<cd&&v.value!=null){cd=d;c=v.value;}}return c!==null?Math.round(c*9/5+32):null;}
+function extractBedtimeData(tv,hv,ns,ne,nP){const bt=new Date(ns);if(bt.getHours()<22)bt.setHours(22,0,0,0);const temp=extractHourlyTemp(tv,bt);const rh=extractMaxRH(hv,nP.startTime,nP.endTime);const ts=bt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});return{temp:temp||forecast.night.temp,rh:rh||forecast.night.rh,cloud:forecast.night.cloud,wind:forecast.night.wind,precip:forecast.night.precip,timeStr:ts};}
+function extractWorstCaseData(tv,hv,ns,ne,nP){if(!tv||!tv.length)return{temp:forecast.night.temp,rh:forecast.night.rh,cloud:forecast.night.cloud,wind:forecast.night.wind,precip:forecast.night.precip,timeStr:'Unknown'};const s=ns.getTime(),e=ne.getTime();let mt=Infinity,mTime=null;for(const v of tv){const t=new Date(v.validTime.split('/')[0]).getTime();const dm=v.validTime.match(/\/PT(\d+)H/);const dur=dm?parseInt(dm[1])*3600000:3600000;if(t+dur>s&&t<e&&v.value!=null){const tF=v.value*9/5+32;if(tF<mt){mt=tF;mTime=new Date(v.validTime.split('/')[0]);}}}const temp=mt<Infinity?Math.round(mt):forecast.night.temp;const rh=extractMaxRH(hv,nP.startTime,nP.endTime)||forecast.night.rh;const ts=mTime?mTime.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'Unknown';return{temp,rh,cloud:forecast.night.cloud,wind:forecast.night.wind,precip:forecast.night.precip,timeStr:ts};}
+function parsePeriod(p,exRH){const temp=p.temperature;let rh=exRH!=null?exRH:(p.isDaytime?50:75);const pp=p.probabilityOfPrecipitation?.value||0;const sf=(p.shortForecast||'').toLowerCase();const hasRain=sf.includes('rain')||sf.includes('shower')||sf.includes('storm')||sf.includes('drizzle');if(hasRain&&pp>=50&&rh<90)rh=90;let wind=5;const wn=(p.windSpeed||'').match(/(\d+)/g);if(wn&&wn.length>=2)wind=parseInt(wn[0]);else if(wn&&wn.length===1)wind=parseInt(wn[0]);let cloud=0.6;if(/^sunny$|^clear$/.test(sf))cloud=1.0;else if(sf.includes('mostly sunny')||sf.includes('mostly clear'))cloud=0.8;else if(sf.includes('partly sunny')||sf.includes('partly cloudy'))cloud=0.6;else if(sf.includes('mostly cloudy'))cloud=0.3;else if(sf.includes('cloudy')||sf.includes('overcast')||sf.includes('fog'))cloud=0.1;else if(sf.includes('sunny')||sf.includes('clear'))cloud=1.0;let precip='none';if(hasRain)precip='rain';else if(sf.includes('snow')||sf.includes('sleet')||sf.includes('ice')||sf.includes('flurr'))precip='snow';return{temp,rh,cloud,wind,precip};}
+function applyForecast(p){const d=p==='day'?forecast.day:(forecast.bedtime||forecast.night);if(!d)return;state.temp=d.temp;state.rh=d.rh;state.cloud=d.cloud;state.wind=d.wind;state.precip=d.precip;document.getElementById('tempValue').textContent=d.temp;document.getElementById('rhValue').textContent=d.rh;document.getElementById('windValue').textContent=d.wind;document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>c.classList.remove('active'));let best=null,bd=Infinity;document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>{const dist=Math.abs(parseFloat(c.dataset.val)-d.cloud);if(dist<bd){bd=dist;best=c;}});if(best)best.classList.add('active');document.querySelectorAll('#precipGroup .selector-chip').forEach(c=>c.classList.toggle('active',c.dataset.val===d.precip));}
 function showStatus(m,err){const e=document.getElementById('weatherStatus');e.textContent=m;e.style.display='block';e.style.color=err?'var(--accent-red)':'var(--text-muted)';}
 function setBtnLoad(id,on){const b=document.getElementById(id);if(id==='retrieveBtn')b.textContent=on?'...':'Retrieve';b.style.opacity=on?'0.6':'1';b.style.pointerEvents=on?'none':'auto';}
 
-// ========== THERMODYNAMIC ENGINE ==========
+// ========== ENGINE ==========
 function dewPt(tF,rh){const tc=(tF-32)*5/9;const g=Math.log(Math.max(1,Math.min(100,rh))/100)+(17.27*tc)/(237.3+tc);return(237.3*g)/(17.27-g)*9/5+32;}
-
-function solarLoad(cf,isDay){
-    if(!isDay){
-        const peak=C.solarPeak*(C.shellSHGC*C.shellArea*C.shellSunFrac+C.glassSHGC*C.glassArea*C.glassSunFrac);
-        return Math.round(peak*C.thermalRetention*Math.exp(-2/C.soakTau)*cf);
-    }
-    return Math.round((C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac+C.glassSHGC*C.solarPeak*C.glassArea*C.glassSunFrac)*cf);
-}
-
+function solarLoad(cf,isDay){if(!isDay){const pk=C.solarPeak*(C.shellSHGC*C.shellArea*C.shellSunFrac+C.glassSHGC*C.glassArea*C.glassSunFrac);return Math.round(pk*C.thermalRetention*Math.exp(-2/C.soakTau)*cf);}return Math.round((C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac+C.glassSHGC*C.solarPeak*C.glassArea*C.glassSunFrac)*cf);}
 function condLoad(tOut,tIn,wind){const ua=UA_BASE*(1+0.02*wind);return{q:Math.round(ua*(tOut-tIn)),ua:Math.round(ua*10)/10};}
 function coilTemp(tRet,tOut,dpIn){return Math.round((tRet-22-Math.max(0,(70-tOut)*0.3)-Math.max(0,(dpIn-55)*0.4))*10)/10;}
-function riskLevel(tc){return tc>40?'none':tc>35?'low':tc>32?'moderate':'high';}
+function riskLevel(tc){return tc>40?'safe':tc>35?'low':tc>32?'moderate':'high';}
 function freezeMode(tOut,dpIn,tc,lf){const a=tOut<65&&tc<35,b=dpIn>60&&tc<35&&lf>0.35;return a&&b?'both':a?'A':b?'B':'none';}
 
-// ========== ANALYSIS ==========
-function analyze(){
-    const isDay=state.period==='day';
-    const coolSet=isDay?C.dayCool:C.nightCool,heatSet=isDay?C.dayHeat:C.nightHeat;
-    const meta=isDay?C.metaAwake:C.metaSleep;
-    const tOut=state.temp,rh=state.rh,cf=state.cloud,wind=state.wind,precip=state.precip;
+function estimateIndoorTemp(tOut,wind,cf,isDay,sysType){
+    const coolSet=isDay?C.dayCool:C.nightCool;
+    const heatSet=isDay?C.dayHeat:C.nightHeat;
+    // Active systems hold their setpoint
+    if(sysType.includes('Air Conditioner')||sysType.includes('AC'))return coolSet;
+    if(sysType==='Heat Pump'||sysType.includes('Furnace'))return coolSet; // thermostat set to cool setpoint
+    // Passive: equilibrium
+    const ua=UA_BASE*(1+0.02*wind);
+    const qInt=C.metaSleep+C.dehumWaste+solarLoad(cf,isDay);
+    return Math.round((tOut+(qInt/ua))*10)/10;
+}
 
+function runAnalysis(tOut,rh,cf,wind,precip,isDay){
+    const coolSet=isDay?C.dayCool:C.nightCool;
+    const heatSet=isDay?C.dayHeat:C.nightHeat;
+    // Use appropriate setpoint for load calc
+    const needsHeat=tOut<heatSet;
+    const refTemp=needsHeat?heatSet:coolSet;
+    const meta=isDay?C.metaAwake:C.metaSleep;
     const qSol=solarLoad(cf,isDay);
-    const cond=condLoad(tOut,coolSet,wind);
+    const cond=condLoad(tOut,refTemp,wind);
     const qCond=cond.q,qMeta=meta,qApp=C.dehumWaste;
     const qTot=qSol+qCond+qMeta+qApp;
-
     const dp=dewPt(tOut,rh),dpIn=dp-3;
     const tRet=Math.max(coolSet,Math.min(tOut,coolSet+(qTot>C.acCapacity?6:0)));
     const tC=coilTemp(tRet,tOut,dpIn);
@@ -364,90 +250,109 @@ function analyze(){
 
     let sys,fan,dehum,mit,fm,risk,frDisp;
 
-    // System selection — no precipitation override for ventilation
     if(qTot>500){
         if(tOut>coolSet+3||qTot>2000)sys='Air Conditioner';
-        else if(dp>55||rh>65)sys='AC (dehumidification) or MaxxFan vents';
-        else sys='MaxxFan vents (exhaust mode)';
+        else if(dp>55||rh>65){if(tOut>=C.comfortFloor)sys='AC (dehumidification) or MaxxFan vents';else sys='AC (dehumidification)';}
+        else{if(tOut>=C.comfortFloor)sys='MaxxFan vents (exhaust mode)';else sys='No system needed — close windows and MaxxFan';}
     }else if(qTot<-500){
         sys=tOut>C.heatPumpMinTemp?'Heat Pump':'LP Furnace';
     }else{
-        if(dp>55||rh>65)sys='Dehumidifier only or MaxxFan';
+        if(tOut<C.comfortFloor)sys='No system needed — close windows and MaxxFan';
+        else if(dp>55||rh>65)sys='Dehumidifier only or MaxxFan';
         else sys='No system needed';
     }
 
     const acOn=sys.includes('Air Conditioner')||sys.includes('AC');
+    const hpOn=sys==='Heat Pump';
 
     if(acOn){
-        risk=riskLevel(tC);
-        fm=freezeMode(tOut,dpIn,tC,lf);
-        if(fm==='A'){
-            fan='AUTO (stops fan with compressor)';dehum='Optional';
-            mit='Cold air freeze risk detected. Set fan to AUTO so the coil warms during compressor off-cycles. Consider switching to MaxxFan vents if outdoor temp is below 60°F. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.';
-            frDisp='Cold Air Freeze Risk';
-        }else if(fm==='B'){
-            fan='ON (maximize airflow across coil)';dehum='Run concurrently — critical';
-            mit='High humidity freeze risk detected. Run the Midea Cube dehumidifier concurrently with the AC to reduce moisture load on the evaporator coil. Minimize door openings to reduce humid air infiltration. Verify AC filter is clean. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.';
-            frDisp='High Humidity Freeze Risk';
-        }else if(fm==='both'){
-            fan='AUTO (cold air risk dominant)';dehum='Run concurrently — critical';
-            mit='Both cold air and high humidity freeze risk detected. Use AUTO fan mode to protect coil during compressor off-cycles, and run the dehumidifier to reduce latent load. Consider switching to MaxxFan vents as primary cooling. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.';
-            frDisp='Cold Air + Humidity Freeze Risk';
+        risk=riskLevel(tC);fm=freezeMode(tOut,dpIn,tC,lf);
+        if(fm==='A'){fan='AUTO (stops fan with compressor)';dehum='Optional';mit='Cold air freeze risk detected. Set fan to AUTO so the coil warms during compressor off-cycles. Consider switching to MaxxFan vents if outdoor temp is above 65°F. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.';frDisp='Cold Air Freeze Risk';}
+        else if(fm==='B'){fan='ON (maximize airflow across coil)';dehum='Run concurrently — critical';mit='High humidity freeze risk detected. Run the Midea Cube dehumidifier concurrently with the AC to reduce moisture load on the evaporator coil. Minimize door openings to reduce humid air infiltration. Verify AC filter is clean. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.';frDisp='High Humidity Freeze Risk';}
+        else if(fm==='both'){fan='AUTO (cold air risk dominant)';dehum='Run concurrently — critical';mit='Both cold air and high humidity freeze risk detected. Use AUTO fan mode to protect coil during compressor off-cycles, and run the dehumidifier to reduce latent load. Consider switching to MaxxFan vents as primary cooling. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.';frDisp='Cold Air + Humidity Freeze Risk';}
+        else{fan=risk==='safe'?'ON or AUTO (either is safe)':'AUTO (precautionary)';dehum=rh>60?'Recommended for comfort':'Optional';mit='';frDisp='Coil Temp is Safe';}
+    }else if(hpOn){
+        fm='none';
+        if(tOut<=C.heatPumpFrostThresh&&tOut>=C.heatPumpMinTemp){
+            risk='low';frDisp='Outdoor Coil Frost Risk';
+            fan='AUTO';dehum='Optional';
+            mit='Outdoor temperature is in the '+C.heatPumpMinTemp+'–'+C.heatPumpFrostThresh+'°F range where the outdoor coil may frost during heat pump operation. The unit\'s defrost cycle should manage this, but efficiency is reduced. If the cabin struggles to reach setpoint, switch to LP furnace.';
         }else{
-            fan=risk==='none'?'ON or AUTO (either is safe)':'AUTO (precautionary)';
-            dehum=rh>60?'Recommended for comfort':'Optional';mit='';
-            frDisp='Coil Temp is Safe';
+            risk='safe';frDisp='Coil Temp is Safe';fan='AUTO';dehum='Optional';
+            mit=tOut<45?'Heat pump efficiency drops near its '+C.heatPumpMinTemp+'°F minimum. Monitor cabin temperature and switch to LP furnace if needed.':'';
         }
-    }else if(sys==='Heat Pump'){
-        risk='none';fm='none';fan='AUTO';dehum='Optional';
-        mit=tOut<45?'Heat pump efficiency drops significantly near its 41°F minimum. If cabin struggles to reach setpoint, switch to LP furnace.':'';
-        frDisp='None — Compressor off';
     }else if(sys.includes('Furnace')){
-        risk='none';fm='none';fan='AUTO';dehum='Optional';mit='';
-        frDisp='None — Compressor off';
+        risk='safe';fm='none';fan='AUTO';dehum='Optional';mit='';frDisp='None — Furnace mode';
     }else{
-        risk='none';fm='none';
-        fan=sys.includes('MaxxFan')?'MaxxFan exhaust — AC fan off':'Off';
-        dehum=rh>60?'Recommended for comfort':'Off';mit='';
-        frDisp='None — Compressor off';
+        risk='safe';fm='none';
+        fan=sys.includes('MaxxFan')?'MaxxFan Auto at '+(isDay?'72':'68')+'°F — AC fan off':'Off';
+        dehum=rh>60?'Recommended for comfort':'Off';mit='';frDisp='None — Compressor off';
     }
+    return{sys,fan,dehum,mit,fm,risk,frDisp,qSol,qCond,qMeta,qApp,qTot,dp,tC,lf,ua:cond.ua,acOn,hpOn};
+}
 
-    // ===== RENDER =====
-    document.getElementById('results').classList.add('visible');
-    document.getElementById('resultPeriodTitle').textContent=isDay?'Daytime Analysis':'Overnight Analysis';
-    document.getElementById('resultSystem').textContent=sys;
-    document.getElementById('resultFan').textContent=fan;
-    document.getElementById('resultDehum').textContent=dehum;
-    document.getElementById('resultFreezeRisk').textContent=frDisp;
-
-    const badge=document.getElementById('riskBadge'),dot=badge.querySelector('.risk-dot');
-    const rl={none:'None',low:'Low',moderate:'Moderate',high:'High'};
-    badge.className='risk-badge '+risk;dot.className='risk-dot '+risk;
-    badge.querySelector('span').textContent=rl[risk];
-
-    const mb=document.getElementById('mitigationBox');
-    if(mit){mb.style.display='block';mb.className='mitigation-box'+(risk==='high'?' alert':'');document.getElementById('mitigationText').textContent=mit;}
-    else mb.style.display='none';
-
-    document.getElementById('solarLabel').textContent=isDay?'Solar':'Solar Soak';
-
-    const mx=Math.max(Math.abs(qSol),Math.abs(qCond),Math.abs(qMeta),Math.abs(qApp),Math.abs(qTot),1);
+// ========== RENDER ==========
+function renderCard(id,title,r,tOut,rh,isDay,extra){
+    const rl={safe:'Safe',low:'Low',moderate:'Moderate',high:'High'};
+    const mx=Math.max(Math.abs(r.qSol),Math.abs(r.qCond),Math.abs(r.qMeta),Math.abs(r.qApp),Math.abs(r.qTot),1);
     const bs=v=>Math.min(100,Math.round(Math.abs(v)/mx*100));
     const fl=v=>(v>=0?'+':'')+v.toLocaleString()+' BTU';
+    const solLbl=isDay?'Solar':'Solar Soak';
+    let extraHTML='';
+    if(extra){
+        const tempColor=extra.indoorTemp<C.comfortFloor?'var(--accent-red)':'var(--accent-green)';
+        extraHTML=`<div class="diag-panel" style="margin-top:12px;border-color:var(--accent-amber);">
+            <div class="diag-title" style="color:var(--accent-amber);">If Bedtime Settings Unchanged</div>
+            <div class="diag-row"><span class="diag-key">Est. Indoor Temp</span><span class="diag-val" style="color:${tempColor}">${extra.indoorTemp}°F</span></div>
+            <div class="diag-row"><span class="diag-key">Freeze Risk</span><span class="diag-val">${extra.frDisp}</span></div>
+            ${extra.indoorTemp<C.comfortFloor?'<div style="margin-top:8px;font-size:12px;color:var(--accent-red);font-weight:600;">⚠ Interior may drop below '+C.comfortFloor+'°F comfort floor. Close windows and MaxxFan before sleep, or switch to AC.</div>':''}
+            ${extra.riskChanged?'<div style="margin-top:8px;font-size:12px;color:var(--accent-amber);font-weight:600;">⚠ Freeze risk changes overnight. Review Overnight Condition recommendation.</div>':''}
+        </div>`;
+    }
+    return`<div class="result-card" id="${id}">
+        <div class="result-card-header"><div class="result-card-title">${title}</div><div class="risk-badge ${r.risk}"><div class="risk-dot ${r.risk}"></div><span>${rl[r.risk]}</span></div></div>
+        <div class="result-primary">${r.sys}</div>
+        <div class="result-detail"><div class="result-detail-label">Fan Mode</div><div class="result-detail-value">${r.fan}</div></div>
+        <div class="result-detail"><div class="result-detail-label">Freeze Risk</div><div class="result-detail-value">${r.frDisp}</div></div>
+        <div class="result-detail"><div class="result-detail-label">Dehumidifier</div><div class="result-detail-value">${r.dehum}</div></div>
+        ${r.mit?`<div class="mitigation-box${r.risk==='high'?' alert':''}"><strong>Mitigation</strong>${r.mit}</div>`:''}
+        <div class="load-bar-container"><div class="load-bar-title">Thermal Load Breakdown</div>
+            <div class="load-bar-row"><div class="load-bar-label">${solLbl}</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qSol)}%;background:var(--accent-amber);"></div></div><div class="load-bar-value">${fl(r.qSol)}</div></div>
+            <div class="load-bar-row"><div class="load-bar-label">Conductive</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qCond)}%;background:${r.qCond>=0?'var(--accent-red)':'var(--accent-cyan)'};"></div></div><div class="load-bar-value">${fl(r.qCond)}</div></div>
+            <div class="load-bar-row"><div class="load-bar-label">Metabolic</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qMeta)}%;background:var(--accent-purple);"></div></div><div class="load-bar-value">${fl(r.qMeta)}</div></div>
+            <div class="load-bar-row"><div class="load-bar-label">Appliance</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qApp)}%;background:var(--text-muted);"></div></div><div class="load-bar-value">${fl(r.qApp)}</div></div>
+            <div class="load-bar-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;"><div class="load-bar-label" style="font-weight:700;color:var(--text-primary);">Net Load</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qTot)}%;background:${r.qTot>=0?'var(--accent-red)':'var(--accent-cyan)'};"></div></div><div class="load-bar-value" style="color:var(--text-primary);font-weight:700;">${fl(r.qTot)}</div></div>
+        </div>
+        <div class="diag-panel"><div class="diag-title">Diagnostics</div>
+            <div class="diag-row"><span class="diag-key">Outdoor Temp</span><span class="diag-val">${tOut}°F</span></div>
+            <div class="diag-row"><span class="diag-key">Humidity</span><span class="diag-val">${rh}%</span></div>
+            <div class="diag-row"><span class="diag-key">Dew Point</span><span class="diag-val">${Math.round(r.dp*10)/10}°F</span></div>
+            <div class="diag-row"><span class="diag-key">Est. Coil Temp</span><span class="diag-val">${r.acOn?(r.tC+'°F'):'N/A'}</span></div>
+            <div class="diag-row"><span class="diag-key">UA (corrected)</span><span class="diag-val">${r.ua} BTU/hr/°F</span></div>
+            <div class="diag-row"><span class="diag-key">Total Load</span><span class="diag-val">${r.qTot.toLocaleString()} BTU/hr</span></div>
+            <div class="diag-row"><span class="diag-key">Latent Fraction</span><span class="diag-val">${r.acOn?(Math.round(r.lf*100)+'%'):'N/A'}</span></div>
+        </div>${extraHTML}</div>`;
+}
 
-    document.getElementById('barSolar').style.width=bs(qSol)+'%';document.getElementById('valSolar').textContent=fl(qSol);
-    document.getElementById('barCond').style.width=bs(qCond)+'%';document.getElementById('barCond').style.background=qCond>=0?'var(--accent-red)':'var(--accent-cyan)';document.getElementById('valCond').textContent=fl(qCond);
-    document.getElementById('barMeta').style.width=bs(qMeta)+'%';document.getElementById('valMeta').textContent=fl(qMeta);
-    document.getElementById('barAppl').style.width=bs(qApp)+'%';document.getElementById('valAppl').textContent=fl(qApp);
-    document.getElementById('barNet').style.width=bs(qTot)+'%';document.getElementById('barNet').style.background=qTot>=0?'var(--accent-red)':'var(--accent-cyan)';document.getElementById('valNet').textContent=fl(qTot);
-
-    document.getElementById('diagDp').textContent=Math.round(dp*10)/10+'°F';
-    document.getElementById('diagCoil').textContent=acOn?(tC+'°F'):'N/A';
-    document.getElementById('diagUA').textContent=cond.ua+' BTU/hr/°F';
-    document.getElementById('diagLoad').textContent=qTot.toLocaleString()+' BTU/hr';
-    document.getElementById('diagLatent').textContent=acOn?(Math.round(lf*100)+'%'):'N/A';
-
-    document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
+function analyze(){
+    const isDay=state.period==='day';const container=document.getElementById('results');
+    if(isDay){
+        const r=runAnalysis(state.temp,state.rh,state.cloud,state.wind,state.precip,true);
+        container.innerHTML=renderCard('dayCard','Daytime Analysis',r,state.temp,state.rh,true,null);
+    }else{
+        const bt=forecast.fetched&&forecast.bedtime?forecast.bedtime:{temp:state.temp,rh:state.rh,cloud:state.cloud,wind:state.wind,precip:state.precip,timeStr:'~10 PM'};
+        const btR=runAnalysis(bt.temp,bt.rh,bt.cloud,bt.wind,bt.precip,false);
+        const wc=forecast.fetched&&forecast.worstCase?forecast.worstCase:{temp:Math.round(bt.temp-10),rh:bt.rh,cloud:bt.cloud,wind:bt.wind,precip:bt.precip,timeStr:'Unknown'};
+        const wcR=runAnalysis(wc.temp,wc.rh,wc.cloud,wc.wind,wc.precip,false);
+        const indoorTemp=estimateIndoorTemp(wc.temp,wc.wind,wc.cloud,false,btR.sys);
+        const riskChanged=wcR.risk!==btR.risk;
+        container.innerHTML=
+            `<div class="section-divider">Bedtime Condition · ${bt.timeStr}</div>`+
+            renderCard('btCard','Bedtime Condition',btR,bt.temp,bt.rh,false,null)+
+            `<div class="section-divider">Overnight Condition · Worst case at ${wc.timeStr}</div>`+
+            renderCard('wcCard','Overnight Condition',wcR,wc.temp,wc.rh,false,{indoorTemp,frDisp:wcR.frDisp,riskChanged});
+    }
+    container.classList.add('visible');container.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 // ========== UI ==========
@@ -457,24 +362,13 @@ function setPeriod(p){
     document.getElementById('tempLabel').textContent=p==='day'?'Forecast High':'Forecast Low';
     document.getElementById('cloudLabel').textContent=p==='day'?'Cloud Cover':'Today\'s Cloud Cover';
     document.getElementById('cloudHint').style.display=p==='night'?'block':'none';
+    document.getElementById('setpointDisplay').innerHTML=p==='day'?'Cool <span>72°F</span> · Heat <span>70°F</span>':'Cool <span>68°F</span> · Heat <span>66°F</span>';
     if(forecast.fetched){applyForecast(p);analyze();}
-    else{
-        if(p==='night'&&state.temp>75){state.temp-=15;document.getElementById('tempValue').textContent=state.temp;}
-        if(p==='day'&&state.temp<55){state.temp+=15;document.getElementById('tempValue').textContent=state.temp;}
-    }
+    else{if(p==='night'&&state.temp>75){state.temp-=15;document.getElementById('tempValue').textContent=state.temp;}if(p==='day'&&state.temp<55){state.temp+=15;document.getElementById('tempValue').textContent=state.temp;}}
 }
-function step(f,d){
-    if(f==='temp'){state.temp=Math.max(20,Math.min(110,state.temp+d));document.getElementById('tempValue').textContent=state.temp;}
-    else if(f==='rh'){state.rh=Math.max(10,Math.min(100,state.rh+d));document.getElementById('rhValue').textContent=state.rh;}
-    else if(f==='wind'){state.wind=Math.max(0,Math.min(50,state.wind+d));document.getElementById('windValue').textContent=state.wind;}
-}
-function selectChip(g,v,el){
-    el.parentElement.querySelectorAll('.selector-chip').forEach(c=>c.classList.remove('active'));
-    el.classList.add('active');
-    if(g==='cloud')state.cloud=parseFloat(v);if(g==='precip')state.precip=v;
-}
+function step(f,d){if(f==='temp'){state.temp=Math.max(20,Math.min(110,state.temp+d));document.getElementById('tempValue').textContent=state.temp;}else if(f==='rh'){state.rh=Math.max(10,Math.min(100,state.rh+d));document.getElementById('rhValue').textContent=state.rh;}else if(f==='wind'){state.wind=Math.max(0,Math.min(50,state.wind+d));document.getElementById('windValue').textContent=state.wind;}}
+function selectChip(g,v,el){el.parentElement.querySelectorAll('.selector-chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');if(g==='cloud')state.cloud=parseFloat(v);if(g==='precip')state.precip=v;}
 
-// ========== PWA ==========
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBanner').style.display='block';});
 document.getElementById('installBtn').addEventListener('click',async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;document.getElementById('installBanner').style.display='none';}});
