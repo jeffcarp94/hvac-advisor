@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v1.1 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.2 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -84,7 +84,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v1.1</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.2</span></div>
         <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -225,7 +225,7 @@ function estimateIndoorTemp(tOut,wind,cf,isDay,sysType){
     const heatSet=isDay?C.dayHeat:C.nightHeat;
     // Active systems hold their setpoint
     if(sysType.includes('Air Conditioner')||sysType.includes('AC'))return coolSet;
-    if(sysType==='Heat Pump'||sysType.includes('Furnace'))return coolSet; // thermostat set to cool setpoint
+    if(sysType==='Heat Pump'||sysType.includes('Furnace'))return heatSet; // thermostat set to heat setpoint
     // Passive: equilibrium
     const ua=UA_BASE*(1+0.02*wind);
     const qInt=C.metaSleep+C.dehumWaste+solarLoad(cf,isDay);
