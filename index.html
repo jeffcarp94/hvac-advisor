@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v1.6 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.7 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -84,7 +84,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v1.6</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.7</span></div>
         <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -203,7 +203,7 @@ async function fetchNWS(lat,lon,placeName){
     const nightStart=new Date(nightP.startTime),nightEnd=new Date(nightP.endTime);
     forecast.bedtime=extractBedtimeData(tempVals,humVals,nightStart,nightEnd,nightP);
     forecast.worstCase=extractWorstCaseData(tempVals,humVals,nightStart,nightEnd,nightP);
-    forecast.location=loc;forecast.fetched=true;
+    forecast.location=loc;forecast._lat=lat;forecast._lon=lon;forecast.fetched=true;
     document.getElementById('weatherLocation').textContent=loc+' — '+dayP.name+' / '+nightP.name;
     document.getElementById('weatherLocation').style.display='block';
     showStatus('Forecast retrieved successfully',false);applyForecast(state.period);analyze();
@@ -218,14 +218,79 @@ function showStatus(m,err){const e=document.getElementById('weatherStatus');e.te
 function setBtnLoad(id,on){const b=document.getElementById(id);if(id==='retrieveBtn')b.textContent=on?'...':'Retrieve';b.style.opacity=on?'0.6':'1';b.style.pointerEvents=on?'none':'auto';}
 
 // ========== ENGINE ==========
+
+// ---- Astronomical sunset (NOAA solar position algorithm) ----
+// Returns decimal local hour of sunset (e.g. 20.5 = 8:30 PM local).
+// Accurate to ~1 min for latitudes <72°. Returns null on failure.
+// Source: NOAA Solar Calculator algorithm (public domain).
+function sunsetHour(lat,lon,date){
+    try{
+        const rad=Math.PI/180,deg=1/rad;
+        const Y=date.getFullYear(),Mo=date.getMonth()+1,D=date.getDate();
+        // Julian Day Number
+        const A=Math.floor(Y/100),B=2-A+Math.floor(A/4);
+        const JD=Math.floor(365.25*(Y+4716))+Math.floor(30.6001*(Mo+1))+D+B-1524.5;
+        // Julian centuries from J2000.0
+        const T=(JD-2451545)/36525;
+        // Geometric mean longitude and anomaly of the Sun (degrees)
+        const L0=(280.46646+T*(36000.76983+T*0.0003032))%360;
+        const M=(357.52911+T*(35999.05029-0.0001537*T))*rad;
+        // Equation of center
+        const C=(1.914602-T*(0.004817+0.000014*T))*Math.sin(M)
+               +(0.019993-0.000101*T)*Math.sin(2*M)
+               +0.000289*Math.sin(3*M);
+        // Sun's true longitude and apparent longitude
+        const SunLon=L0+C;
+        const omega=(125.04-1934.136*T)*rad;
+        const lambda=(SunLon-0.00569-0.00478*Math.sin(omega))*rad;
+        // Mean obliquity of the ecliptic and corrected obliquity
+        const eps0=23+(26+((21.448-T*(46.8150+T*(0.00059-T*0.001813))))/60)/60;
+        const eps=(eps0+0.00256*Math.cos(omega))*rad;
+        // Sun declination
+        const sinDec=Math.sin(eps)*Math.sin(lambda);
+        const dec=Math.asin(sinDec);
+        // Equation of time (minutes)
+        const rl=L0*rad;
+        const EqT=4*deg*(rl-0.0057183-Math.atan2(Math.cos(eps)*Math.sin(2*rl)-Math.sin(eps)*Math.sin(rl)*Math.sin(rl)*2,
+                         1-Math.cos(2*rl)*(1+Math.cos(eps)*Math.cos(eps))/2)*1);
+        // Hour angle for sunset (solar zenith = 90.833° accounting for refraction)
+        const cosH=(Math.cos(90.833*rad)-Math.sin(lat*rad)*sinDec)
+                  /(Math.cos(lat*rad)*Math.cos(dec));
+        if(cosH<-1||cosH>1)return null; // polar day/night
+        const HA=Math.acos(cosH)*deg;
+        // Solar noon in UTC minutes, sunset in UTC minutes
+        const lonCorr=lon*4; // 4 min per degree longitude
+        const solarNoonUTC=720-lonCorr-EqT;
+        const sunsetUTC=solarNoonUTC+HA;
+        // Convert to local decimal hour using browser timezone offset
+        const tzOffsetMin=-(new Date(Y,Mo-1,D,12,0,0)).getTimezoneOffset();
+        return((sunsetUTC+tzOffsetMin)/60+24)%24;
+    }catch(e){return null;}
+}
+
+// Returns hours elapsed between sunset and evalHour (decimal local 24h).
+// Handles post-midnight evaluation (e.g. 4:30 AM = evalHour 4.5, treated as 28.5).
+// Returns null if sunsetHour() fails or location unavailable → caller uses t=2 fallback.
+function computeElapsed(evalHour,lat,lon,date){
+    if(lat==null||lon==null)return null;
+    const ss=sunsetHour(lat,lon,date);
+    if(ss==null)return null;
+    // If eval hour is before sunrise (~6 AM), it's post-midnight — add 24 to span the day boundary
+    const adj=(evalHour<12)?evalHour+24:evalHour;
+    const ss24=(ss<12)?ss+24:ss; // keep sunset in same 24h window for comparison
+    const elapsed=adj-ss24;
+    return elapsed>0?elapsed:0;
+}
+
 function dewPt(tF,rh){const tc=(tF-32)*5/9;const g=Math.log(Math.max(1,Math.min(100,rh))/100)+(17.27*tc)/(237.3+tc);return(237.3*g)/(17.27-g)*9/5+32;}
-function solarLoad(cf,isDay){if(!isDay){const pk=C.solarPeak*(C.shellSHGC*C.shellArea*C.shellSunFrac+C.glassSHGC*C.glassArea*C.glassSunFrac);return Math.round(pk*C.thermalRetention*Math.exp(-2/C.soakTau)*cf);}return Math.round((C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac+C.glassSHGC*C.solarPeak*C.glassArea*C.glassSunFrac)*cf);}
+// elapsedHours: hours since sunset for night path. Uses t=2 fallback if null/undefined.
+function solarLoad(cf,isDay,elapsedHours){if(!isDay){const pk=C.solarPeak*(C.shellSHGC*C.shellArea*C.shellSunFrac+C.glassSHGC*C.glassArea*C.glassSunFrac);const t=(elapsedHours!=null&&isFinite(elapsedHours))?elapsedHours:2;return Math.round(pk*C.thermalRetention*Math.exp(-t/C.soakTau)*cf);}return Math.round((C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac+C.glassSHGC*C.solarPeak*C.glassArea*C.glassSunFrac)*cf);}
 function condLoad(tOut,tIn,wind){const ua=UA_BASE*(1+0.02*wind);return{q:Math.round(ua*(tOut-tIn)),ua:Math.round(ua*10)/10};}
 function coilTemp(tRet,tOut,dpIn){return Math.round((tRet-22-Math.max(0,(70-tOut)*0.3)-Math.max(0,(dpIn-55)*0.4))*10)/10;}
 function riskLevel(tc){return tc>40?'safe':tc>35?'low':tc>32?'moderate':'high';}
 function freezeMode(tOut,dpIn,tc,lf){const a=tOut<65&&tc<35,b=dpIn>60&&tc<35&&lf>0.35;return a&&b?'both':a?'A':b?'B':'none';}
 
-function estimateIndoorTemp(tOut,wind,cf,isDay,sysType){
+function estimateIndoorTemp(tOut,wind,cf,isDay,sysType,elapsedHours){
     const coolSet=isDay?C.dayCool:C.nightCool;
     const heatSet=isDay?C.dayHeat:C.nightHeat;
     // Active systems hold their setpoint
@@ -233,7 +298,7 @@ function estimateIndoorTemp(tOut,wind,cf,isDay,sysType){
     if(sysType==='Heat Pump'||sysType.includes('Furnace'))return heatSet;
     // Passive: equilibrium from internal gains including residual solar soak
     const ua=UA_BASE*(1+0.02*wind);
-    const qInt=C.metaSleep+C.dehumWaste+solarLoad(cf,isDay);
+    const qInt=C.metaSleep+C.dehumWaste+solarLoad(cf,isDay,elapsedHours);
     return Math.round((tOut+(qInt/ua))*10)/10;
 }
 
@@ -269,13 +334,13 @@ function overnightHeatSystem(tOut,rh){
     return{sys:'LP Furnace',reason:'Outdoor temp is below the heat pump minimum of '+C.heatPumpMinTemp+'°F. LP Furnace required.'};
 }
 
-function runAnalysis(tOut,rh,cf,wind,precip,isDay){
+function runAnalysis(tOut,rh,cf,wind,precip,isDay,elapsedHours){
     const coolSet=isDay?C.dayCool:C.nightCool;
     const heatSet=isDay?C.dayHeat:C.nightHeat;
     const needsHeat=tOut<heatSet;
     const refTemp=needsHeat?heatSet:coolSet;
     const meta=isDay?C.metaAwake:C.metaSleep;
-    const qSol=solarLoad(cf,isDay);
+    const qSol=solarLoad(cf,isDay,elapsedHours);
     const cond=condLoad(tOut,refTemp,wind);
     const qCond=cond.q,qMeta=meta,qApp=C.dehumWaste;
     const qTot=qSol+qCond+qMeta+qApp;
@@ -368,7 +433,7 @@ function renderCard(id,title,r,tOut,rh,isDay,extra){
             // the action trigger and the displayed Est. Indoor Temp are computed from
             // the same thermal model (both now include residual solar soak via solarLoad()).
             // wcCloud is passed through the extra object from analyze().
-            const eqTemp=estimateIndoorTemp(tOut,extra.wcWind||5,extra.wcCloud||0,false,'passive');
+            const eqTemp=estimateIndoorTemp(tOut,extra.wcWind||5,extra.wcCloud||0,false,'passive',extra.wcElapsed);
 
             // Heating is only needed when passive equilibrium falls below night heat setpoint
             const needsHeat=eqTemp<C.nightHeat;
@@ -429,19 +494,41 @@ function analyze(){
         container.innerHTML=renderCard('dayCard','Daytime Analysis',r,state.temp,state.rh,true,null);
     }else{
         const bt=forecast.fetched&&forecast.bedtime?forecast.bedtime:{temp:state.temp,rh:state.rh,cloud:state.cloud,wind:state.wind,precip:state.precip,timeStr:'~10 PM'};
-        const btR=runAnalysis(bt.temp,bt.rh,bt.cloud,bt.wind,bt.precip,false);
         const wc=forecast.fetched&&forecast.worstCase?forecast.worstCase:{temp:Math.round(bt.temp-10),rh:bt.rh,cloud:bt.cloud,wind:bt.wind,precip:bt.precip,timeStr:'Unknown'};
-        const wcR=runAnalysis(wc.temp,wc.rh,wc.cloud,wc.wind,wc.precip,false);
-        const indoorTemp=estimateIndoorTemp(wc.temp,wc.wind,wc.cloud,false,btR.sys);
+
+        // Compute real elapsed-since-sunset for solar soak decay.
+        // Bedtime: always evaluate at 22:00 local (matches card label "~10 PM").
+        // Worst-case: parse actual NWS timestamp; handles post-midnight hours.
+        // Falls back to t=2 (legacy) when location unavailable (manual entry).
+        const today=new Date();
+        let loc=null;
+        if(forecast.fetched&&forecast.location&&forecast._lat!=null){
+            loc={lat:forecast._lat,lon:forecast._lon};
+        }
+        const btElapsed=loc?computeElapsed(22,loc.lat,loc.lon,today):null;
+
+        // Parse wc.timeStr (e.g. "4:30 AM", "11:45 PM") into decimal hour
+        let wcEvalHour=null;
+        if(wc.timeStr&&wc.timeStr!=='Unknown'){
+            const m=wc.timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+            if(m){
+                let h=parseInt(m[1]),mn=parseInt(m[2]),ap=m[3].toUpperCase();
+                if(ap==='AM'&&h===12)h=0;
+                if(ap==='PM'&&h!==12)h+=12;
+                wcEvalHour=h+mn/60;
+            }
+        }
+        const wcElapsed=loc?computeElapsed(wcEvalHour!=null?wcEvalHour:22,loc.lat,loc.lon,today):null;
+
+        const btR=runAnalysis(bt.temp,bt.rh,bt.cloud,bt.wind,bt.precip,false,btElapsed);
+        const wcR=runAnalysis(wc.temp,wc.rh,wc.cloud,wc.wind,wc.precip,false,wcElapsed);
+        const indoorTemp=estimateIndoorTemp(wc.temp,wc.wind,wc.cloud,false,btR.sys,wcElapsed);
         const riskChanged=wcR.risk!==btR.risk;
         container.innerHTML=
             `<div class="section-divider">Bedtime Condition · ${bt.timeStr}</div>`+
             renderCard('btCard','Bedtime Condition',btR,bt.temp,bt.rh,false,null)+
             `<div class="section-divider">Overnight Condition · Worst case at ${wc.timeStr}</div>`+
-            // FIX (Issue 4): wcCloud added to extra object so actionMsg can pass it to
-            // estimateIndoorTemp(), ensuring Est. Indoor Temp and the action trigger
-            // use the same thermal model.
-            renderCard('wcCard','Overnight Condition',wcR,wc.temp,wc.rh,false,{indoorTemp,frDisp:wcR.frDisp,riskChanged,wcWind:wc.wind,wcCloud:wc.cloud});
+            renderCard('wcCard','Overnight Condition',wcR,wc.temp,wc.rh,false,{indoorTemp,frDisp:wcR.frDisp,riskChanged,wcWind:wc.wind,wcCloud:wc.cloud,wcElapsed});
     }
     container.classList.add('visible');container.scrollIntoView({behavior:'smooth',block:'start'});
 }
