@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v1.2 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.3 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -84,7 +84,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v1.2</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.3</span></div>
         <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -305,7 +305,7 @@ function renderCard(id,title,r,tOut,rh,isDay,extra){
             <div class="diag-title" style="color:var(--accent-amber);">If Bedtime Settings Unchanged</div>
             <div class="diag-row"><span class="diag-key">Est. Indoor Temp</span><span class="diag-val" style="color:${tempColor}">${extra.indoorTemp}°F</span></div>
             <div class="diag-row"><span class="diag-key">Freeze Risk</span><span class="diag-val">${extra.frDisp}</span></div>
-            ${extra.indoorTemp<C.comfortFloor?'<div style="margin-top:8px;font-size:12px;color:var(--accent-red);font-weight:600;">⚠ Interior may drop below '+C.comfortFloor+'°F comfort floor. Close windows and MaxxFan before sleep, or switch to AC.</div>':''}
+            ${extra.indoorTemp<C.comfortFloor?(()=>{let msg='⚠ Interior may drop below '+C.comfortFloor+'°F comfort floor. Close windows and MaxxFan before sleep.';if(tOut>=C.comfortFloor)msg+=' Switch to AC to maintain setpoint.';else if(tOut>=C.heatPumpFrostThresh)msg+=' Switch to Heat Pump to maintain setpoint.';else if(tOut>=C.heatPumpMinTemp)msg+=' Switch to Heat Pump (frost risk — monitor efficiency) or LP Furnace.';else msg+=' Switch to LP Furnace to maintain setpoint.';return'<div style="margin-top:8px;font-size:12px;color:var(--accent-red);font-weight:600;">'+msg+'</div>';})():''}
             ${extra.riskChanged?'<div style="margin-top:8px;font-size:12px;color:var(--accent-amber);font-weight:600;">⚠ Freeze risk changes overnight. Review Overnight Condition recommendation.</div>':''}
         </div>`;
     }
