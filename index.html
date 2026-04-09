@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v1.5 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.6 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -84,7 +84,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v1.5</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.6</span></div>
         <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -102,15 +102,14 @@
 
     <div class="period-toggle">
         <button class="period-btn active" data-period="day" onclick="setPeriod('day')">☀ Daytime</button>
-        <button class="period-btn" data-period="night" onclick="setPeriod('night')">☽ Overnight</button>
+        <button class="period-btn" data-period="night" onclick="setPeriod('night')">☾ Overnight</button>
     </div>
     <div class="setpoint-display" id="setpointDisplay">Cool <span>72°F</span> · Heat <span>70°F</span></div>
 
-    <div class="input-section"><div class="input-section-title">Temperature</div>
+    <div class="input-section">
+        <div class="input-section-title">Conditions</div>
         <div class="input-row"><div><div class="input-label" id="tempLabel">Forecast High</div><div class="input-unit">°F</div></div>
-            <div class="input-control"><button class="stepper-btn" onclick="step('temp',-1)">−</button><div class="stepper-value" id="tempValue">78</div><button class="stepper-btn" onclick="step('temp',1)">+</button></div></div></div>
-
-    <div class="input-section"><div class="input-section-title">Moisture</div>
+            <div class="input-control"><button class="stepper-btn" onclick="step('temp',-1)">−</button><div class="stepper-value" id="tempValue">78</div><button class="stepper-btn" onclick="step('temp',1)">+</button></div></div>
         <div class="input-row"><div><div class="input-label">Relative Humidity</div><div class="input-unit">%</div></div>
             <div class="input-control"><button class="stepper-btn" onclick="step('rh',-5)">−</button><div class="stepper-value" id="rhValue">65</div><button class="stepper-btn" onclick="step('rh',5)">+</button></div></div></div>
 
@@ -150,6 +149,12 @@ let forecast={day:null,night:null,bedtime:null,worstCase:null,location:null,fetc
 
 const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,shellSHGC:0.035,glassSHGC:0.70,shellSunFrac:0.50,glassSunFrac:0.50,thermalRetention:0.15,soakTau:2.0,dayCool:72,nightCool:68,dayHeat:70,nightHeat:66,comfortFloor:65};
 const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
+
+// LOAD_DEADBAND: net load threshold (BTU/hr) below which no active HVAC is assigned.
+// Calibrated to internal gains floor: metaSleep(1000) + dehumWaste(640) = 1,640 BTU/hr.
+// At 300 BTU/hr, the heating trigger fires at ~53.8°F outdoor (night, zero wind),
+// tightening the passive zone vs. the prior hard-coded 500 BTU/hr value.
+const LOAD_DEADBAND=300;
 
 const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/1.0','Accept':'application/geo+json'};
 
@@ -226,7 +231,7 @@ function estimateIndoorTemp(tOut,wind,cf,isDay,sysType){
     // Active systems hold their setpoint
     if(sysType.includes('Air Conditioner')||sysType.includes('AC'))return coolSet;
     if(sysType==='Heat Pump'||sysType.includes('Furnace'))return heatSet;
-    // Passive: equilibrium from internal gains only (no HVAC)
+    // Passive: equilibrium from internal gains including residual solar soak
     const ua=UA_BASE*(1+0.02*wind);
     const qInt=C.metaSleep+C.dehumWaste+solarLoad(cf,isDay);
     return Math.round((tOut+(qInt/ua))*10)/10;
@@ -267,7 +272,6 @@ function overnightHeatSystem(tOut,rh){
 function runAnalysis(tOut,rh,cf,wind,precip,isDay){
     const coolSet=isDay?C.dayCool:C.nightCool;
     const heatSet=isDay?C.dayHeat:C.nightHeat;
-    // Use appropriate setpoint for load calc
     const needsHeat=tOut<heatSet;
     const refTemp=needsHeat?heatSet:coolSet;
     const meta=isDay?C.metaAwake:C.metaSleep;
@@ -281,13 +285,25 @@ function runAnalysis(tOut,rh,cf,wind,precip,isDay){
     const lf=Math.min(0.8,Math.max(0.1,(dp-40)/50));
 
     let sys,fan,dehum,mit,fm,risk,frDisp;
+    // overnightReason carries the dew-point-adjusted rationale from overnightHeatSystem()
+    // into the furnace mitigation text when the overnight heating path is taken.
+    let overnightReason='';
 
-    if(qTot>500){
+    if(qTot>LOAD_DEADBAND){
         if(tOut>coolSet+3||qTot>2000)sys='Air Conditioner';
         else if(dp>55||rh>65){if(tOut>=C.comfortFloor)sys='AC (dehumidification) or MaxxFan vents';else sys='AC (dehumidification)';}
         else{if(tOut>=C.comfortFloor)sys='MaxxFan vents (exhaust mode)';else sys='No system needed — close windows and MaxxFan';}
-    }else if(qTot<-500){
-        sys=tOut>C.heatPumpMinTemp?'Heat Pump':'LP Furnace';
+    }else if(qTot<-LOAD_DEADBAND){
+        // FIX (Issue 2): Overnight path routes through overnightHeatSystem() for
+        // dew-point-adjusted heat pump minimum. Daytime path uses raw 41°F manufacturer
+        // minimum — attended operation, owner can monitor and switch if needed.
+        if(!isDay){
+            const hs=overnightHeatSystem(tOut,rh);
+            sys=hs.sys;
+            overnightReason=hs.reason;
+        }else{
+            sys=tOut>C.heatPumpMinTemp?'Heat Pump':'LP Furnace';
+        }
     }else{
         if(tOut<C.comfortFloor)sys='No system needed — close windows and MaxxFan';
         else if(dp>55||rh>65)sys='Dehumidifier only or MaxxFan';
@@ -314,7 +330,12 @@ function runAnalysis(tOut,rh,cf,wind,precip,isDay){
             mit=tOut<45?'Heat pump efficiency drops near its '+C.heatPumpMinTemp+'°F minimum. Monitor cabin temperature and switch to LP furnace if needed.':'';
         }
     }else if(sys.includes('Furnace')){
-        risk='safe';fm='none';fan='AUTO';dehum='Optional';mit='';frDisp='None — Furnace mode';
+        // FIX (Issue 2): Surface overnightReason as mitigation text when the overnight
+        // heating path selected LP Furnace via overnightHeatSystem(). Empty string on
+        // daytime path — furnace selected only because tOut <= 41°F hard floor.
+        risk='safe';fm='none';fan='AUTO';dehum='Optional';
+        mit=overnightReason?overnightReason:'';
+        frDisp='None — Furnace mode';
     }else{
         risk='safe';fm='none';
         fan=sys.includes('MaxxFan')?'MaxxFan Auto at '+(isDay?'72':'68')+'°F — AC fan off':'Off';
@@ -338,18 +359,16 @@ function renderCard(id,title,r,tOut,rh,isDay,extra){
         // overnight conditions, and if not, provides a specific unattended-safe recommendation.
         const actionMsg=(()=>{
             const btSys=r.sys;
-            const cooling=btSys.includes('Air Conditioner')||btSys.includes('AC');
-            const passive=!cooling&&btSys!=='Heat Pump'&&!btSys.includes('Furnace');
             const alreadyHeating=btSys==='Heat Pump'||btSys.includes('Furnace');
 
             // If bedtime system is already a heating system, it will hold setpoint — no action
             if(alreadyHeating) return'';
 
-            // Compute passive equilibrium indoor temp at worst-case outdoor using internal gains only
-            // (metabolic + dehumidifier; no solar soak credit overnight)
-            const ua=UA_BASE*(1+0.02*(extra.wcWind||5));
-            const qInt=C.metaSleep+C.dehumWaste;
-            const eqTemp=tOut+(qInt/ua);
+            // FIX (Issue 4): Use estimateIndoorTemp() for passive equilibrium so that
+            // the action trigger and the displayed Est. Indoor Temp are computed from
+            // the same thermal model (both now include residual solar soak via solarLoad()).
+            // wcCloud is passed through the extra object from analyze().
+            const eqTemp=estimateIndoorTemp(tOut,extra.wcWind||5,extra.wcCloud||0,false,'passive');
 
             // Heating is only needed when passive equilibrium falls below night heat setpoint
             const needsHeat=eqTemp<C.nightHeat;
@@ -419,7 +438,10 @@ function analyze(){
             `<div class="section-divider">Bedtime Condition · ${bt.timeStr}</div>`+
             renderCard('btCard','Bedtime Condition',btR,bt.temp,bt.rh,false,null)+
             `<div class="section-divider">Overnight Condition · Worst case at ${wc.timeStr}</div>`+
-            renderCard('wcCard','Overnight Condition',wcR,wc.temp,wc.rh,false,{indoorTemp,frDisp:wcR.frDisp,riskChanged,wcWind:wc.wind});
+            // FIX (Issue 4): wcCloud added to extra object so actionMsg can pass it to
+            // estimateIndoorTemp(), ensuring Est. Indoor Temp and the action trigger
+            // use the same thermal model.
+            renderCard('wcCard','Overnight Condition',wcR,wc.temp,wc.rh,false,{indoorTemp,frDisp:wcR.frDisp,riskChanged,wcWind:wc.wind,wcCloud:wc.cloud});
     }
     container.classList.add('visible');container.scrollIntoView({behavior:'smooth',block:'start'});
 }
