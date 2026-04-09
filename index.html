@@ -148,7 +148,7 @@
 let state={period:'day',temp:78,rh:65,cloud:1.0,wind:5,precip:'none'};
 let forecast={day:null,night:null,bedtime:null,worstCase:null,location:null,fetched:false};
 
-const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:500,solarPeak:250,shellSHGC:0.035,glassSHGC:0.70,shellSunFrac:0.50,glassSunFrac:0.50,thermalRetention:0.15,soakTau:2.0,dayCool:72,nightCool:68,dayHeat:70,nightHeat:66,comfortFloor:65};
+const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,shellSHGC:0.035,glassSHGC:0.70,shellSunFrac:0.50,glassSunFrac:0.50,thermalRetention:0.15,soakTau:2.0,dayCool:72,nightCool:68,dayHeat:70,nightHeat:66,comfortFloor:65};
 const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
 
 const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/1.0','Accept':'application/geo+json'};
