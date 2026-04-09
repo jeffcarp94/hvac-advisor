@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v1.3 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.5 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -84,7 +84,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v1.3</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.5</span></div>
         <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -225,11 +225,43 @@ function estimateIndoorTemp(tOut,wind,cf,isDay,sysType){
     const heatSet=isDay?C.dayHeat:C.nightHeat;
     // Active systems hold their setpoint
     if(sysType.includes('Air Conditioner')||sysType.includes('AC'))return coolSet;
-    if(sysType==='Heat Pump'||sysType.includes('Furnace'))return heatSet; // thermostat set to heat setpoint
-    // Passive: equilibrium
+    if(sysType==='Heat Pump'||sysType.includes('Furnace'))return heatSet;
+    // Passive: equilibrium from internal gains only (no HVAC)
     const ua=UA_BASE*(1+0.02*wind);
     const qInt=C.metaSleep+C.dehumWaste+solarLoad(cf,isDay);
     return Math.round((tOut+(qInt/ua))*10)/10;
+}
+
+// ========== OVERNIGHT UNATTENDED HEATING DECISION ==========
+// Selects the correct heating system for unattended overnight operation.
+// Uses a dew-point-adjusted heat pump minimum to account for outdoor coil
+// frost accumulation rate vs. defrost cycle capacity when nobody is awake to monitor.
+// Base threshold: 41°F (manufacturer minimum, Coach House / Dometic spec).
+// Dew point modifier: high moisture content at low temps accelerates frost loading
+// between defrost cycles — at dp >= 38°F the defrost cycle can be outpaced.
+function overnightHeatSystem(tOut,rh){
+    const dp=dewPt(tOut,rh);
+    // Adjusted effective minimum: dew point raises the floor when moisture is high
+    // dp >= 38°F: near-saturated cold air, aggressive frost accumulation → floor = 50°F
+    // dp >= 35°F: moderately humid cold air, elevated risk              → floor = 45°F
+    // dp <  35°F: relatively dry, defrost cycle handles it              → floor = 41°F
+    const hpEffectiveMin=dp>=38?50:dp>=35?45:C.heatPumpMinTemp;
+
+    if(tOut>hpEffectiveMin){
+        // Comfortably above the adjusted minimum — heat pump is appropriate unattended
+        return{sys:'Heat Pump',reason:'Outdoor temp above frost risk threshold. Heat pump safe for unattended operation.'};
+    }
+    if(tOut>=C.heatPumpMinTemp){
+        // Between the hard 41°F floor and the dew-point-adjusted minimum
+        // Frost accumulation risk is elevated; furnace is the reliable unattended choice
+        let dpNote='';
+        if(dp>=38) dpNote='Outdoor dew point is '+Math.round(dp)+'°F — near-saturated air accelerates frost on the outdoor coil faster than the defrost cycle can clear unattended.';
+        else if(dp>=35) dpNote='Outdoor dew point is '+Math.round(dp)+'°F — elevated moisture increases frost accumulation risk near the heat pump minimum.';
+        else dpNote='Outdoor temp is within the 41–50°F frost risk window where unattended defrost performance can be marginal.';
+        return{sys:'LP Furnace',reason:dpNote+' LP Furnace is the reliable unattended choice at this temperature.'};
+    }
+    // Below 41°F hard floor — heat pump physically cannot operate
+    return{sys:'LP Furnace',reason:'Outdoor temp is below the heat pump minimum of '+C.heatPumpMinTemp+'°F. LP Furnace required.'};
 }
 
 function runAnalysis(tOut,rh,cf,wind,precip,isDay){
@@ -301,11 +333,48 @@ function renderCard(id,title,r,tOut,rh,isDay,extra){
     let extraHTML='';
     if(extra){
         const tempColor=extra.indoorTemp<C.comfortFloor?'var(--accent-red)':'var(--accent-green)';
+        // ---- "If Bedtime Settings Unchanged" action logic ----
+        // Determines whether the bedtime HVAC setting can carry through to worst-case
+        // overnight conditions, and if not, provides a specific unattended-safe recommendation.
+        const actionMsg=(()=>{
+            const btSys=r.sys;
+            const cooling=btSys.includes('Air Conditioner')||btSys.includes('AC');
+            const passive=!cooling&&btSys!=='Heat Pump'&&!btSys.includes('Furnace');
+            const alreadyHeating=btSys==='Heat Pump'||btSys.includes('Furnace');
+
+            // If bedtime system is already a heating system, it will hold setpoint — no action
+            if(alreadyHeating) return'';
+
+            // Compute passive equilibrium indoor temp at worst-case outdoor using internal gains only
+            // (metabolic + dehumidifier; no solar soak credit overnight)
+            const ua=UA_BASE*(1+0.02*(extra.wcWind||5));
+            const qInt=C.metaSleep+C.dehumWaste;
+            const eqTemp=tOut+(qInt/ua);
+
+            // Heating is only needed when passive equilibrium falls below night heat setpoint
+            const needsHeat=eqTemp<C.nightHeat;
+
+            // Cooling or passive system, no heating needed, comfort floor maintained — no action
+            if(!needsHeat&&extra.indoorTemp>=C.comfortFloor) return'';
+
+            // Heating is needed or comfort floor is at risk — select the correct system
+            const hs=overnightHeatSystem(tOut,rh);
+            let msg='⚠ ';
+            if(extra.indoorTemp<C.comfortFloor){
+                msg+='Interior may drop below '+C.comfortFloor+'°F comfort floor. Close windows and MaxxFan before sleep. ';
+            }else{
+                msg+='Bedtime setting cannot maintain comfort at the worst-case overnight low. ';
+            }
+            msg+='Switch to <strong>'+hs.sys+'</strong> — '+hs.reason;
+            const color=extra.indoorTemp<C.comfortFloor?'var(--accent-red)':'var(--accent-amber)';
+            return'<div style="margin-top:8px;font-size:12px;color:'+color+';font-weight:600;line-height:1.5;">'+msg+'</div>';
+        })();
+
         extraHTML=`<div class="diag-panel" style="margin-top:12px;border-color:var(--accent-amber);">
             <div class="diag-title" style="color:var(--accent-amber);">If Bedtime Settings Unchanged</div>
             <div class="diag-row"><span class="diag-key">Est. Indoor Temp</span><span class="diag-val" style="color:${tempColor}">${extra.indoorTemp}°F</span></div>
             <div class="diag-row"><span class="diag-key">Freeze Risk</span><span class="diag-val">${extra.frDisp}</span></div>
-            ${extra.indoorTemp<C.comfortFloor?(()=>{let msg='⚠ Interior may drop below '+C.comfortFloor+'°F comfort floor. Close windows and MaxxFan before sleep.';if(tOut>=C.comfortFloor)msg+=' Switch to AC to maintain setpoint.';else if(tOut>=C.heatPumpFrostThresh)msg+=' Switch to Heat Pump to maintain setpoint.';else if(tOut>=C.heatPumpMinTemp)msg+=' Switch to Heat Pump (frost risk — monitor efficiency) or LP Furnace.';else msg+=' Switch to LP Furnace to maintain setpoint.';return'<div style="margin-top:8px;font-size:12px;color:var(--accent-red);font-weight:600;">'+msg+'</div>';})():''}
+            ${actionMsg}
             ${extra.riskChanged?'<div style="margin-top:8px;font-size:12px;color:var(--accent-amber);font-weight:600;">⚠ Freeze risk changes overnight. Review Overnight Condition recommendation.</div>':''}
         </div>`;
     }
@@ -350,7 +419,7 @@ function analyze(){
             `<div class="section-divider">Bedtime Condition · ${bt.timeStr}</div>`+
             renderCard('btCard','Bedtime Condition',btR,bt.temp,bt.rh,false,null)+
             `<div class="section-divider">Overnight Condition · Worst case at ${wc.timeStr}</div>`+
-            renderCard('wcCard','Overnight Condition',wcR,wc.temp,wc.rh,false,{indoorTemp,frDisp:wcR.frDisp,riskChanged});
+            renderCard('wcCard','Overnight Condition',wcR,wc.temp,wc.rh,false,{indoorTemp,frDisp:wcR.frDisp,riskChanged,wcWind:wc.wind});
     }
     container.classList.add('visible');container.scrollIntoView({behavior:'smooth',block:'start'});
 }
