@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v1.7 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.8 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -84,7 +84,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v1.7</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.8</span></div>
         <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -147,14 +147,25 @@
 let state={period:'day',temp:78,rh:65,cloud:1.0,wind:5,precip:'none'};
 let forecast={day:null,night:null,bedtime:null,worstCase:null,location:null,fetched:false};
 
-const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,shellSHGC:0.035,glassSHGC:0.70,shellSunFrac:0.50,glassSunFrac:0.50,thermalRetention:0.15,soakTau:2.0,dayCool:72,nightCool:68,dayHeat:70,nightHeat:66,comfortFloor:65};
+const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,shellSHGC:0.035,glassSHGC:0.70,shellSunFrac:0.50,glassSunFrac:0.50,thermalRetention:0.15,soakTau:2.0,dayCool:72,nightCool:68,dayHeat:70,nightHeat:66,comfortFloor:65,toleranceCeiling:4,acOutdoorBuffer:3};
 const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
 
-// LOAD_DEADBAND: net load threshold (BTU/hr) below which no active HVAC is assigned.
-// Calibrated to internal gains floor: metaSleep(1000) + dehumWaste(640) = 1,640 BTU/hr.
-// At 300 BTU/hr, the heating trigger fires at ~53.8°F outdoor (night, zero wind),
-// tightening the passive zone vs. the prior hard-coded 500 BTU/hr value.
+// LOAD_DEADBAND: legacy net-load threshold, retained for daytime back-compat paths
+// and for diagnostic display when a system is active. v1.8 system-selection logic
+// in runAnalysis() does NOT branch on this — it branches on passive equilibrium
+// temperature (tEq) relative to setpoints and a tolerance ceiling. See runAnalysis.
 const LOAD_DEADBAND=300;
+
+// toleranceCeiling (°F): allowable passive drift above coolSet before the model flags
+// a system as wanted. 4°F is a comfort judgment, not a derived thermodynamic constant.
+// Day: dayCool(72) + 4 = 76°F ceiling. Night: nightCool(68) + 4 = 72°F ceiling.
+// Below this ceiling, "No system needed" is acceptable even if tEq exceeds setpoint.
+
+// acOutdoorBuffer (°F): NWS forecast uncertainty buffer applied to AC eligibility gate
+// on the overnight path. NWS day-ahead temperature forecasts run MAE ~2-3°F with
+// cold-bias errors common on clear, calm, dry nights. 3°F is ~1-sigma coverage —
+// blocks AC recommendation when forecasted worst-case low is within 3°F of the
+// 65°F cold-air freeze threshold. Equipment protection priority.
 
 const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/1.0','Accept':'application/geo+json'};
 
@@ -337,31 +348,37 @@ function overnightHeatSystem(tOut,rh){
 function runAnalysis(tOut,rh,cf,wind,precip,isDay,elapsedHours){
     const coolSet=isDay?C.dayCool:C.nightCool;
     const heatSet=isDay?C.dayHeat:C.nightHeat;
-    const needsHeat=tOut<heatSet;
-    const refTemp=needsHeat?heatSet:coolSet;
+    const ceiling=coolSet+C.toleranceCeiling;
     const meta=isDay?C.metaAwake:C.metaSleep;
     const qSol=solarLoad(cf,isDay,elapsedHours);
-    const cond=condLoad(tOut,refTemp,wind);
-    const qCond=cond.q,qMeta=meta,qApp=C.dehumWaste;
-    const qTot=qSol+qCond+qMeta+qApp;
+    const qMeta=meta,qApp=C.dehumWaste;
     const dp=dewPt(tOut,rh),dpIn=dp-3;
-    const tRet=Math.max(coolSet,Math.min(tOut,coolSet+(qTot>C.acCapacity?6:0)));
-    const tC=coilTemp(tRet,tOut,dpIn);
     const lf=Math.min(0.8,Math.max(0.1,(dp-40)/50));
 
-    let sys,fan,dehum,mit,fm,risk,frDisp;
-    // overnightReason carries the dew-point-adjusted rationale from overnightHeatSystem()
-    // into the furnace mitigation text when the overnight heating path is taken.
-    let overnightReason='';
+    // ========== v1.8 PASSIVE EQUILIBRIUM SYSTEM SELECTION ==========
+    // Compute where the coach floats unaided from internal gains, then branch on tEq
+    // relative to the heat setpoint, comfort band, and tolerance ceiling. This replaces
+    // the v1.7 logic that branched on a setpoint-referenced qTot — which produced the
+    // contradiction where +qTot at low outdoor temps recommended "close MaxxFan" while
+    // the coach was actually floating above setpoint from internal gains.
+    const uaPassive=UA_BASE*(1+0.02*wind);
+    const qIntPassive=qMeta+qApp+qSol;
+    const tEq=Math.round((tOut+qIntPassive/uaPassive)*10)/10;
 
-    if(qTot>LOAD_DEADBAND){
-        if(tOut>coolSet+3||qTot>2000)sys='Air Conditioner';
-        else if(dp>55||rh>65){if(tOut>=C.comfortFloor)sys='AC (dehumidification) or MaxxFan vents';else sys='AC (dehumidification)';}
-        else{if(tOut>=C.comfortFloor)sys='MaxxFan vents (exhaust mode)';else sys='No system needed — close windows and MaxxFan';}
-    }else if(qTot<-LOAD_DEADBAND){
-        // FIX (Issue 2): Overnight path routes through overnightHeatSystem() for
-        // dew-point-adjusted heat pump minimum. Daytime path uses raw 41°F manufacturer
-        // minimum — attended operation, owner can monitor and switch if needed.
+    let sys,fan,dehum,mit,fm,risk,frDisp;
+    let overnightReason='';
+    // unmetGoal carries the "[SYSTEM] is needed but not recommended because [REASON]"
+    // message when the model wants to cool but no safe option exists. Surfaces as
+    // amber-tier note on the card; expectedIndoor is shown alongside.
+    let unmetGoal='';
+    let expectedIndoor=null;
+    // refTemp for displayed qCond: against tOut when passive (so bars show only
+    // internal gains driving the float), against active setpoint when a system runs.
+    let refTemp;
+
+    if(tEq<heatSet){
+        // ===== HEATING ZONE =====
+        // Coach can't self-heat to setpoint. Select heat source.
         if(!isDay){
             const hs=overnightHeatSystem(tOut,rh);
             sys=hs.sys;
@@ -369,11 +386,82 @@ function runAnalysis(tOut,rh,cf,wind,precip,isDay,elapsedHours){
         }else{
             sys=tOut>C.heatPumpMinTemp?'Heat Pump':'LP Furnace';
         }
+        refTemp=heatSet;
+    }else if(tEq<=coolSet){
+        // ===== COMFORT BAND =====
+        // Passive float is inside [heatSet, coolSet]. No system needed.
+        sys='No system needed';
+        refTemp=tOut;
     }else{
-        if(tOut<C.comfortFloor)sys='No system needed — close windows and MaxxFan';
-        else if(dp>55||rh>65)sys='Dehumidifier only or MaxxFan';
-        else sys='No system needed';
+        // ===== ABOVE COMFORT BAND (tEq > coolSet) =====
+        // Decide between MaxxFan vents, AC, or accepting warmth.
+        // MaxxFan eligibility: tOut must be in a range where venting lands indoor
+        // inside (heatSet, coolSet+small margin). Forced ventilation drives indoor
+        // toward tOut + ~2°F (internal gains still adding heat against high ACH).
+        const ventLowGate=C.comfortFloor;       // 65°F — don't overcool below comfort
+        const ventHighGate=isDay?73:70;         // keep indoor under ceiling with vent
+        const maxxFanEligible=tOut>=ventLowGate&&tOut<=ventHighGate;
+
+        if(maxxFanEligible){
+            sys='MaxxFan vents (exhaust mode)';
+            refTemp=tOut;
+        }else if(tEq>ceiling){
+            // System wanted (above tolerance ceiling). Check AC eligibility.
+            // Overnight: apply forecast-uncertainty buffer to outdoor gate (3°F).
+            // Daytime: attended operation, no forecast buffer needed.
+            // Both: block AC if computed coil risk is high.
+            const tRetCheck=Math.max(coolSet,Math.min(tOut,coolSet+6));
+            const tCcheck=coilTemp(tRetCheck,tOut,dpIn);
+            const riskCheck=riskLevel(tCcheck);
+            const acOutdoorOK=isDay?true:(tOut-C.acOutdoorBuffer>=C.comfortFloor);
+            const acRiskOK=riskCheck!=='high';
+
+            if(acOutdoorOK&&acRiskOK){
+                sys='Air Conditioner';
+                refTemp=coolSet;
+            }else{
+                // Equipment protection overrides setpoint goal. Tell user what to expect.
+                sys='No system needed';
+                refTemp=tOut;
+                expectedIndoor=tEq;
+                let reason;
+                if(!acOutdoorOK){
+                    reason='outdoor temp ('+Math.round(tOut)+'°F) is within '+C.acOutdoorBuffer+'°F of the 65°F cold-air freeze threshold. Forecast uncertainty makes AC operation unsafe overnight';
+                }else{
+                    reason='computed coil temperature ('+tCcheck.toFixed(1)+'°F) creates high freeze risk under current humidity and return-air conditions';
+                }
+                unmetGoal='Air Conditioner is needed but not recommended because '+reason+'. Expect indoor temp ~'+tEq.toFixed(1)+'°F overnight from occupancy and appliance heat. Open windows manually if cooler indoor temp is desired — accept that indoor will drift toward outdoor.';
+            }
+        }else{
+            // tEq is above coolSet but at or below the tolerance ceiling.
+            // Warm but acceptable. No system, no MaxxFan (it's not eligible anyway).
+            sys='No system needed';
+            refTemp=tOut;
+        }
     }
+
+    // qCond/qTot computed against refTemp determined above:
+    //  - Active system → refTemp = setpoint (real load the system is fighting)
+    //  - Passive       → refTemp = tOut (qCond=0, qTot = internal gains only)
+    const cond=condLoad(tOut,refTemp,wind);
+    const qCond=cond.q;
+    const qTot=qSol+qCond+qMeta+qApp;
+    // tRet/tC for the displayed AC freeze diagnostics, computed against actual setpoint
+    const tRet=Math.max(coolSet,Math.min(tOut,coolSet+(qTot>C.acCapacity?6:0)));
+    const tC=coilTemp(tRet,tOut,dpIn);
+
+    // tIndoorExpected: what the user will actually experience under the recommended system.
+    // tEq remains the passive equilibrium for diagnostic purposes, but the displayed
+    // Est. Indoor Temp uses tIndoorExpected so it matches the recommendation:
+    //  - Active cooling (AC)        → coolSet (system holds setpoint)
+    //  - Active heating (HP/Furnace)→ heatSet (system holds setpoint)
+    //  - MaxxFan                    → tOut + ~2°F (forced ventilation tracks outdoor)
+    //  - No system (passive)        → tEq (true equilibrium)
+    let tIndoorExpected;
+    if(sys==='Air Conditioner'||sys.includes('AC')) tIndoorExpected=coolSet;
+    else if(sys==='Heat Pump'||sys.includes('Furnace')) tIndoorExpected=heatSet;
+    else if(sys.includes('MaxxFan')) tIndoorExpected=Math.round((tOut+2)*10)/10;
+    else tIndoorExpected=tEq;
 
     const acOn=sys.includes('Air Conditioner')||sys.includes('AC');
     const hpOn=sys==='Heat Pump';
@@ -406,7 +494,7 @@ function runAnalysis(tOut,rh,cf,wind,precip,isDay,elapsedHours){
         fan=sys.includes('MaxxFan')?'MaxxFan Auto at '+(isDay?'72':'68')+'°F — AC fan off':'Off';
         dehum=rh>60?'Recommended for comfort':'Off';mit='';frDisp='None — Compressor off';
     }
-    return{sys,fan,dehum,mit,fm,risk,frDisp,qSol,qCond,qMeta,qApp,qTot,dp,tC,lf,ua:cond.ua,acOn,hpOn};
+    return{sys,fan,dehum,mit,fm,risk,frDisp,qSol,qCond,qMeta,qApp,qTot,dp,tC,lf,ua:cond.ua,acOn,hpOn,tEq,tIndoorExpected,unmetGoal,expectedIndoor};
 }
 
 // ========== RENDER ==========
@@ -419,38 +507,54 @@ function renderCard(id,title,r,tOut,rh,isDay,extra){
     let extraHTML='';
     if(extra){
         const tempColor=extra.indoorTemp<C.comfortFloor?'var(--accent-red)':'var(--accent-green)';
-        // ---- "If Bedtime Settings Unchanged" action logic ----
-        // Determines whether the bedtime HVAC setting can carry through to worst-case
-        // overnight conditions, and if not, provides a specific unattended-safe recommendation.
+        // ---- "If Bedtime Settings Unchanged" action logic (v1.8) ----
+        // Decides whether the bedtime HVAC setting carries safely to worst-case overnight.
+        // Three scenarios produce an action message:
+        //   1. Bedtime is passive (no system) but overnight needs heat → recommend heat
+        //   2. Bedtime is MaxxFan (windows open) but overnight conditions make MaxxFan
+        //      unsafe (tOut < comfortFloor) → recommend closing windows
+        //   3. Bedtime is passive and comfort floor breached → recommend closing up
+        // No message when: bedtime is already a heating system (holds setpoint), or
+        // bedtime+overnight are both safely passive within comfort.
         const actionMsg=(()=>{
             const btSys=r.sys;
             const alreadyHeating=btSys==='Heat Pump'||btSys.includes('Furnace');
-
-            // If bedtime system is already a heating system, it will hold setpoint — no action
             if(alreadyHeating) return'';
 
-            // FIX (Issue 4): Use estimateIndoorTemp() for passive equilibrium so that
-            // the action trigger and the displayed Est. Indoor Temp are computed from
-            // the same thermal model (both now include residual solar soak via solarLoad()).
-            // wcCloud is passed through the extra object from analyze().
-            const eqTemp=estimateIndoorTemp(tOut,extra.wcWind||5,extra.wcCloud||0,false,'passive',extra.wcElapsed);
-
-            // Heating is only needed when passive equilibrium falls below night heat setpoint
+            const btIsMaxxFan=btSys.includes('MaxxFan');
+            // extra.indoorTemp is the worst-case passive equilibrium (tEq) computed in analyze().
+            const eqTemp=extra.indoorTemp;
             const needsHeat=eqTemp<C.nightHeat;
+            const belowFloor=eqTemp<C.comfortFloor;
+            // Worst-case outdoor temp is needed to decide if MaxxFan is still safe overnight.
+            // Pulled from the wcCard's runAnalysis context via extra.wcTout.
+            const wcTout=extra.wcTout;
+            const maxxFanUnsafeOvernight=btIsMaxxFan&&wcTout!=null&&wcTout<C.comfortFloor;
 
-            // Cooling or passive system, no heating needed, comfort floor maintained — no action
-            if(!needsHeat&&extra.indoorTemp>=C.comfortFloor) return'';
+            // Case: bedtime passive/MaxxFan, overnight conditions safely passive within comfort.
+            // No action needed UNLESS MaxxFan is open and outdoor drops below comfort floor.
+            if(!needsHeat&&!belowFloor&&!maxxFanUnsafeOvernight) return'';
 
-            // Heating is needed or comfort floor is at risk — select the correct system
-            const hs=overnightHeatSystem(tOut,rh);
             let msg='⚠ ';
-            if(extra.indoorTemp<C.comfortFloor){
-                msg+='Interior may drop below '+C.comfortFloor+'°F comfort floor. Close windows and MaxxFan before sleep. ';
-            }else{
-                msg+='Bedtime setting cannot maintain comfort at the worst-case overnight low. ';
+            let color=belowFloor?'var(--accent-red)':'var(--accent-amber)';
+
+            if(needsHeat||belowFloor){
+                // Heating required at worst case
+                const hs=overnightHeatSystem(wcTout!=null?wcTout:tOut,rh);
+                if(belowFloor){
+                    msg+='Interior may drop below '+C.comfortFloor+'°F comfort floor (est. '+eqTemp+'°F). ';
+                }else{
+                    msg+='Bedtime setting cannot maintain heat setpoint at worst-case overnight low (est. '+eqTemp+'°F). ';
+                }
+                if(btIsMaxxFan) msg+='Close windows and MaxxFan, then switch to <strong>'+hs.sys+'</strong> — '+hs.reason;
+                else msg+='Switch to <strong>'+hs.sys+'</strong> — '+hs.reason;
+            }else if(maxxFanUnsafeOvernight){
+                // MaxxFan open at bedtime, but overnight tOut drops below comfort floor.
+                // No heating needed (coach self-heats from internal gains), but windows must close.
+                msg+='Outdoor temp drops to '+wcTout+'°F overnight — below the 65°F comfort floor. '+
+                     'Open windows and MaxxFan would overcool the coach. <strong>Close windows and MaxxFan before sleep</strong>. '+
+                     'Coach will self-heat from occupancy to approximately '+eqTemp+'°F.';
             }
-            msg+='Switch to <strong>'+hs.sys+'</strong> — '+hs.reason;
-            const color=extra.indoorTemp<C.comfortFloor?'var(--accent-red)':'var(--accent-amber)';
             return'<div style="margin-top:8px;font-size:12px;color:'+color+';font-weight:600;line-height:1.5;">'+msg+'</div>';
         })();
 
@@ -469,6 +573,7 @@ function renderCard(id,title,r,tOut,rh,isDay,extra){
         <div class="result-detail"><div class="result-detail-label">Freeze Risk</div><div class="result-detail-value">${r.frDisp}</div></div>
         <div class="result-detail"><div class="result-detail-label">Dehumidifier</div><div class="result-detail-value">${r.dehum}</div></div>
         ${r.mit?`<div class="mitigation-box${r.risk==='high'?' alert':''}"><strong>Mitigation</strong>${r.mit}</div>`:''}
+        ${r.unmetGoal?`<div class="mitigation-box" style="border-color:var(--accent-amber);background:rgba(245,158,11,0.08);"><strong style="color:var(--accent-amber);">Setpoint Goal Unmet</strong>${r.unmetGoal}</div>`:''}
         <div class="load-bar-container"><div class="load-bar-title">Thermal Load Breakdown</div>
             <div class="load-bar-row"><div class="load-bar-label">${solLbl}</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qSol)}%;background:var(--accent-amber);"></div></div><div class="load-bar-value">${fl(r.qSol)}</div></div>
             <div class="load-bar-row"><div class="load-bar-label">Conductive</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qCond)}%;background:${r.qCond>=0?'var(--accent-red)':'var(--accent-cyan)'};"></div></div><div class="load-bar-value">${fl(r.qCond)}</div></div>
@@ -480,6 +585,7 @@ function renderCard(id,title,r,tOut,rh,isDay,extra){
             <div class="diag-row"><span class="diag-key">Outdoor Temp</span><span class="diag-val">${tOut}°F</span></div>
             <div class="diag-row"><span class="diag-key">Humidity</span><span class="diag-val">${rh}%</span></div>
             <div class="diag-row"><span class="diag-key">Dew Point</span><span class="diag-val">${Math.round(r.dp*10)/10}°F</span></div>
+            <div class="diag-row"><span class="diag-key">Est. Indoor Temp</span><span class="diag-val">${r.tIndoorExpected}°F</span></div>
             <div class="diag-row"><span class="diag-key">Est. Coil Temp</span><span class="diag-val">${r.acOn?(r.tC+'°F'):'N/A'}</span></div>
             <div class="diag-row"><span class="diag-key">UA (corrected)</span><span class="diag-val">${r.ua} BTU/hr/°F</span></div>
             <div class="diag-row"><span class="diag-key">Total Load</span><span class="diag-val">${r.qTot.toLocaleString()} BTU/hr</span></div>
@@ -528,7 +634,7 @@ function analyze(){
             `<div class="section-divider">Bedtime Condition · ${bt.timeStr}</div>`+
             renderCard('btCard','Bedtime Condition',btR,bt.temp,bt.rh,false,null)+
             `<div class="section-divider">Overnight Condition · Worst case at ${wc.timeStr}</div>`+
-            renderCard('wcCard','Overnight Condition',wcR,wc.temp,wc.rh,false,{indoorTemp,frDisp:wcR.frDisp,riskChanged,wcWind:wc.wind,wcCloud:wc.cloud,wcElapsed});
+            renderCard('wcCard','Overnight Condition',wcR,wc.temp,wc.rh,false,{indoorTemp,frDisp:wcR.frDisp,riskChanged,wcWind:wc.wind,wcCloud:wc.cloud,wcElapsed,wcTout:wc.temp});
     }
     container.classList.add('visible');container.scrollIntoView({behavior:'smooth',block:'start'});
 }
