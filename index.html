@@ -942,16 +942,25 @@ function renderRecommendation(id,title,result,isOvernight){
         equipNote=hs.reason;
     }
 
-    // Capacity-overrun annotation: warn when modeled indoor drifts above cool setpoint
-    // or below heat setpoint (means equipment hit capacity limit).
+    // Capacity-overrun annotation: warn when modeled indoor drifts beyond the equipment's effective control band.
+    // For AC/HP/Furnace: any drift past setpoint = capacity limit (equipment should hold setpoint).
+    // For AUTO: drift INSIDE the ±2°F deadband is normal/expected; only flag drift PAST the deadband edges.
     let capacityNote='';
-    if((w.type==='ac'||w.type==='auto') && w.indoorMax > result.setpoints.cool + 0.5){
+    if(w.type==='ac' && w.indoorMax > result.setpoints.cool + 0.5){
         const overrun = (w.indoorMax - result.setpoints.cool).toFixed(1);
         capacityNote='AC capacity limit: cabin overruns setpoint by '+overrun+'°F at '+w.maxTime+' (load exceeds 15,000 BTU/hr). Consider more aggressive pre-cooling or accept the warmer drift.';
-    }else if((w.type==='hp'||w.type==='furnace'||w.type==='auto') && w.indoorMin < result.setpoints.heat - 0.5){
+    }else if(w.type==='auto' && w.indoorMax > result.setpoints.auto + 2 + 0.5){
+        // AUTO deadband upper edge is setpoint+2; only flag drift above that
+        const overrun = (w.indoorMax - (result.setpoints.auto + 2)).toFixed(1);
+        capacityNote='AC capacity limit (Auto mode): cabin overruns the cool trip point ('+(result.setpoints.auto+2)+'°F) by '+overrun+'°F at '+w.maxTime+' (load exceeds 15,000 BTU/hr). Consider switching to AC mode with aggressive pre-cooling.';
+    }else if((w.type==='hp'||w.type==='furnace') && w.indoorMin < result.setpoints.heat - 0.5){
         const overrun = (result.setpoints.heat - w.indoorMin).toFixed(1);
-        const cap = w.type==='hp' ? 'Heat pump' : w.type==='furnace' ? 'Furnace' : 'Heat';
+        const cap = w.type==='hp' ? 'Heat pump' : 'Furnace';
         capacityNote=cap+' capacity limit: cabin drops '+overrun+'°F below setpoint at '+w.minTime+' (load exceeds heater output). Add supplemental heat or accept the cooler drift.';
+    }else if(w.type==='auto' && w.indoorMin < result.setpoints.auto - 2 - 0.5){
+        // AUTO deadband lower edge is setpoint-2; only flag drift below that
+        const overrun = ((result.setpoints.auto - 2) - w.indoorMin).toFixed(1);
+        capacityNote='Heating capacity limit (Auto mode): cabin drops '+overrun+'°F below the heat trip point ('+(result.setpoints.auto-2)+'°F) at '+w.minTime+' (load exceeds heater output). Switch to Furnace mode directly.';
     }
 
     // Dual freeze-risk banner (v3.1 restored from v1.4 doctrine)
