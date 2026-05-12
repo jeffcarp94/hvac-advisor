@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v2.0 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v2.2 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -85,8 +85,8 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v2.0</span></div>
-        <div class="header-sub">Dynamic Thermal Mass & Auto-Changeover</div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v2.2</span></div>
+        <div class="header-sub">Dynamic Thermal Mass & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
 
@@ -150,7 +150,7 @@
 let state={period:'day',temp:78,rh:65,cloud:1.0,wind:5,precip:'none',indoor:72};
 let forecast={day:null,night:null,location:null,fetched:false,tempVals:null,humVals:null};
 
-const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,shellSHGC:0.035,glassSHGC:0.70,shellSunFrac:0.50,glassSunFrac:0.50,
+const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,shellSHGC:0.035,glassSHGC:0.25,shellSunFrac:0.50,glassSunFrac:0.50,
     tau: 2.0, 
     dayCool:72,nightCool:68,dayHeat:70,nightHeat:66,comfortFloor:65,
     nightBandLow:66,nightBandHigh:70,
@@ -169,7 +169,7 @@ const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
 // Fan speed hierarchy for safety progression (Auto defaults to 0 for logic comparisons)
 const fanLevels = {'Low': 1, 'Medium': 2, 'High': 3, 'Auto': 0};
 
-const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/2.0','Accept':'application/geo+json'};
+const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/2.1','Accept':'application/geo+json'};
 
 async function retrieveWeather(){
     const zip=document.getElementById('zipInput').value.trim();
@@ -387,9 +387,9 @@ function predictIndoor(candidateType,tOut,wind,cf,isDay,meta,setpoints,solarCtx,
     if(candidateType==='auto'){
         const coolTrigger = setpoints.auto + 2;
         const heatTrigger = setpoints.auto - 2;
-        if (tMass > coolTrigger) return setpoints.auto + 1; // Average of cooling cycle down to setpoint
-        if (tMass < heatTrigger) return setpoints.auto - 1; // Average of heating cycle up to setpoint
-        return tMass; // Within 4F deadband, system idles passively
+        if (tMass > coolTrigger) return setpoints.auto + 1; 
+        if (tMass < heatTrigger) return setpoints.auto - 1; 
+        return tMass; 
     }
     if(candidateType==='maxxfan'){
         const mfSet=isDay?C.maxxFanSetDay:C.maxxFanSetNight;
@@ -422,7 +422,6 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
         let reqFan = isOvernight ? 'Low' : 'Auto';
         
         if (tMass > coolTrigger) {
-            // Cooling Active: Check AC Constraints
             const uaPassive = UA_BASE*(1+0.02*wind);
             const coolingLoad = (tMass - coolTrigger) * uaPassive;
             const dutyCycle = Math.min(1, coolingLoad / C.acCapacity);
@@ -445,8 +444,6 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
                 else return {safe: false, reason: 'Auto AC: Coil temp too low for safe operation', requiredFan:null};
             }
         } else if (tMass < heatTrigger) {
-            // Heating Active: Dometic CCC2 Auto Mode prioritizes HP. If tOut >= 41, it forces HP.
-            // We must verify HP is ACTUALLY safe here (dew point check), otherwise the hardware creates a frost risk.
             if (tOut >= C.heatPumpMinTemp) {
                 const hs = overnightHeatSystem(tOut, rh);
                 if (hs.sys !== 'Heat Pump') {
@@ -547,7 +544,7 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
         if(isOvernight){
             bandLo=C.nightBandLow;bandHi=C.nightBandHigh;
         }else if(candidateType==='hp'||candidateType==='furnace'||candidateType==='auto'){
-            bandLo=C.dayHeatBandLow;bandHi=C.dayHeatBandHigh; // Auto uses broad heat/cool band logic essentially
+            bandLo=C.dayHeatBandLow;bandHi=C.dayHeatBandHigh; 
         }else if(candidateType==='ac'){
             bandLo=C.dayCoolBandLow;bandHi=C.dayCoolBandHigh;
         }else if(candidateType==='maxxfan'){
@@ -581,11 +578,9 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
 function findOptimalAutoSet(envelope, isOvernight, meta) {
     let bestSet = 70;
     let bestScore = Infinity;
-    // Test setpoints 65 through 75 to perfectly align the 4-degree deadband into the comfort zone
     for (let testSet = 65; testSet <= 75; testSet++) {
         const tempSetpoints = { auto: testSet, cool: testSet, heat: testSet };
         const res = evaluateCandidate('auto', envelope, isOvernight, tempSetpoints, meta);
-        // Tie breaker 0.001 favors cooler side of band for equal scores
         let adjustedScore = res.score + (testSet * 0.001); 
         if (res.safe && adjustedScore < bestScore) {
             bestScore = adjustedScore;
@@ -609,10 +604,26 @@ function selectOvernightSetup(envelope,isOvernight){
     const results=candidates.map(c=>evaluateCandidate(c,envelope,isOvernight,setpoints,meta));
     results.sort((a,b)=>a.score-b.score);
 
-    const priority={passive:1, maxxfan:2, auto:3, hp:4, furnace:5, ac:6};
     const bestScore=results[0].score;
     const inRange=results.filter(r=>r.safe&&r.score<=bestScore+C.tiebreakRange);
-    inRange.sort((a,b)=>priority[a.type]-priority[b.type]);
+    
+    // SMART AUTO-CHANGEOVER TIEBREAKER LOGIC
+    inRange.sort((a,b)=>{
+        const getPriority = (c) => {
+            if(c.type==='passive') return 1;
+            if(c.type==='maxxfan') return 2;
+            if(c.type==='auto' && c.autoDidCool && c.autoDidHeat) return 3; // Genuine swing required
+            if(c.type==='hp') return 4;
+            if(c.type==='furnace') return 5;
+            if(c.type==='auto' && c.autoDidHeat && !c.autoDidCool) return 5.5; // Only heated, defer to HP/Furnace
+            if(c.type==='ac') return 6;
+            if(c.type==='auto' && c.autoDidCool && !c.autoDidHeat) return 6.5; // Only cooled, defer to AC
+            if(c.type==='auto') return 7; // Deadband only, defer to everything active
+            return 10;
+        };
+        return getPriority(a) - getPriority(b);
+    });
+    
     const winner=inRange.length?inRange[0]:results[0];
 
     if(winner.type==='maxxfan'){
@@ -655,7 +666,6 @@ function renderRecommendation(id,title,result,isOvernight){
     const envelope=result.envelope;
     const sysName=systemDisplayName(w);
     
-    // Update Setpoint UI dynamically based on calculation
     const sd = document.getElementById('setpointDisplay');
     sd.innerHTML = `Cool <span>${result.setpoints.cool}°F</span> · Heat <span>${result.setpoints.heat}°F</span> · Auto <span>${result.setpoints.auto}°F</span>`;
 
@@ -777,7 +787,6 @@ function setPeriod(p){
     document.getElementById('cloudLabel').textContent=p==='day'?'Cloud Cover':'Today\'s Cloud Cover';
     document.getElementById('cloudHint').style.display=p==='night'?'block':'none';
     
-    // Reset setpoints header visual
     document.getElementById('setpointDisplay').innerHTML=p==='day'?'Cool <span>72°F</span> · Heat <span>70°F</span>':'Cool <span>68°F</span> · Heat <span>66°F</span>';
     
     updatePeriodSublabels();
