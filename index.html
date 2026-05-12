@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v1.10.3 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.10.4 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -85,7 +85,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v1.10.3</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.10.4</span></div>
         <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -146,7 +146,7 @@
 
 <script>
 let state={period:'day',temp:78,rh:65,cloud:1.0,wind:5,precip:'none'};
-let forecast={day:null,night:null,bedtime:null,worstCase:null,location:null,fetched:false,tempVals:null,humVals:null,nightStart:null,nightEnd:null};
+let forecast={day:null,night:null,location:null,fetched:false,tempVals:null,humVals:null};
 
 const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,shellSHGC:0.035,glassSHGC:0.70,shellSunFrac:0.50,glassSunFrac:0.50,thermalRetention:0.15,soakTau:2.0,dayCool:72,nightCool:68,dayHeat:70,nightHeat:66,comfortFloor:65,
     // v1.9 comfort bands (replaces tolerance-ceiling concept):
@@ -182,9 +182,6 @@ const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:3
     // Tiebreaker proximity: candidates within this score range are reordered by tiebreaker priority
     tiebreakRange:5};
 const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
-
-// LOAD_DEADBAND retained for legacy reference; v1.9 selection logic does not use it.
-const LOAD_DEADBAND=300;
 
 const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/1.0','Accept':'application/geo+json'};
 
@@ -230,21 +227,15 @@ async function fetchNWS(lat,lon,placeName){
     if(!dayP||!nightP)throw new Error('Could not parse forecast periods');
     forecast.day=parsePeriod(dayP,extractMaxRH(humVals,dayP.startTime,dayP.endTime));
     forecast.night=parsePeriod(nightP,extractMaxRH(humVals,nightP.startTime,nightP.endTime));
-    const nightStart=new Date(nightP.startTime),nightEnd=new Date(nightP.endTime);
-    forecast.bedtime=extractBedtimeData(tempVals,humVals,nightStart,nightEnd,nightP);
-    forecast.worstCase=extractWorstCaseData(tempVals,humVals,nightStart,nightEnd,nightP);
-    forecast.tempVals=tempVals;forecast.humVals=humVals;forecast.nightStart=nightStart;forecast.nightEnd=nightEnd;
+    forecast.tempVals=tempVals;forecast.humVals=humVals;
     forecast.location=loc;forecast._lat=lat;forecast._lon=lon;forecast.fetched=true;
     document.getElementById('weatherLocation').textContent=loc+' — '+dayP.name+' / '+nightP.name;
     document.getElementById('weatherLocation').style.display='block';
     showStatus('Forecast retrieved successfully',false);updatePeriodSublabels();applyForecast(state.period);analyze();
 }
 function extractMaxRH(vals,sISO,eISO){if(!vals||!vals.length)return null;const s=new Date(sISO).getTime(),e=new Date(eISO).getTime();let mx=null;for(const v of vals){const t=new Date(v.validTime.split('/')[0]).getTime();const dm=v.validTime.match(/\/PT(\d+)H/);const dur=dm?parseInt(dm[1])*3600000:3600000;if(t+dur>s&&t<e&&v.value!=null){if(mx===null||v.value>mx)mx=v.value;}}return mx!==null?Math.round(mx):null;}
-function extractHourlyTemp(tv,tgt){if(!tv||!tv.length)return null;const t0=tgt.getTime();let c=null,cd=Infinity;for(const v of tv){const t=new Date(v.validTime.split('/')[0]).getTime();const d=Math.abs(t-t0);if(d<cd&&v.value!=null){cd=d;c=v.value;}}return c!==null?Math.round(c*9/5+32):null;}
-function extractBedtimeData(tv,hv,ns,ne,nP){const bt=new Date(ns);if(bt.getHours()<22)bt.setHours(22,0,0,0);const temp=extractHourlyTemp(tv,bt);const rh=extractMaxRH(hv,nP.startTime,nP.endTime);const ts=bt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});return{temp:temp||forecast.night.temp,rh:rh||forecast.night.rh,cloud:forecast.night.cloud,wind:forecast.night.wind,precip:forecast.night.precip,timeStr:ts};}
-function extractWorstCaseData(tv,hv,ns,ne,nP){if(!tv||!tv.length)return{temp:forecast.night.temp,rh:forecast.night.rh,cloud:forecast.night.cloud,wind:forecast.night.wind,precip:forecast.night.precip,timeStr:'Unknown'};const s=ns.getTime(),e=ne.getTime();let mt=Infinity,mTime=null;for(const v of tv){const t=new Date(v.validTime.split('/')[0]).getTime();const dm=v.validTime.match(/\/PT(\d+)H/);const dur=dm?parseInt(dm[1])*3600000:3600000;if(t+dur>s&&t<e&&v.value!=null){const tF=v.value*9/5+32;if(tF<mt){mt=tF;mTime=new Date(v.validTime.split('/')[0]);}}}const temp=mt<Infinity?Math.round(mt):forecast.night.temp;const rh=extractMaxRH(hv,nP.startTime,nP.endTime)||forecast.night.rh;const ts=mTime?mTime.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'Unknown';return{temp,rh,cloud:forecast.night.cloud,wind:forecast.night.wind,precip:forecast.night.precip,timeStr:ts};}
 function parsePeriod(p,exRH){const temp=p.temperature;let rh=exRH!=null?exRH:(p.isDaytime?50:75);const pp=p.probabilityOfPrecipitation?.value||0;const sf=(p.shortForecast||'').toLowerCase();const hasRain=sf.includes('rain')||sf.includes('shower')||sf.includes('storm')||sf.includes('drizzle');if(hasRain&&pp>=50&&rh<90)rh=90;let wind=5;const wn=(p.windSpeed||'').match(/(\d+)/g);if(wn&&wn.length>=2)wind=parseInt(wn[0]);else if(wn&&wn.length===1)wind=parseInt(wn[0]);let cloud=0.6;if(/^sunny$|^clear$/.test(sf))cloud=1.0;else if(sf.includes('mostly sunny')||sf.includes('mostly clear'))cloud=0.8;else if(sf.includes('partly sunny')||sf.includes('partly cloudy'))cloud=0.6;else if(sf.includes('mostly cloudy'))cloud=0.3;else if(sf.includes('cloudy')||sf.includes('overcast')||sf.includes('fog'))cloud=0.1;else if(sf.includes('sunny')||sf.includes('clear'))cloud=1.0;let precip='none';if(hasRain)precip='rain';else if(sf.includes('snow')||sf.includes('sleet')||sf.includes('ice')||sf.includes('flurr'))precip='snow';return{temp,rh,cloud,wind,precip};}
-function applyForecast(p){const d=p==='day'?forecast.day:(forecast.bedtime||forecast.night);if(!d)return;state.temp=d.temp;state.rh=d.rh;state.cloud=d.cloud;state.wind=d.wind;state.precip=d.precip;document.getElementById('tempValue').textContent=d.temp;document.getElementById('rhValue').textContent=d.rh;document.getElementById('windValue').textContent=d.wind;document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>c.classList.remove('active'));let best=null,bd=Infinity;document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>{const dist=Math.abs(parseFloat(c.dataset.val)-d.cloud);if(dist<bd){bd=dist;best=c;}});if(best)best.classList.add('active');document.querySelectorAll('#precipGroup .selector-chip').forEach(c=>c.classList.toggle('active',c.dataset.val===d.precip));}
+function applyForecast(p){const d=p==='day'?forecast.day:forecast.night;if(!d)return;state.temp=d.temp;state.rh=d.rh;state.cloud=d.cloud;state.wind=d.wind;state.precip=d.precip;document.getElementById('tempValue').textContent=d.temp;document.getElementById('rhValue').textContent=d.rh;document.getElementById('windValue').textContent=d.wind;document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>c.classList.remove('active'));let best=null,bd=Infinity;document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>{const dist=Math.abs(parseFloat(c.dataset.val)-d.cloud);if(dist<bd){bd=dist;best=c;}});if(best)best.classList.add('active');document.querySelectorAll('#precipGroup .selector-chip').forEach(c=>c.classList.toggle('active',c.dataset.val===d.precip));}
 function showStatus(m,err){const e=document.getElementById('weatherStatus');e.textContent=m;e.style.display='block';e.style.color=err?'var(--accent-red)':'var(--text-muted)';}
 function setBtnLoad(id,on){const b=document.getElementById(id);if(id==='retrieveBtn')b.textContent=on?'...':'Retrieve';b.style.opacity=on?'0.6':'1';b.style.pointerEvents=on?'none':'auto';}
 
@@ -400,18 +391,6 @@ function coilTemp(tRet,tOut,dpIn){return Math.round((tRet-22-Math.max(0,(70-tOut
 function riskLevel(tc){return tc>40?'safe':tc>35?'low':tc>32?'moderate':'high';}
 function freezeMode(tOut,dpIn,tc,lf){const a=tOut<65&&tc<35,b=dpIn>60&&tc<35&&lf>0.35;return a&&b?'both':a?'A':b?'B':'none';}
 
-function estimateIndoorTemp(tOut,wind,cf,isDay,sysType,elapsedHours){
-    const coolSet=isDay?C.dayCool:C.nightCool;
-    const heatSet=isDay?C.dayHeat:C.nightHeat;
-    // Active systems hold their setpoint
-    if(sysType.includes('Air Conditioner')||sysType.includes('AC'))return coolSet;
-    if(sysType==='Heat Pump'||sysType.includes('Furnace'))return heatSet;
-    // Passive: equilibrium from internal gains including residual solar soak
-    const ua=UA_BASE*(1+0.02*wind);
-    const qInt=C.metaSleep+C.dehumWaste+solarLoad(cf,isDay,elapsedHours);
-    return Math.round((tOut+(qInt/ua))*10)/10;
-}
-
 // ========== OVERNIGHT UNATTENDED HEATING DECISION ==========
 // Selects the correct heating system for unattended overnight operation.
 // Uses a dew-point-adjusted heat pump minimum to account for outdoor coil
@@ -442,84 +421,6 @@ function overnightHeatSystem(tOut,rh){
     }
     // Below 41°F hard floor — heat pump physically cannot operate
     return{sys:'LP Furnace',reason:'Outdoor temp is below the heat pump minimum of '+C.heatPumpMinTemp+'°F. LP Furnace required.'};
-}
-
-// ========== LEGACY runAnalysis (pre-v1.9 setpoint-referenced load logic) ==========
-// Retained but not called. v1.9 selection uses passive equilibrium and clamp model
-// via selectOvernightSetup(). Scheduled for removal in v1.10.4 cleanup pass.
-function runAnalysis(tOut,rh,cf,wind,precip,isDay,elapsedHours){
-    const coolSet=isDay?C.dayCool:C.nightCool;
-    const heatSet=isDay?C.dayHeat:C.nightHeat;
-    const needsHeat=tOut<heatSet;
-    const refTemp=needsHeat?heatSet:coolSet;
-    const meta=isDay?C.metaAwake:C.metaSleep;
-    const qSol=solarLoad(cf,isDay,elapsedHours);
-    const cond=condLoad(tOut,refTemp,wind);
-    const qCond=cond.q,qMeta=meta,qApp=C.dehumWaste;
-    const qTot=qSol+qCond+qMeta+qApp;
-    const dp=dewPt(tOut,rh),dpIn=dp-3;
-    const tRet=Math.max(coolSet,Math.min(tOut,coolSet+(qTot>C.acCapacity?6:0)));
-    const tC=coilTemp(tRet,tOut,dpIn);
-    const lf=Math.min(0.8,Math.max(0.1,(dp-40)/50));
-
-    let sys,fan,dehum,mit,fm,risk,frDisp;
-    // overnightReason carries the dew-point-adjusted rationale from overnightHeatSystem()
-    // into the furnace mitigation text when the overnight heating path is taken.
-    let overnightReason='';
-
-    if(qTot>LOAD_DEADBAND){
-        if(tOut>coolSet+3||qTot>2000)sys='Air Conditioner';
-        else if(dp>55||rh>65){if(tOut>=C.comfortFloor)sys='AC (dehumidification) or MaxxFan vents';else sys='AC (dehumidification)';}
-        else{if(tOut>=C.comfortFloor)sys='MaxxFan vents (exhaust mode)';else sys='No system needed — close windows and MaxxFan';}
-    }else if(qTot<-LOAD_DEADBAND){
-        // FIX (Issue 2): Overnight path routes through overnightHeatSystem() for
-        // dew-point-adjusted heat pump minimum. Daytime path uses raw 41°F manufacturer
-        // minimum — attended operation, owner can monitor and switch if needed.
-        if(!isDay){
-            const hs=overnightHeatSystem(tOut,rh);
-            sys=hs.sys;
-            overnightReason=hs.reason;
-        }else{
-            sys=tOut>C.heatPumpMinTemp?'Heat Pump':'LP Furnace';
-        }
-    }else{
-        if(tOut<C.comfortFloor)sys='No system needed — close windows and MaxxFan';
-        else if(dp>55||rh>65)sys='Dehumidifier only or MaxxFan';
-        else sys='No system needed';
-    }
-
-    const acOn=sys.includes('Air Conditioner')||sys.includes('AC');
-    const hpOn=sys==='Heat Pump';
-
-    if(acOn){
-        risk=riskLevel(tC);fm=freezeMode(tOut,dpIn,tC,lf);
-        if(fm==='A'){fan='AUTO (stops fan with compressor)';dehum='Optional';mit='Cold air freeze risk detected. Set fan to AUTO so the coil warms during compressor off-cycles. Consider switching to MaxxFan vents if outdoor temp is above 65°F. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.';frDisp='Cold Air Freeze Risk';}
-        else if(fm==='B'){fan='ON (maximize airflow across coil)';dehum='Run concurrently — critical';mit='High humidity freeze risk detected. Run the Midea Cube dehumidifier concurrently with the AC to reduce moisture load on the evaporator coil. Minimize door openings to reduce humid air infiltration. Verify AC filter is clean. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.';frDisp='High Humidity Freeze Risk';}
-        else if(fm==='both'){fan='AUTO (cold air risk dominant)';dehum='Run concurrently — critical';mit='Both cold air and high humidity freeze risk detected. Use AUTO fan mode to protect coil during compressor off-cycles, and run the dehumidifier to reduce latent load. Consider switching to MaxxFan vents as primary cooling. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.';frDisp='Cold Air + Humidity Freeze Risk';}
-        else{fan=risk==='safe'?'ON or AUTO (either is safe)':'AUTO (precautionary)';dehum=rh>60?'Recommended for comfort':'Optional';mit='';frDisp='Coil Temp is Safe';}
-    }else if(hpOn){
-        fm='none';
-        if(tOut<=C.heatPumpFrostThresh&&tOut>=C.heatPumpMinTemp){
-            risk='low';frDisp='Outdoor Coil Frost Risk';
-            fan='AUTO';dehum='Optional';
-            mit='Outdoor temperature is in the '+C.heatPumpMinTemp+'–'+C.heatPumpFrostThresh+'°F range where the outdoor coil may frost during heat pump operation. The unit\'s defrost cycle should manage this, but efficiency is reduced. If the cabin struggles to reach setpoint, switch to LP furnace.';
-        }else{
-            risk='safe';frDisp='Coil Temp is Safe';fan='AUTO';dehum='Optional';
-            mit=tOut<45?'Heat pump efficiency drops near its '+C.heatPumpMinTemp+'°F minimum. Monitor cabin temperature and switch to LP furnace if needed.':'';
-        }
-    }else if(sys.includes('Furnace')){
-        // FIX (Issue 2): Surface overnightReason as mitigation text when the overnight
-        // heating path selected LP Furnace via overnightHeatSystem(). Empty string on
-        // daytime path — furnace selected only because tOut <= 41°F hard floor.
-        risk='safe';fm='none';fan='AUTO';dehum='Optional';
-        mit=overnightReason?overnightReason:'';
-        frDisp='None — Furnace mode';
-    }else{
-        risk='safe';fm='none';
-        fan=sys.includes('MaxxFan')?'MaxxFan Auto at '+(isDay?'72':'68')+'°F — AC fan off':'Off';
-        dehum=rh>60?'Recommended for comfort':'Off';mit='';frDisp='None — Compressor off';
-    }
-    return{sys,fan,dehum,mit,fm,risk,frDisp,qSol,qCond,qMeta,qApp,qTot,dp,tC,lf,ua:cond.ua,acOn,hpOn};
 }
 
 // ========== v1.9 ENVELOPE-BASED OVERNIGHT EVALUATION ==========
@@ -652,9 +553,6 @@ function buildEnvelope(isOvernight){
     }
     return{points,singlePoint:false,cloud:fallbackCloud,wind:fallbackWind,precip:fallbackPrecip,lat,lon,windowLabel:win.label};
 }
-
-// Backward-compat alias used by analyze() — kept until full rename in v1.10.4
-function buildOvernightEnvelope(){return buildEnvelope(true);}
 
 // Compute passive equilibrium indoor temp at a given envelope point.
 function passiveEqAt(tOut,wind,cf,isDay,elapsedHours,meta,solarCtx){
@@ -892,85 +790,6 @@ function systemDisplayName(winner){
 }
 
 // ========== RENDER ==========
-// ========== LEGACY renderCard (pre-v1.9 two-card structure) ==========
-// Retained but not called. v1.9 uses renderRecommendation() for envelope-based output.
-// Scheduled for removal in v1.10.4 cleanup pass.
-function renderCard(id,title,r,tOut,rh,isDay,extra){
-    const rl={safe:'Safe',low:'Low',moderate:'Moderate',high:'High'};
-    const mx=Math.max(Math.abs(r.qSol),Math.abs(r.qCond),Math.abs(r.qMeta),Math.abs(r.qApp),Math.abs(r.qTot),1);
-    const bs=v=>Math.min(100,Math.round(Math.abs(v)/mx*100));
-    const fl=v=>(v>=0?'+':'')+v.toLocaleString()+' BTU';
-    const solLbl=isDay?'Solar':'Solar Soak';
-    let extraHTML='';
-    if(extra){
-        const tempColor=extra.indoorTemp<C.comfortFloor?'var(--accent-red)':'var(--accent-green)';
-        // ---- "If Bedtime Settings Unchanged" action logic ----
-        // Determines whether the bedtime HVAC setting can carry through to worst-case
-        // overnight conditions, and if not, provides a specific unattended-safe recommendation.
-        const actionMsg=(()=>{
-            const btSys=r.sys;
-            const alreadyHeating=btSys==='Heat Pump'||btSys.includes('Furnace');
-
-            // If bedtime system is already a heating system, it will hold setpoint — no action
-            if(alreadyHeating) return'';
-
-            // FIX (Issue 4): Use estimateIndoorTemp() for passive equilibrium so that
-            // the action trigger and the displayed Est. Indoor Temp are computed from
-            // the same thermal model (both now include residual solar soak via solarLoad()).
-            // wcCloud is passed through the extra object from analyze().
-            const eqTemp=estimateIndoorTemp(tOut,extra.wcWind||5,extra.wcCloud||0,false,'passive',extra.wcElapsed);
-
-            // Heating is only needed when passive equilibrium falls below night heat setpoint
-            const needsHeat=eqTemp<C.nightHeat;
-
-            // Cooling or passive system, no heating needed, comfort floor maintained — no action
-            if(!needsHeat&&extra.indoorTemp>=C.comfortFloor) return'';
-
-            // Heating is needed or comfort floor is at risk — select the correct system
-            const hs=overnightHeatSystem(tOut,rh);
-            let msg='⚠ ';
-            if(extra.indoorTemp<C.comfortFloor){
-                msg+='Interior may drop below '+C.comfortFloor+'°F comfort floor. Close windows and MaxxFan before sleep. ';
-            }else{
-                msg+='Bedtime setting cannot maintain comfort at the worst-case overnight low. ';
-            }
-            msg+='Switch to <strong>'+hs.sys+'</strong> — '+hs.reason;
-            const color=extra.indoorTemp<C.comfortFloor?'var(--accent-red)':'var(--accent-amber)';
-            return'<div style="margin-top:8px;font-size:12px;color:'+color+';font-weight:600;line-height:1.5;">'+msg+'</div>';
-        })();
-
-        extraHTML=`<div class="diag-panel" style="margin-top:12px;border-color:var(--accent-amber);">
-            <div class="diag-title" style="color:var(--accent-amber);">If Bedtime Settings Unchanged</div>
-            <div class="diag-row"><span class="diag-key">Est. Indoor Temp</span><span class="diag-val" style="color:${tempColor}">${extra.indoorTemp}°F</span></div>
-            <div class="diag-row"><span class="diag-key">Freeze Risk</span><span class="diag-val">${extra.frDisp}</span></div>
-            ${actionMsg}
-            ${extra.riskChanged?'<div style="margin-top:8px;font-size:12px;color:var(--accent-amber);font-weight:600;">⚠ Freeze risk changes overnight. Review Overnight Condition recommendation.</div>':''}
-        </div>`;
-    }
-    return`<div class="result-card" id="${id}">
-        <div class="result-card-header"><div class="result-card-title">${title}</div><div class="risk-badge ${r.risk}"><div class="risk-dot ${r.risk}"></div><span>${rl[r.risk]}</span></div></div>
-        <div class="result-primary">${r.sys}</div>
-        <div class="result-detail"><div class="result-detail-label">Fan Mode</div><div class="result-detail-value">${r.fan}</div></div>
-        <div class="result-detail"><div class="result-detail-label">Freeze Risk</div><div class="result-detail-value">${r.frDisp}</div></div>
-        <div class="result-detail"><div class="result-detail-label">Dehumidifier</div><div class="result-detail-value">${r.dehum}</div></div>
-        ${r.mit?`<div class="mitigation-box${r.risk==='high'?' alert':''}"><strong>Mitigation</strong>${r.mit}</div>`:''}
-        <div class="load-bar-container"><div class="load-bar-title">Thermal Load Breakdown</div>
-            <div class="load-bar-row"><div class="load-bar-label">${solLbl}</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qSol)}%;background:var(--accent-amber);"></div></div><div class="load-bar-value">${fl(r.qSol)}</div></div>
-            <div class="load-bar-row"><div class="load-bar-label">Conductive</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qCond)}%;background:${r.qCond>=0?'var(--accent-red)':'var(--accent-cyan)'};"></div></div><div class="load-bar-value">${fl(r.qCond)}</div></div>
-            <div class="load-bar-row"><div class="load-bar-label">Metabolic</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qMeta)}%;background:var(--accent-purple);"></div></div><div class="load-bar-value">${fl(r.qMeta)}</div></div>
-            <div class="load-bar-row"><div class="load-bar-label">Appliance</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qApp)}%;background:var(--text-muted);"></div></div><div class="load-bar-value">${fl(r.qApp)}</div></div>
-            <div class="load-bar-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;"><div class="load-bar-label" style="font-weight:700;color:var(--text-primary);">Net Load</div><div class="load-bar-track"><div class="load-bar-fill" style="width:${bs(r.qTot)}%;background:${r.qTot>=0?'var(--accent-red)':'var(--accent-cyan)'};"></div></div><div class="load-bar-value" style="color:var(--text-primary);font-weight:700;">${fl(r.qTot)}</div></div>
-        </div>
-        <div class="diag-panel"><div class="diag-title">Diagnostics</div>
-            <div class="diag-row"><span class="diag-key">Outdoor Temp</span><span class="diag-val">${tOut}°F</span></div>
-            <div class="diag-row"><span class="diag-key">Humidity</span><span class="diag-val">${rh}%</span></div>
-            <div class="diag-row"><span class="diag-key">Dew Point</span><span class="diag-val">${Math.round(r.dp*10)/10}°F</span></div>
-            <div class="diag-row"><span class="diag-key">Est. Coil Temp</span><span class="diag-val">${r.acOn?(r.tC+'°F'):'N/A'}</span></div>
-            <div class="diag-row"><span class="diag-key">UA (corrected)</span><span class="diag-val">${r.ua} BTU/hr/°F</span></div>
-            <div class="diag-row"><span class="diag-key">Total Load</span><span class="diag-val">${r.qTot.toLocaleString()} BTU/hr</span></div>
-            <div class="diag-row"><span class="diag-key">Latent Fraction</span><span class="diag-val">${r.acOn?(Math.round(r.lf*100)+'%'):'N/A'}</span></div>
-        </div>${extraHTML}</div>`;
-}
 
 function analyze(){
     const isDay=state.period==='day';const container=document.getElementById('results');
