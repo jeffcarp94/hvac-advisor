@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v1.10.1 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.10.2 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -84,7 +84,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v1.10.1</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.10.2</span></div>
         <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -170,6 +170,14 @@ const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:3
     maxxFanCFM:900,
     // AC overnight buffer: NWS forecast uncertainty allowance
     acOutdoorBuffer:3,
+    // v1.10.2: AC outdoor buffer only fires when AC duty cycle at the envelope point
+    // would meet/exceed this threshold. Rationale: the buffer protects against forecast
+    // error causing freeze under heavy AC load (continuous run → cold return air → cold
+    // coil). Under light load, short cycles keep return air warmer and coil safer, so
+    // the buffer over-disqualifies. 30% is the load range where duty cycle becomes long
+    // enough that coil-return-air temp approaches setpoint. Below 30%, freeze risk is
+    // not the failure mode the buffer protects against.
+    acBufferDutyThreshold:0.30,
     // Tiebreaker proximity: candidates within this score range are reordered by tiebreaker priority
     tiebreakRange:5};
 const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
@@ -437,7 +445,7 @@ function overnightHeatSystem(tOut,rh){
 
 // ========== LEGACY runAnalysis (pre-v1.9 setpoint-referenced load logic) ==========
 // Retained but not called. v1.9 selection uses passive equilibrium and clamp model
-// via selectOvernightSetup(). Scheduled for removal in v1.10.2 cleanup pass.
+// via selectOvernightSetup(). Scheduled for removal in v1.10.3 cleanup pass.
 function runAnalysis(tOut,rh,cf,wind,precip,isDay,elapsedHours){
     const coolSet=isDay?C.dayCool:C.nightCool;
     const heatSet=isDay?C.dayHeat:C.nightHeat;
@@ -604,7 +612,7 @@ function buildEnvelope(isOvernight){
     return{points,singlePoint:false,cloud:fallbackCloud,wind:fallbackWind,precip:fallbackPrecip,lat,lon};
 }
 
-// Backward-compat alias used by analyze() — kept until full rename in v1.10.2
+// Backward-compat alias used by analyze() — kept until full rename in v1.10.3
 function buildOvernightEnvelope(){return buildEnvelope(true);}
 
 // Compute passive equilibrium indoor temp at a given envelope point.
@@ -682,14 +690,33 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,elapsedHours,meta,s
         // AC only runs when passive eq exceeds coolSet; safety check only matters when it would run
         const tEq=passiveEqAt(tOut,wind,cf,isDay,elapsedHours,meta,solarCtx);
         if(tEq<=setpoints.cool) return{safe:true,reason:''}; // wouldn't run, no risk
-        // v1.10: forecast uncertainty buffer applies to BOTH overnight and daytime sightseeing
-        // (both are unattended scenarios; owner cannot intervene mid-run).
+        // Compute duty cycle from cooling load vs. AC capacity — used by both the
+        // load-conditional buffer (below) and the low-load tRet refinement (further below).
+        const uaPassive=UA_BASE*(1+0.02*wind);
+        const coolingLoad=(tEq-setpoints.cool)*uaPassive;
+        const dutyCycle=Math.min(1,coolingLoad/C.acCapacity);
+        // v1.10.2 (a): Load-conditional buffer. Buffer only fires when AC would run
+        // heavily enough at this envelope point that the freeze-under-forecast-error
+        // mode applies. Both daytime sightseeing and overnight sleeping are unattended;
+        // same logic applies.
         if(tOut-C.acOutdoorBuffer<C.comfortFloor){
-            return{safe:false,reason:'outdoor temp '+tOut+'°F within '+C.acOutdoorBuffer+'°F of 65°F cold-air freeze threshold'};
+            if(dutyCycle>=C.acBufferDutyThreshold){
+                return{safe:false,reason:'outdoor temp '+tOut+'°F within '+C.acOutdoorBuffer+'°F of 65°F freeze threshold AND AC duty cycle '+(dutyCycle*100).toFixed(0)+'% creates freeze risk under forecast uncertainty'};
+            }
+            // Buffer condition met but AC running light — proceed to coil-temp check
         }
-        // Coil freeze check
+        // v1.10.2 (b): Low-load tRet refinement. At very light duty cycle (< 15%),
+        // short on-cycles don't fully exchange indoor air with the coil, so the coil
+        // sees return air warmer than coolSet. Adjust tRet upward by up to +2°F at
+        // zero load, scaling linearly to 0 at the 15% threshold. This reduces the
+        // over-conservatism of the prior model that assumed tRet = coolSet regardless
+        // of load. Basis: rough correction for incomplete air-exchange during short
+        // cycles in a 700 ft³ interior with 300 CFM evaporator airflow.
         const dp=dewPt(tOut,rh),dpIn=dp-3;
-        const tRet=Math.max(setpoints.cool,Math.min(tOut,setpoints.cool+6));
+        let tRet=Math.max(setpoints.cool,Math.min(tOut,setpoints.cool+(coolingLoad>C.acCapacity?6:0)));
+        if(dutyCycle<0.15){
+            tRet+=(0.15-dutyCycle)/0.15*2.0;
+        }
         const tC=coilTemp(tRet,tOut,dpIn);
         if(tC<35) return{safe:false,reason:'computed coil temp '+tC.toFixed(1)+'°F creates freeze risk'};
         return{safe:true,reason:''};
@@ -826,7 +853,7 @@ function systemDisplayName(winner){
 // ========== RENDER ==========
 // ========== LEGACY renderCard (pre-v1.9 two-card structure) ==========
 // Retained but not called. v1.9 uses renderRecommendation() for envelope-based output.
-// Scheduled for removal in v1.10.2 cleanup pass.
+// Scheduled for removal in v1.10.3 cleanup pass.
 function renderCard(id,title,r,tOut,rh,isDay,extra){
     const rl={safe:'Safe',low:'Low',moderate:'Moderate',high:'High'};
     const mx=Math.max(Math.abs(r.qSol),Math.abs(r.qCond),Math.abs(r.qMeta),Math.abs(r.qApp),Math.abs(r.qTot),1);
