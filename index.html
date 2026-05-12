@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v1.10 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.10.1 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -84,7 +84,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v1.10</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.10.1</span></div>
         <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -159,10 +159,15 @@ const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:3
     // MaxxFan drift tolerance: indoor predicted to stay >= bandLow - maxxFanDrift
     maxxFanDrift:2,
     // MaxxFan thermostatic setpoints (Auto mode). MaxxFan idles when passive eq is at
-    // or below these values, and runs (cooling toward outdoor) when above. This models
-    // the real Maxxfan 8501K thermostatic behavior — it does not run continuously.
+    // or below these values, and runs when above. The fan cannot achieve indoor temps
+    // below tOut + qInt/(ventUA + shellUA) — it can only equilibrate toward outdoor air.
     maxxFanSetNight:70,  // overnight: top of [66,70] sleep band
     maxxFanSetDay:74,    // daytime: top of [70,74] cooling band
+    // MaxxFan maximum rated airflow (Maxxfan 8501K spec sheet, top speed, free air).
+    // Used to compute ventUA = 1.08 × CFM for the sensible-heat balance when the
+    // thermostat calls for full output. The 1.08 coefficient is the standard HVAC
+    // sensible-heat constant at sea-level standard air density (1 atm, ~70°F dry air).
+    maxxFanCFM:900,
     // AC overnight buffer: NWS forecast uncertainty allowance
     acOutdoorBuffer:3,
     // Tiebreaker proximity: candidates within this score range are reordered by tiebreaker priority
@@ -432,7 +437,7 @@ function overnightHeatSystem(tOut,rh){
 
 // ========== LEGACY runAnalysis (pre-v1.9 setpoint-referenced load logic) ==========
 // Retained but not called. v1.9 selection uses passive equilibrium and clamp model
-// via selectOvernightSetup(). Scheduled for removal in v1.10.1 cleanup pass.
+// via selectOvernightSetup(). Scheduled for removal in v1.10.2 cleanup pass.
 function runAnalysis(tOut,rh,cf,wind,precip,isDay,elapsedHours){
     const coolSet=isDay?C.dayCool:C.nightCool;
     const heatSet=isDay?C.dayHeat:C.nightHeat;
@@ -599,7 +604,7 @@ function buildEnvelope(isOvernight){
     return{points,singlePoint:false,cloud:fallbackCloud,wind:fallbackWind,precip:fallbackPrecip,lat,lon};
 }
 
-// Backward-compat alias used by analyze() — kept until full rename in v1.10.1
+// Backward-compat alias used by analyze() — kept until full rename in v1.10.2
 function buildOvernightEnvelope(){return buildEnvelope(true);}
 
 // Compute passive equilibrium indoor temp at a given envelope point.
@@ -619,14 +624,32 @@ function predictIndoor(candidateType,tOut,wind,cf,isDay,elapsedHours,meta,setpoi
     const tEq=passiveEqAt(tOut,wind,cf,isDay,elapsedHours,meta,solarCtx);
     if(candidateType==='passive') return tEq;
     if(candidateType==='maxxfan'){
-        // v1.9.1: Thermostatic clamp model. MaxxFan Auto idles when passive eq is at or
-        // below its setpoint, runs when above. When running, it pulls indoor toward
-        // outdoor — capped at setpoint by the thermostat cycling.
-        // Idle: indoor = passive equilibrium (fan off, coach closed-up thermally)
-        // Running: indoor ≈ setpoint (thermostat cycles fan to hold)
+        // v1.10.1: Physics-correct three-zone model.
+        // The previous clamp model (v1.9.1) treated MaxxFan like a thermostatic cooler
+        // that could hold a setpoint regardless of outdoor temp. That's wrong — MaxxFan
+        // is purely passive ventilation and cannot make indoor cooler than outdoor.
+        //
+        // Steady-state energy balance:
+        //   Fan running full: indoor = tOut + qInt / (ventUA + shellUA)
+        //   Fan off:          indoor = tOut + qInt / shellUA           (= tEq passive)
+        //   Fan cycling:      indoor settles between these bounds, with thermostat
+        //                     driving toward setpoint
+        //
+        // Three operating regimes determined by the thermostat:
+        //   1. tEq_passive ≤ setpoint:    fan never turns on, indoor = tEq_passive
+        //   2. tEq_maxxfan ≤ setpoint:    fan cycles, indoor ≈ setpoint
+        //   3. tEq_maxxfan > setpoint:    fan runs full but can't reach setpoint;
+        //                                 indoor = tEq_maxxfan (lower-bounded by tOut)
         const mfSet=isDay?C.maxxFanSetDay:C.maxxFanSetNight;
-        if(tEq<=mfSet) return tEq; // fan idle, indoor = passive float
-        return mfSet; // fan cycles, holds setpoint
+        if(tEq<=mfSet) return tEq;  // fan never turns on; indoor = passive equilibrium
+        const uaPassive=UA_BASE*(1+0.02*wind);
+        const ventUA=1.08*C.maxxFanCFM;
+        // qInt is the same total internal load that drives tEq_passive — recover it from
+        // the passive equilibrium relationship: qInt = (tEq - tOut) × uaPassive
+        const qInt=(tEq-tOut)*uaPassive;
+        const tEqMaxxfan=tOut+qInt/(uaPassive+ventUA);
+        if(tEqMaxxfan<=mfSet) return mfSet;  // fan cycles to hold setpoint
+        return tEqMaxxfan;  // fan running full but can't reach setpoint
     }
     if(candidateType==='ac'){
         // AC clamps from above: indoor = min(coolSet, tEq) — only runs when tEq > setpoint
@@ -803,7 +826,7 @@ function systemDisplayName(winner){
 // ========== RENDER ==========
 // ========== LEGACY renderCard (pre-v1.9 two-card structure) ==========
 // Retained but not called. v1.9 uses renderRecommendation() for envelope-based output.
-// Scheduled for removal in v1.10.1 cleanup pass.
+// Scheduled for removal in v1.10.2 cleanup pass.
 function renderCard(id,title,r,tOut,rh,isDay,extra){
     const rl={safe:'Safe',low:'Low',moderate:'Moderate',high:'High'};
     const mx=Math.max(Math.abs(r.qSol),Math.abs(r.qCond),Math.abs(r.qMeta),Math.abs(r.qApp),Math.abs(r.qTot),1);
