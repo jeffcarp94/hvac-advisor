@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v2.2 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v3.0 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -85,8 +85,8 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v2.2</span></div>
-        <div class="header-sub">Dynamic Thermal Mass & Smart Auto-Changeover</div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v3.0</span></div>
+        <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
 
@@ -105,7 +105,7 @@
         <button class="period-btn active" data-period="day" onclick="setPeriod('day')"><span>☀ Daytime</span><span class="period-sublabel" id="daySublabel">(Today)</span></button>
         <button class="period-btn" data-period="night" onclick="setPeriod('night')"><span>☾ Overnight</span><span class="period-sublabel" id="nightSublabel">(Tonight)</span></button>
     </div>
-    <div class="setpoint-display" id="setpointDisplay">Cool <span>72°F</span> · Heat <span>70°F</span></div>
+    <div class="setpoint-display" id="setpointDisplay">Evaluating Recommended Setpoints...</div>
 
     <div class="input-section">
         <div class="input-section-title">Conditions</div>
@@ -150,9 +150,10 @@
 let state={period:'day',temp:78,rh:65,cloud:1.0,wind:5,precip:'none',indoor:72};
 let forecast={day:null,night:null,location:null,fetched:false,tempVals:null,humVals:null};
 
-const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,shellSHGC:0.035,glassSHGC:0.25,shellSunFrac:0.50,glassSunFrac:0.50,
+const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,
+    shellSHGC:0.035,glassSHGC:0.25,shellSunFrac:0.50,glassSunFrac:0.50,
     tau: 2.0, 
-    dayCool:72,nightCool:68,dayHeat:70,nightHeat:66,comfortFloor:65,
+    dayCoolDefault:72,nightCoolDefault:68,dayHeatDefault:70,nightHeatDefault:66,comfortFloor:65,
     nightBandLow:66,nightBandHigh:70,
     dayHeatBandLow:68,dayHeatBandHigh:72,
     dayCoolBandLow:70,dayCoolBandHigh:74,
@@ -169,7 +170,7 @@ const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
 // Fan speed hierarchy for safety progression (Auto defaults to 0 for logic comparisons)
 const fanLevels = {'Low': 1, 'Medium': 2, 'High': 3, 'Auto': 0};
 
-const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/2.1','Accept':'application/geo+json'};
+const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/3.0','Accept':'application/geo+json'};
 
 async function retrieveWeather(){
     const zip=document.getElementById('zipInput').value.trim();
@@ -484,7 +485,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
         } else {
             if (coilTemp(tRet, tOut, dpIn, 22) >= 35) reqFan = 'Auto';
             else if (coilTemp(tRet, tOut, dpIn, 20) >= 35) reqFan = 'High';
-            else return {safe: false, reason: 'computed coil temp creates freeze risk', requiredFan:null};
+            else return {safe: false, reason: 'computed coil temp creates freeze risk. Target setpoint too deep.', requiredFan:null};
         }
         return{safe:true,reason:'', requiredFan:reqFan};
     }
@@ -575,33 +576,59 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
     };
 }
 
-function findOptimalAutoSet(envelope, isOvernight, meta) {
-    let bestSet = 70;
-    let bestScore = Infinity;
-    for (let testSet = 65; testSet <= 75; testSet++) {
-        const tempSetpoints = { auto: testSet, cool: testSet, heat: testSet };
-        const res = evaluateCandidate('auto', envelope, isOvernight, tempSetpoints, meta);
-        let adjustedScore = res.score + (testSet * 0.001); 
-        if (res.safe && adjustedScore < bestScore) {
-            bestScore = adjustedScore;
-            bestSet = testSet;
-        }
+function optimizeCandidate(candidateType, envelope, isOvernight, meta) {
+    if(candidateType === 'passive' || candidateType === 'maxxfan'){
+        return evaluateCandidate(candidateType, envelope, isOvernight, {cool:72, heat:70, auto:70}, meta);
     }
-    return bestSet;
+    if(candidateType === 'auto'){
+        let bestSet = 70, bestScore = Infinity, bestRes = null;
+        for (let testSet = 65; testSet <= 75; testSet++) {
+            const tempSetpoints = { auto: testSet, cool: testSet, heat: testSet };
+            const res = evaluateCandidate('auto', envelope, isOvernight, tempSetpoints, meta);
+            let adjustedScore = res.score + (testSet * 0.001); // Favor cooler side of band
+            if (res.safe && adjustedScore < bestScore) {
+                bestScore = adjustedScore; bestSet = testSet; bestRes = res;
+            }
+        }
+        if(!bestRes) return evaluateCandidate('auto', envelope, isOvernight, {auto:70}, meta);
+        bestRes.optimizedSet = bestSet;
+        return bestRes;
+    }
+    if(candidateType === 'ac'){
+        let bestSet = 72, bestScore = Infinity, bestRes = null;
+        // Search 74 down to 68. We want highest efficient setpoint, so first perfect score wins.
+        // If no perfect score, lower setpoints will organically win via smaller warm penalties.
+        for(let testSet = 74; testSet >= 68; testSet--){
+            const res = evaluateCandidate('ac', envelope, isOvernight, {cool: testSet, heat: 66, auto: 70}, meta);
+            if(res.safe && res.score < bestScore) {
+                bestScore = res.score; bestSet = testSet; bestRes = res;
+            }
+        }
+        if(!bestRes) return evaluateCandidate('ac', envelope, isOvernight, {cool:72}, meta);
+        bestRes.optimizedSet = bestSet;
+        return bestRes;
+    }
+    if(candidateType === 'hp' || candidateType === 'furnace'){
+        let startSet = isOvernight ? 66 : 68;
+        let endSet = isOvernight ? 70 : 72;
+        let bestSet = startSet, bestScore = Infinity, bestRes = null;
+        // Search lowest to highest. We want lowest efficient setpoint to save energy/gas.
+        for(let testSet = startSet; testSet <= endSet; testSet++){
+            const res = evaluateCandidate(candidateType, envelope, isOvernight, {heat: testSet, cool: 72, auto: 70}, meta);
+            if(res.safe && res.score < bestScore) {
+                bestScore = res.score; bestSet = testSet; bestRes = res;
+            }
+        }
+        if(!bestRes) return evaluateCandidate(candidateType, envelope, isOvernight, {heat:startSet}, meta);
+        bestRes.optimizedSet = bestSet;
+        return bestRes;
+    }
 }
 
 function selectOvernightSetup(envelope,isOvernight){
     const meta=isOvernight?C.metaSleep:C.metaAwake;
-    const autoSet = findOptimalAutoSet(envelope, isOvernight, meta);
-    
-    const setpoints = {
-        heat: isOvernight ? C.nightHeat : C.dayHeat,
-        cool: isOvernight ? C.nightCool : C.dayCool,
-        auto: autoSet
-    };
-
     const candidates=['passive','maxxfan','auto','ac','hp','furnace'];
-    const results=candidates.map(c=>evaluateCandidate(c,envelope,isOvernight,setpoints,meta));
+    const results=candidates.map(c=>optimizeCandidate(c,envelope,isOvernight,meta));
     results.sort((a,b)=>a.score-b.score);
 
     const bestScore=results[0].score;
@@ -634,7 +661,15 @@ function selectOvernightSetup(envelope,isOvernight){
     const tOutMin=Math.min(...touts),tOutMax=Math.max(...touts);
     const tOutMinPt=envelope.points.find(p=>p.tOut===tOutMin);
     const tOutMaxPt=envelope.points.find(p=>p.tOut===tOutMax);
-    return{winner,allCandidates:results,envelope,tOutMin,tOutMax,tOutMinTime:tOutMinPt?tOutMinPt.timeStr:'?',tOutMaxTime:tOutMaxPt?tOutMaxPt.timeStr:'?',setpoints};
+
+    // Bind optimized setpoints dynamically to the winner
+    winner.setpoints = {
+        cool: winner.type === 'ac' ? winner.optimizedSet : (isOvernight ? C.nightCoolDefault : C.dayCoolDefault),
+        heat: (winner.type === 'hp' || winner.type === 'furnace') ? winner.optimizedSet : (isOvernight ? C.nightHeatDefault : C.dayHeatDefault),
+        auto: winner.type === 'auto' ? winner.optimizedSet : 70
+    };
+
+    return{winner,allCandidates:results,envelope,tOutMin,tOutMax,tOutMinTime:tOutMinPt?tOutMinPt.timeStr:'?',tOutMaxTime:tOutMaxPt?tOutMaxPt.timeStr:'?',setpoints: winner.setpoints};
 }
 
 function systemDisplayName(winner){
@@ -712,15 +747,26 @@ function renderRecommendation(id,title,result,isOvernight){
         }
     }else if(w.type==='ac'){
         setupInstructions='Air conditioner on, set to '+result.setpoints.cool+'°F. ';
+        if (result.setpoints.cool < (isOvernight ? C.nightCoolDefault : C.dayCoolDefault)) {
+            setupInstructions += '(Pre-cooling: setting a lower target to build a thermal buffer). ';
+        }
         if (w.autoDidCool) {
              if (isOvernight) setupInstructions += 'Fan set to ' + w.fanSpeed.toUpperCase() + ' (Lowest continuous speed to safely prevent coil freezing and provide noise).';
-             else setupInstructions += 'Fan set to ' + w.fanSpeed.toUpperCase() + (w.fanSpeed==='Auto' ? ' (Best for dehumidification).' : ' (Required for safe coil protection).');
+             else setupInstructions += 'Fan set to ' + w.fanSpeed.toUpperCase() + (w.fanSpeed==='Auto' ? ' (Best for dehumidification).' : ' (Required to prevent freeze at this deeper cooling target).');
         } else setupInstructions += 'Fan set to AUTO.';
         setupInstructions += ' Windows and MaxxFan closed.';
     }else if(w.type==='hp'){
-        setupInstructions='Thermostat in Heat Pump mode, set to '+result.setpoints.heat+'°F. Windows and MaxxFan closed.';
+        setupInstructions='Thermostat in Heat Pump mode, set to '+result.setpoints.heat+'°F. ';
+        if (result.setpoints.heat > (isOvernight ? C.nightHeatDefault : C.dayHeatDefault)) {
+            setupInstructions += '(Pre-heating: setting a higher target to build a thermal buffer). ';
+        }
+        setupInstructions += 'Windows and MaxxFan closed.';
     }else if(w.type==='furnace'){
-        setupInstructions='Thermostat in Furnace (LP gas) mode, set to '+result.setpoints.heat+'°F. Windows and MaxxFan closed.';
+        setupInstructions='Thermostat in Furnace (LP gas) mode, set to '+result.setpoints.heat+'°F. ';
+        if (result.setpoints.heat > (isOvernight ? C.nightHeatDefault : C.dayHeatDefault)) {
+            setupInstructions += '(Pre-heating: setting a higher target to build a thermal buffer). ';
+        }
+        setupInstructions += 'Windows and MaxxFan closed.';
     }
 
     let equipNote='';
@@ -741,8 +787,9 @@ function renderRecommendation(id,title,result,isOvernight){
 
     const altRows=result.allCandidates.map(c=>{
         const name=c.type==='passive'?'Closed up (no system)':c.type==='maxxfan'?'MaxxFan':c.type==='auto'?'Auto Change-Over':c.type==='ac'?'Air Conditioner':c.type==='hp'?'Heat Pump':c.type==='furnace'?'LP Furnace':'?';
+        const setStr=c.optimizedSet ? ' ('+c.optimizedSet+'°F)' : '';
         const status=c===w?'<strong style="color:var(--accent-green);">RECOMMENDED</strong>':!c.safe?'<span style="color:var(--accent-red);">Unsafe: '+c.equipmentReason+'</span>':'Score '+c.score+' · indoor '+c.indoorMin+'–'+c.indoorMax+'°F';
-        return'<div class="diag-row"><span class="diag-key">'+name+'</span><span class="diag-val" style="font-size:11px;text-align:right;">'+status+'</span></div>';
+        return'<div class="diag-row"><span class="diag-key">'+name+setStr+'</span><span class="diag-val" style="font-size:11px;text-align:right;">'+status+'</span></div>';
     }).join('');
 
     let unmetMsg='';
@@ -765,7 +812,7 @@ function renderRecommendation(id,title,result,isOvernight){
             <div class="diag-row"><span class="diag-key">Wind</span><span class="diag-val">${envelope.wind} mph</span></div>
             <div class="diag-row"><span class="diag-key">Cloud Cover</span><span class="diag-val">${(envelope.cloud*100).toFixed(0)}%</span></div>
         </div>
-        <div class="diag-panel"><div class="diag-title">Candidates Evaluated</div>
+        <div class="diag-panel"><div class="diag-title">Candidates Optimized</div>
             ${altRows}
         </div>
     </div>`;
@@ -787,7 +834,7 @@ function setPeriod(p){
     document.getElementById('cloudLabel').textContent=p==='day'?'Cloud Cover':'Today\'s Cloud Cover';
     document.getElementById('cloudHint').style.display=p==='night'?'block':'none';
     
-    document.getElementById('setpointDisplay').innerHTML=p==='day'?'Cool <span>72°F</span> · Heat <span>70°F</span>':'Cool <span>68°F</span> · Heat <span>66°F</span>';
+    document.getElementById('setpointDisplay').innerHTML='Evaluating Recommended Setpoints...';
     
     updatePeriodSublabels();
     if(forecast.fetched){applyForecast(p);analyze();}
