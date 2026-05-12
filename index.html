@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v1.10.4 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.11.0 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -85,8 +85,8 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v1.10.4</span></div>
-        <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.11.0</span></div>
+        <div class="header-sub">Dynamic Lumped Capacitance Model</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
 
@@ -109,6 +109,8 @@
 
     <div class="input-section">
         <div class="input-section-title">Conditions</div>
+        <div class="input-row"><div><div class="input-label">Current Indoor Temp</div><div class="input-unit">°F</div></div>
+            <div class="input-control"><button class="stepper-btn" onclick="step('indoor',-1)">−</button><div class="stepper-value" id="indoorValue">72</div><button class="stepper-btn" onclick="step('indoor',1)">+</button></div></div>
         <div class="input-row"><div><div class="input-label" id="tempLabel">Forecast High</div><div class="input-unit">°F</div></div>
             <div class="input-control"><button class="stepper-btn" onclick="step('temp',-1)">−</button><div class="stepper-value" id="tempValue">78</div><button class="stepper-btn" onclick="step('temp',1)">+</button></div></div>
         <div class="input-row"><div><div class="input-label">Relative Humidity</div><div class="input-unit">%</div></div>
@@ -141,49 +143,30 @@
 
     <div class="results" id="results"></div>
 
-    <div class="footer-note">Model based on HVAC engineering estimates calibrated to Coach House Platinum III 250 DT. Dometic 15,000 BTU rooftop AC w/ heat pump. UA=136.6 BTU/hr/°F · R-wall=7 · R-glass=1 · Shell=641 ft² · Glass=45 ft².</div>
+    <div class="footer-note">Model based on HVAC engineering estimates calibrated to Coach House Platinum III 250 DT. Dometic 15,000 BTU rooftop AC w/ heat pump. UA=136.6 BTU/hr/°F · Thermal Mass τ=2.0 hrs.</div>
 </div>
 
 <script>
-let state={period:'day',temp:78,rh:65,cloud:1.0,wind:5,precip:'none'};
+let state={period:'day',temp:78,rh:65,cloud:1.0,wind:5,precip:'none',indoor:72};
 let forecast={day:null,night:null,location:null,fetched:false,tempVals:null,humVals:null};
 
-const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,shellSHGC:0.035,glassSHGC:0.70,shellSunFrac:0.50,glassSunFrac:0.50,thermalRetention:0.15,soakTau:2.0,dayCool:72,nightCool:68,dayHeat:70,nightHeat:66,comfortFloor:65,
-    // v1.9 comfort bands (replaces tolerance-ceiling concept):
-    // Bands define acceptable indoor temp range; passive solutions are scored against them.
-    // Active systems are evaluated as clamps on passive equilibrium (one-way actuators).
+const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,shellSHGC:0.035,glassSHGC:0.70,shellSunFrac:0.50,glassSunFrac:0.50,
+    tau: 2.0, // Dynamic lumped capacitance time constant (hours)
+    dayCool:72,nightCool:68,dayHeat:70,nightHeat:66,comfortFloor:65,
     nightBandLow:66,nightBandHigh:70,
     dayHeatBandLow:68,dayHeatBandHigh:72,
     dayCoolBandLow:70,dayCoolBandHigh:74,
-    // Scoring penalties — fail-cold-not-warm: warm-side hurts 2x cold-side
     warmPenalty:2.0,coldPenalty:1.0,
-    // MaxxFan drift tolerance: indoor predicted to stay >= bandLow - maxxFanDrift
     maxxFanDrift:2,
-    // MaxxFan thermostatic setpoints (Auto mode). MaxxFan idles when passive eq is at
-    // or below these values, and runs when above. The fan cannot achieve indoor temps
-    // below tOut + qInt/(ventUA + shellUA) — it can only equilibrate toward outdoor air.
-    maxxFanSetNight:70,  // overnight: top of [66,70] sleep band
-    maxxFanSetDay:74,    // daytime: top of [70,74] cooling band
-    // MaxxFan maximum rated airflow (Maxxfan 8501K spec sheet, top speed, free air).
-    // Used to compute ventUA = 1.08 × CFM for the sensible-heat balance when the
-    // thermostat calls for full output. The 1.08 coefficient is the standard HVAC
-    // sensible-heat constant at sea-level standard air density (1 atm, ~70°F dry air).
+    maxxFanSetNight:70,
+    maxxFanSetDay:74,
     maxxFanCFM:900,
-    // AC overnight buffer: NWS forecast uncertainty allowance
     acOutdoorBuffer:3,
-    // v1.10.2: AC outdoor buffer only fires when AC duty cycle at the envelope point
-    // would meet/exceed this threshold. Rationale: the buffer protects against forecast
-    // error causing freeze under heavy AC load (continuous run → cold return air → cold
-    // coil). Under light load, short cycles keep return air warmer and coil safer, so
-    // the buffer over-disqualifies. 30% is the load range where duty cycle becomes long
-    // enough that coil-return-air temp approaches setpoint. Below 30%, freeze risk is
-    // not the failure mode the buffer protects against.
     acBufferDutyThreshold:0.30,
-    // Tiebreaker proximity: candidates within this score range are reordered by tiebreaker priority
     tiebreakRange:5};
 const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
 
-const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/1.0','Accept':'application/geo+json'};
+const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/1.1','Accept':'application/geo+json'};
 
 async function retrieveWeather(){
     const zip=document.getElementById('zipInput').value.trim();
@@ -239,106 +222,15 @@ function applyForecast(p){const d=p==='day'?forecast.day:forecast.night;if(!d)re
 function showStatus(m,err){const e=document.getElementById('weatherStatus');e.textContent=m;e.style.display='block';e.style.color=err?'var(--accent-red)':'var(--text-muted)';}
 function setBtnLoad(id,on){const b=document.getElementById(id);if(id==='retrieveBtn')b.textContent=on?'...':'Retrieve';b.style.opacity=on?'0.6':'1';b.style.pointerEvents=on?'none':'auto';}
 
-// ========== ENGINE ==========
-
-// ---- Astronomical sunset (NOAA solar position algorithm) ----
-// Returns decimal local hour of sunset (e.g. 20.5 = 8:30 PM local).
-// Accurate to ~1 min for latitudes <72°. Returns null on failure.
-// Source: NOAA Solar Calculator algorithm (public domain).
-// v1.10 fix: Equation of Time formula was incorrect in v1.7. Replaced with the
-// standard NOAA formulation using y = tan²(eps/2). The bug was latent because
-// elapsedHours fell back to a constant t=2 in most cases; exposed when v1.10
-// began calling for hour-by-hour solar scaling and produced sunset times off by
-// hours. Validated against published sunrise/sunset tables for Dexter IA May 11
-// (sunset ~8:24 PM CDT).
-function sunsetHour(lat,lon,date){
-    try{
-        const rad=Math.PI/180,deg=1/rad;
-        const Y=date.getFullYear(),Mo=date.getMonth()+1,D=date.getDate();
-        // Julian Day Number
-        const A=Math.floor(Y/100),B=2-A+Math.floor(A/4);
-        const JD=Math.floor(365.25*(Y+4716))+Math.floor(30.6001*(Mo+1))+D+B-1524.5;
-        // Julian centuries from J2000.0
-        const T=(JD-2451545)/36525;
-        // Geometric mean longitude and anomaly of the Sun (degrees, then radians)
-        const L0=(280.46646+T*(36000.76983+T*0.0003032))%360;
-        const L0rad=L0*rad;
-        const M=(357.52911+T*(35999.05029-0.0001537*T))*rad;
-        const e=0.016708634-T*(0.000042037+T*0.0000001267); // orbital eccentricity
-        // Equation of center
-        const C=(1.914602-T*(0.004817+0.000014*T))*Math.sin(M)
-               +(0.019993-0.000101*T)*Math.sin(2*M)
-               +0.000289*Math.sin(3*M);
-        // Sun's true longitude and apparent longitude
-        const SunLon=L0+C;
-        const omega=(125.04-1934.136*T)*rad;
-        const lambda=(SunLon-0.00569-0.00478*Math.sin(omega))*rad;
-        // Mean obliquity of the ecliptic and corrected obliquity
-        const eps0=23+(26+((21.448-T*(46.8150+T*(0.00059-T*0.001813))))/60)/60;
-        const eps=(eps0+0.00256*Math.cos(omega))*rad;
-        // Sun declination
-        const sinDec=Math.sin(eps)*Math.sin(lambda);
-        const dec=Math.asin(sinDec);
-        // Equation of time (minutes) — NOAA Solar Calculator formula
-        // y = tan²(eps/2); EqT in radians, converted to minutes via 4 × deg
-        const y=Math.tan(eps/2)*Math.tan(eps/2);
-        const EqT=4*deg*(y*Math.sin(2*L0rad)-2*e*Math.sin(M)+4*e*y*Math.sin(M)*Math.cos(2*L0rad)
-                  -0.5*y*y*Math.sin(4*L0rad)-1.25*e*e*Math.sin(2*M));
-        // Hour angle for sunset (solar zenith = 90.833° accounting for refraction)
-        const cosH=(Math.cos(90.833*rad)-Math.sin(lat*rad)*sinDec)
-                  /(Math.cos(lat*rad)*Math.cos(dec));
-        if(cosH<-1||cosH>1)return null; // polar day/night
-        const HA=Math.acos(cosH)*deg;
-        // Solar noon in UTC minutes, sunset in UTC minutes
-        const lonCorr=lon*4; // 4 min per degree longitude
-        const solarNoonUTC=720-lonCorr-EqT;
-        const sunsetUTC=solarNoonUTC+HA*4; // HA in deg → minutes
-        // Convert to local decimal hour using browser timezone offset
-        const tzOffsetMin=-(new Date(Y,Mo-1,D,12,0,0)).getTimezoneOffset();
-        return((sunsetUTC+tzOffsetMin)/60+24)%24;
-    }catch(e){return null;}
-}
-
-// Returns hours elapsed between sunset and evalHour (decimal local 24h).
-// Handles post-midnight evaluation (e.g. 4:30 AM = evalHour 4.5, treated as 28.5).
-// Returns null if sunsetHour() fails or location unavailable → caller uses t=2 fallback.
-function computeElapsed(evalHour,lat,lon,date){
-    if(lat==null||lon==null)return null;
-    const ss=sunsetHour(lat,lon,date);
-    if(ss==null)return null;
-    // If eval hour is before sunrise (~6 AM), it's post-midnight — add 24 to span the day boundary
-    const adj=(evalHour<12)?evalHour+24:evalHour;
-    const ss24=(ss<12)?ss+24:ss; // keep sunset in same 24h window for comparison
-    const elapsed=adj-ss24;
-    return elapsed>0?elapsed:0;
-}
-
 function dewPt(tF,rh){const tc=(tF-32)*5/9;const g=Math.log(Math.max(1,Math.min(100,rh))/100)+(17.27*tc)/(237.3+tc);return(237.3*g)/(17.27-g)*9/5+32;}
 
-// solarHourFactor(date, lat, lon)
-// Returns the sine of the solar elevation angle for the given local instant.
-// This is the cosine of the solar zenith angle — the geometric factor by which
-// solar irradiance on a horizontal surface scales relative to the sun-at-zenith case.
-// Result: 0 at sunrise/sunset (sun on horizon), peaks at solar noon (sin of max
-// elevation). At latitude 41.7°N in mid-May, peak ≈ sin(70°) ≈ 0.94.
-//
-// Used to scale daytime solar load by time of day. Replaces the v1.9 assumption
-// that daytime solar is constant — which overstated morning/evening solar gain
-// substantially. Confidence: High on the physics; medium on whether the
-// ~7% under-count at solar noon (vs. existing peak constant) is meaningful given
-// other model uncertainties (cloud cover variability, surface absorption).
-//
-// Source: standard solar position equations, NOAA Solar Calculator algorithm.
 function solarHourFactor(date,lat,lon){
-    if(lat==null||lon==null)return 1; // fall back to constant (legacy behavior)
+    if(lat==null||lon==null)return 1;
     try{
         const rad=Math.PI/180,deg=1/rad;
         const Y=date.getFullYear(),Mo=date.getMonth()+1,D=date.getDate();
-        // Julian Day Number for noon UT of this date (matches sunsetHour convention)
         let a=Math.floor((14-Mo)/12),y=Y+4800-a,m=Mo+12*a-3;
         const JDN=D+Math.floor((153*m+2)/5)+365*y+Math.floor(y/4)-Math.floor(y/100)+Math.floor(y/400)-32045;
-        // Local apparent solar time → hour angle from solar noon
-        // Compute UT decimal hour from local date
         const utHour=date.getUTCHours()+date.getUTCMinutes()/60+date.getUTCSeconds()/3600;
         const JD=JDN-0.5+utHour/24;
         const T=(JD-2451545)/36525;
@@ -355,111 +247,47 @@ function solarHourFactor(date,lat,lon){
         const eps=(eps0+0.00256*Math.cos(omega))*rad;
         const sinDec=Math.sin(eps)*Math.sin(lambda);
         const dec=Math.asin(sinDec);
-        // Equation of time (minutes) — NOAA Solar Calculator y = tan²(eps/2) formula
         const L0rad=L0*rad;
         const yt=Math.tan(eps/2)*Math.tan(eps/2);
         const EqT=4*deg*(yt*Math.sin(2*L0rad)-2*e*Math.sin(M)+4*e*yt*Math.sin(M)*Math.cos(2*L0rad)
                   -0.5*yt*yt*Math.sin(4*L0rad)-1.25*e*e*Math.sin(2*M));
-        // True solar time at the location (minutes from midnight UT)
         const trueSolarMin=utHour*60+EqT+lon*4;
-        // Hour angle: degrees from solar noon, positive afternoon
         const HA=((trueSolarMin/4)-180)*rad;
-        // Solar elevation angle
         const sinEl=Math.sin(lat*rad)*sinDec+Math.cos(lat*rad)*Math.cos(dec)*Math.cos(HA);
         return Math.max(0,sinEl);
     }catch(e){return 1;}
 }
 
-// solarLoad(cf, isDay, elapsedHours, dateForSolar?, lat?, lon?)
-// For daytime: applies solarHourFactor scaling when date/lat/lon provided; otherwise
-// falls back to the legacy constant-daytime-solar treatment (peak × cf).
-// For nighttime: residual solar soak via thermalRetention × exp(-t/τ), unchanged.
-// elapsedHours: hours since sunset for night path. Uses t=2 fallback if null/undefined.
-function solarLoad(cf,isDay,elapsedHours,dateForSolar,lat,lon){
-    if(!isDay){
-        const pk=C.solarPeak*(C.shellSHGC*C.shellArea*C.shellSunFrac+C.glassSHGC*C.glassArea*C.glassSunFrac);
-        const t=(elapsedHours!=null&&isFinite(elapsedHours))?elapsedHours:2;
-        return Math.round(pk*C.thermalRetention*Math.exp(-t/C.soakTau)*cf);
-    }
+function solarLoad(cf,isDay,dateForSolar,lat,lon){
+    // Thermal mass handles decay naturally; no artificial solar soak calculation needed at night
+    if(!isDay) return 0;
     const peakLoad=C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac+C.glassSHGC*C.solarPeak*C.glassArea*C.glassSunFrac;
-    // Apply solar-by-hour scaling when location and date available; else constant (legacy)
     const hourFactor=(dateForSolar&&lat!=null&&lon!=null)?solarHourFactor(dateForSolar,lat,lon):1;
     return Math.round(peakLoad*cf*hourFactor);
 }
+
 function condLoad(tOut,tIn,wind){const ua=UA_BASE*(1+0.02*wind);return{q:Math.round(ua*(tOut-tIn)),ua:Math.round(ua*10)/10};}
 function coilTemp(tRet,tOut,dpIn){return Math.round((tRet-22-Math.max(0,(70-tOut)*0.3)-Math.max(0,(dpIn-55)*0.4))*10)/10;}
 function riskLevel(tc){return tc>40?'safe':tc>35?'low':tc>32?'moderate':'high';}
 function freezeMode(tOut,dpIn,tc,lf){const a=tOut<65&&tc<35,b=dpIn>60&&tc<35&&lf>0.35;return a&&b?'both':a?'A':b?'B':'none';}
 
-// ========== OVERNIGHT UNATTENDED HEATING DECISION ==========
-// Selects the correct heating system for unattended overnight operation.
-// Uses a dew-point-adjusted heat pump minimum to account for outdoor coil
-// frost accumulation rate vs. defrost cycle capacity when nobody is awake to monitor.
-// Base threshold: 41°F (manufacturer minimum, Coach House / Dometic spec).
-// Dew point modifier: high moisture content at low temps accelerates frost loading
-// between defrost cycles — at dp >= 38°F the defrost cycle can be outpaced.
 function overnightHeatSystem(tOut,rh){
     const dp=dewPt(tOut,rh);
-    // Adjusted effective minimum: dew point raises the floor when moisture is high
-    // dp >= 38°F: near-saturated cold air, aggressive frost accumulation → floor = 50°F
-    // dp >= 35°F: moderately humid cold air, elevated risk              → floor = 45°F
-    // dp <  35°F: relatively dry, defrost cycle handles it              → floor = 41°F
     const hpEffectiveMin=dp>=38?50:dp>=35?45:C.heatPumpMinTemp;
 
     if(tOut>hpEffectiveMin){
-        // Comfortably above the adjusted minimum — heat pump is appropriate unattended
         return{sys:'Heat Pump',reason:'Outdoor temp above frost risk threshold. Heat pump safe for unattended operation.'};
     }
     if(tOut>=C.heatPumpMinTemp){
-        // Between the hard 41°F floor and the dew-point-adjusted minimum
-        // Frost accumulation risk is elevated; furnace is the reliable unattended choice
         let dpNote='';
         if(dp>=38) dpNote='Outdoor dew point is '+Math.round(dp)+'°F — near-saturated air accelerates frost on the outdoor coil faster than the defrost cycle can clear unattended.';
         else if(dp>=35) dpNote='Outdoor dew point is '+Math.round(dp)+'°F — elevated moisture increases frost accumulation risk near the heat pump minimum.';
         else dpNote='Outdoor temp is within the 41–50°F frost risk window where unattended defrost performance can be marginal.';
         return{sys:'LP Furnace',reason:dpNote+' LP Furnace is the reliable unattended choice at this temperature.'};
     }
-    // Below 41°F hard floor — heat pump physically cannot operate
     return{sys:'LP Furnace',reason:'Outdoor temp is below the heat pump minimum of '+C.heatPumpMinTemp+'°F. LP Furnace required.'};
 }
 
-// ========== v1.9 ENVELOPE-BASED OVERNIGHT EVALUATION ==========
-//
-// The previous architecture analyzed bedtime and worst-case as two independent
-// point-in-time decisions, then tried to reconcile them with an "If Bedtime Settings
-// Unchanged" panel. This produced contradictory recommendations because each card
-// optimized for its own moment without considering the trajectory between them.
-//
-// v1.9 asks the actual user question: "Given the overnight weather, what is the best
-// single set-and-forget setup that keeps the coach in the comfort band and protects
-// equipment, across the entire forecast envelope?"
-//
-// Approach:
-//   1. Build an envelope: array of hourly NWS points covering the overnight window
-//   2. Evaluate each candidate setup at every envelope point
-//   3. Active systems are clamps on passive equilibrium (one-way actuators):
-//      - Heating: indoor = max(heatSet, tEq_passive)  — only runs when below setpoint
-//      - AC:      indoor = min(coolSet, tEq_passive)  — only runs when above setpoint
-//   4. Apply equipment safety gates per candidate; disqualify on any point failure
-//   5. Score remaining candidates: warm-side 2x cold-side penalty per °F outside band
-//   6. Apply tiebreaker ordering within tiebreakRange points
-
-// v1.10.3: Window-selection logic for daytime and overnight evaluation.
-// Three time branches based on invocation time, producing both window bounds and a
-// UI label indicating which window is being evaluated.
-//
-// Morning/afternoon use (7 AM – 6:59 PM):
-//   - Daytime   → today 9 AM – 7 PM             label "Today"
-//   - Overnight → today 10 PM – tomorrow 7 AM   label "Tonight"
-// Evening use (7 PM – 11:59 PM):
-//   - Daytime   → tomorrow 9 AM – 7 PM          label "Tomorrow"
-//   - Overnight → today 10 PM – tomorrow 7 AM   label "Tonight"
-// Late-night use (12 AM – 6:59 AM):
-//   - Daytime   → today 9 AM – 7 PM             label "Today"
-//   - Overnight → yesterday 10 PM – today 7 AM  label "In Progress"
-//
-// Window start is clamped to max(now, windowStart) to exclude already-past hours
-// from the envelope (forward-looking analysis only).
 function computeWindow(isOvernight){
     const now=new Date();
     const nowH=now.getHours()+now.getMinutes()/60;
@@ -467,56 +295,42 @@ function computeWindow(isOvernight){
     let start,end,label;
     if(isOvernight){
         if(nowH>=7&&nowH<19){
-            // Morning/afternoon: tonight's upcoming overnight
             start=new Date(Y,M,D,22,0,0);
             end=new Date(Y,M,D+1,7,0,0);
             label='Tonight';
         }else if(nowH>=19){
-            // Evening: tonight's overnight (may not have started yet)
             start=new Date(Y,M,D,22,0,0);
             end=new Date(Y,M,D+1,7,0,0);
             label='Tonight';
         }else{
-            // Late-night (12 AM – 6:59 AM): overnight already in progress, started yesterday
             start=new Date(Y,M,D-1,22,0,0);
             end=new Date(Y,M,D,7,0,0);
             label='In Progress';
         }
     }else{
         if(nowH>=7&&nowH<19){
-            // Morning/afternoon: today's daytime
             start=new Date(Y,M,D,9,0,0);
             end=new Date(Y,M,D,19,0,0);
             label='Today';
         }else if(nowH>=19){
-            // Evening: tomorrow's daytime
             start=new Date(Y,M,D+1,9,0,0);
             end=new Date(Y,M,D+1,19,0,0);
             label='Tomorrow';
         }else{
-            // Late-night (12 AM – 6:59 AM): today's daytime is coming up
             start=new Date(Y,M,D,9,0,0);
             end=new Date(Y,M,D,19,0,0);
             label='Today';
         }
     }
-    // Clamp start to max(now, windowStart) — exclude already-past hours
     const effectiveStart=now>start?now:start;
     return{start:effectiveStart,end,label};
 }
 
-// Build the forecast envelope for either overnight or daytime evaluation.
-// v1.10.3: Window bounds determined by computeWindow() with three-branch time logic.
-// Hardcoded windows (9 AM – 7 PM daytime, 10 PM – 7 AM overnight) replace the prior
-// dependence on NWS-defined period boundaries which varied seasonally and didn't
-// align with the user's sleep/sightseeing schedule.
-// Falls back to single-point envelope when forecast.tempVals is unavailable.
 function buildEnvelope(isOvernight){
     const lat=forecast.fetched&&forecast._lat!=null?forecast._lat:null;
     const lon=forecast.fetched&&forecast._lon!=null?forecast._lon:null;
     const win=computeWindow(isOvernight);
     if(!forecast.fetched||!forecast.tempVals){
-        // Manual entry or pipeline failure — single-point envelope from current state
         return{points:[{time:new Date(),tOut:state.temp,rh:state.rh,timeStr:'Current'}],singlePoint:true,cloud:state.cloud,wind:state.wind,precip:state.precip,lat,lon,windowLabel:win.label};
     }
     const s=win.start.getTime(),e=win.end.getTime();
@@ -554,103 +368,63 @@ function buildEnvelope(isOvernight){
     return{points,singlePoint:false,cloud:fallbackCloud,wind:fallbackWind,precip:fallbackPrecip,lat,lon,windowLabel:win.label};
 }
 
-// Compute passive equilibrium indoor temp at a given envelope point.
-function passiveEqAt(tOut,wind,cf,isDay,elapsedHours,meta,solarCtx){
+function passiveEqAt(tOut,wind,cf,isDay,meta,solarCtx){
     const ua=UA_BASE*(1+0.02*wind);
     const date=solarCtx?solarCtx.date:null;
     const lat=solarCtx?solarCtx.lat:null;
     const lon=solarCtx?solarCtx.lon:null;
-    const qInt=meta+C.dehumWaste+solarLoad(cf,isDay,elapsedHours,date,lat,lon);
+    const qInt=meta+C.dehumWaste+solarLoad(cf,isDay,date,lat,lon);
     return tOut+qInt/ua;
 }
 
-// Predict indoor temp under a candidate setup at a single envelope point.
-// candidateType ∈ {'passive','maxxfan','ac','hp','furnace'}
-// solarCtx: optional {date, lat, lon} for solar-by-hour scaling (daytime only)
-function predictIndoor(candidateType,tOut,wind,cf,isDay,elapsedHours,meta,setpoints,solarCtx){
-    const tEq=passiveEqAt(tOut,wind,cf,isDay,elapsedHours,meta,solarCtx);
-    if(candidateType==='passive') return tEq;
+function predictIndoor(candidateType,tOut,wind,cf,isDay,meta,setpoints,solarCtx, tInPrev){
+    const tEq=passiveEqAt(tOut,wind,cf,isDay,meta,solarCtx);
+    // Apply lumped capacitance thermal mass damping
+    const tMass = tEq + (tInPrev - tEq) * Math.exp(-1 / C.tau);
+
+    if(candidateType==='passive') return tMass;
     if(candidateType==='maxxfan'){
-        // v1.10.1: Physics-correct three-zone model.
-        // The previous clamp model (v1.9.1) treated MaxxFan like a thermostatic cooler
-        // that could hold a setpoint regardless of outdoor temp. That's wrong — MaxxFan
-        // is purely passive ventilation and cannot make indoor cooler than outdoor.
-        //
-        // Steady-state energy balance:
-        //   Fan running full: indoor = tOut + qInt / (ventUA + shellUA)
-        //   Fan off:          indoor = tOut + qInt / shellUA           (= tEq passive)
-        //   Fan cycling:      indoor settles between these bounds, with thermostat
-        //                     driving toward setpoint
-        //
-        // Three operating regimes determined by the thermostat:
-        //   1. tEq_passive ≤ setpoint:    fan never turns on, indoor = tEq_passive
-        //   2. tEq_maxxfan ≤ setpoint:    fan cycles, indoor ≈ setpoint
-        //   3. tEq_maxxfan > setpoint:    fan runs full but can't reach setpoint;
-        //                                 indoor = tEq_maxxfan (lower-bounded by tOut)
         const mfSet=isDay?C.maxxFanSetDay:C.maxxFanSetNight;
-        if(tEq<=mfSet) return tEq;  // fan never turns on; indoor = passive equilibrium
+        if(tMass<=mfSet) return tMass;
         const uaPassive=UA_BASE*(1+0.02*wind);
         const ventUA=1.08*C.maxxFanCFM;
-        // qInt is the same total internal load that drives tEq_passive — recover it from
-        // the passive equilibrium relationship: qInt = (tEq - tOut) × uaPassive
         const qInt=(tEq-tOut)*uaPassive;
         const tEqMaxxfan=tOut+qInt/(uaPassive+ventUA);
-        if(tEqMaxxfan<=mfSet) return mfSet;  // fan cycles to hold setpoint
-        return tEqMaxxfan;  // fan running full but can't reach setpoint
+        const tMassMaxxfan = tEqMaxxfan + (tInPrev - tEqMaxxfan) * Math.exp(-1 / C.tau);
+        if(tMassMaxxfan<=mfSet) return mfSet;
+        return tMassMaxxfan;
     }
     if(candidateType==='ac'){
-        // AC clamps from above: indoor = min(coolSet, tEq) — only runs when tEq > setpoint
-        return Math.min(setpoints.cool,tEq);
+        return Math.min(setpoints.cool,tMass);
     }
     if(candidateType==='hp'||candidateType==='furnace'){
-        // Heating clamps from below: indoor = max(heatSet, tEq) — only runs when tEq < setpoint
-        return Math.max(setpoints.heat,tEq);
+        return Math.max(setpoints.heat,tMass);
     }
-    return tEq;
+    return tMass;
 }
 
-// Check equipment safety for a candidate at a single envelope point.
-// Returns {safe:bool, reason:string}
-function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,elapsedHours,meta,setpoints,isOvernight,solarCtx){
+function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOvernight,solarCtx, tInPrev){
     if(candidateType==='passive') return{safe:true,reason:''};
+    const tEq=passiveEqAt(tOut,wind,cf,isDay,meta,solarCtx);
+    const tMass = tEq + (tInPrev - tEq) * Math.exp(-1 / C.tau);
+
     if(candidateType==='maxxfan'){
-        // v1.9.1: Safety gate based on passive equilibrium, not continuous-run prediction.
-        // MaxxFan can only cool — when passive eq is below the band, fan idles and indoor
-        // floats to passive eq. If passive eq is too low, the coach overcools regardless
-        // of MaxxFan state; that's the real disqualification condition.
-        const tEq=passiveEqAt(tOut,wind,cf,isDay,elapsedHours,meta,solarCtx);
         const bandLo=isOvernight?C.nightBandLow:C.dayHeatBandLow;
-        if(tEq<bandLo-C.maxxFanDrift){
-            return{safe:false,reason:'passive equilibrium '+tEq.toFixed(1)+'°F at '+tOut+'°F outdoor falls more than '+C.maxxFanDrift+'°F below comfort band ('+bandLo+'°F) — coach overcools even with MaxxFan idle'};
+        if(tMass<bandLo-C.maxxFanDrift){
+            return{safe:false,reason:'damped equilibrium '+tMass.toFixed(1)+'°F at '+tOut+'°F outdoor falls more than '+C.maxxFanDrift+'°F below comfort band ('+bandLo+'°F) — coach overcools'};
         }
         return{safe:true,reason:''};
     }
     if(candidateType==='ac'){
-        // AC only runs when passive eq exceeds coolSet; safety check only matters when it would run
-        const tEq=passiveEqAt(tOut,wind,cf,isDay,elapsedHours,meta,solarCtx);
-        if(tEq<=setpoints.cool) return{safe:true,reason:''}; // wouldn't run, no risk
-        // Compute duty cycle from cooling load vs. AC capacity — used by both the
-        // load-conditional buffer (below) and the low-load tRet refinement (further below).
+        if(tMass<=setpoints.cool) return{safe:true,reason:''}; 
         const uaPassive=UA_BASE*(1+0.02*wind);
-        const coolingLoad=(tEq-setpoints.cool)*uaPassive;
+        const coolingLoad=(tMass-setpoints.cool)*uaPassive;
         const dutyCycle=Math.min(1,coolingLoad/C.acCapacity);
-        // v1.10.2 (a): Load-conditional buffer. Buffer only fires when AC would run
-        // heavily enough at this envelope point that the freeze-under-forecast-error
-        // mode applies. Both daytime sightseeing and overnight sleeping are unattended;
-        // same logic applies.
         if(tOut-C.acOutdoorBuffer<C.comfortFloor){
             if(dutyCycle>=C.acBufferDutyThreshold){
                 return{safe:false,reason:'outdoor temp '+tOut+'°F within '+C.acOutdoorBuffer+'°F of 65°F freeze threshold AND AC duty cycle '+(dutyCycle*100).toFixed(0)+'% creates freeze risk under forecast uncertainty'};
             }
-            // Buffer condition met but AC running light — proceed to coil-temp check
         }
-        // v1.10.2 (b): Low-load tRet refinement. At very light duty cycle (< 15%),
-        // short on-cycles don't fully exchange indoor air with the coil, so the coil
-        // sees return air warmer than coolSet. Adjust tRet upward by up to +2°F at
-        // zero load, scaling linearly to 0 at the 15% threshold. This reduces the
-        // over-conservatism of the prior model that assumed tRet = coolSet regardless
-        // of load. Basis: rough correction for incomplete air-exchange during short
-        // cycles in a 700 ft³ interior with 300 CFM evaporator airflow.
         const dp=dewPt(tOut,rh),dpIn=dp-3;
         let tRet=Math.max(setpoints.cool,Math.min(tOut,setpoints.cool+(coolingLoad>C.acCapacity?6:0)));
         if(dutyCycle<0.15){
@@ -661,47 +435,42 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,elapsedHours,meta,s
         return{safe:true,reason:''};
     }
     if(candidateType==='hp'){
-        // Heat pump only runs when passive eq below heatSet; safety check only when it would run
-        const tEq=passiveEqAt(tOut,wind,cf,isDay,elapsedHours,meta,solarCtx);
-        if(tEq>=setpoints.heat) return{safe:true,reason:''}; // wouldn't run
-        // v1.10: dew-point-adjusted HP minimum applies to BOTH overnight and daytime sightseeing
-        // (both unattended; owner cannot manually switch to furnace if coil frosts).
+        if(tMass>=setpoints.heat) return{safe:true,reason:''}; 
         const hs=overnightHeatSystem(tOut,rh);
         if(hs.sys!=='Heat Pump') return{safe:false,reason:hs.reason};
         return{safe:true,reason:''};
     }
     if(candidateType==='furnace'){
-        // Always safe — LP furnace has no environmental operating limits in our scope
         return{safe:true,reason:''};
     }
     return{safe:true,reason:''};
 }
 
-// Score a candidate across the envelope. Returns {indoorMin, indoorMax, indoorMedian,
-// score, safe, equipmentReason, indoorAtMin, indoorAtMax, hoursOutOfBand}
-function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,elapsedFn,meta){
+function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
     let indoorMin=Infinity,indoorMax=-Infinity;
     let minTime=null,maxTime=null;
     let totalScore=0,hoursOut=0;
     let safe=true,equipReason='';
     const indoorVals=[];
+    
+    // Initialize the thermal mass state with the user's current indoor temp
+    let currentIn = state.indoor;
+
     for(const pt of envelope.points){
-        const elapsed=elapsedFn(pt.time);
-        // Build solar context for this envelope point: enables hour-of-day solar scaling.
-        // Only meaningful daytime (solarLoad ignores in night path).
         const solarCtx=envelope.lat!=null&&envelope.lon!=null?{date:pt.time,lat:envelope.lat,lon:envelope.lon}:null;
-        const indoor=predictIndoor(candidateType,pt.tOut,envelope.wind,envelope.cloud,!isOvernight,elapsed,meta,setpoints,solarCtx);
+        
+        const eq=equipmentSafeAt(candidateType,pt.tOut,pt.rh,envelope.wind,envelope.cloud,!isOvernight,meta,setpoints,isOvernight,solarCtx,currentIn);
+        if(!eq.safe){safe=false;equipReason=eq.reason+' (at '+pt.timeStr+', tOut '+pt.tOut+'°F)';break;}
+        
+        const indoor=predictIndoor(candidateType,pt.tOut,envelope.wind,envelope.cloud,!isOvernight,meta,setpoints,solarCtx,currentIn);
+        
         indoorVals.push(indoor);
         if(indoor<indoorMin){indoorMin=indoor;minTime=pt.timeStr;}
         if(indoor>indoorMax){indoorMax=indoor;maxTime=pt.timeStr;}
-        const eq=equipmentSafeAt(candidateType,pt.tOut,pt.rh,envelope.wind,envelope.cloud,!isOvernight,elapsed,meta,setpoints,isOvernight,solarCtx);
-        if(!eq.safe){safe=false;equipReason=eq.reason+' (at '+pt.timeStr+', tOut '+pt.tOut+'°F)';break;}
-        // Score against the active comfort band for this candidate.
-        // Overnight: single band [66,70] for all candidates.
-        // Daytime: heating candidates use dayHeatBand [68,72]; cooling/AC use dayCoolBand [70,74];
-        //   passive uses broader [68,74]; MaxxFan dual-mode per Item C:
-        //     - When MaxxFan would run (passive eq > setpoint) → score vs cooling band
-        //     - When MaxxFan idle (passive eq ≤ setpoint) → score vs broader passive band
+
+        // Step forward: The newly calculated indoor temp becomes the previous state for the next hour
+        currentIn = indoor;
+
         let bandLo,bandHi;
         if(isOvernight){
             bandLo=C.nightBandLow;bandHi=C.nightBandHigh;
@@ -710,13 +479,13 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,elapsedF
         }else if(candidateType==='ac'){
             bandLo=C.dayCoolBandLow;bandHi=C.dayCoolBandHigh;
         }else if(candidateType==='maxxfan'){
-            // Dual-mode scoring: which band depends on whether the fan is actually running
-            const tEqPt=passiveEqAt(pt.tOut,envelope.wind,envelope.cloud,!isOvernight,elapsed,meta,solarCtx);
+            const tEqPt=passiveEqAt(pt.tOut,envelope.wind,envelope.cloud,!isOvernight,meta,solarCtx);
+            const tMassPt = tEqPt + (currentIn - tEqPt) * Math.exp(-1 / C.tau);
             const mfSet=!isOvernight?C.maxxFanSetDay:C.maxxFanSetNight;
-            if(tEqPt>mfSet){bandLo=C.dayCoolBandLow;bandHi=C.dayCoolBandHigh;} // running: cooling band
-            else {bandLo=C.dayHeatBandLow;bandHi=C.dayCoolBandHigh;} // idle: broader passive band
+            if(tMassPt>mfSet){bandLo=C.dayCoolBandLow;bandHi=C.dayCoolBandHigh;}
+            else {bandLo=C.dayHeatBandLow;bandHi=C.dayCoolBandHigh;} 
         }else {
-            bandLo=C.dayHeatBandLow;bandHi=C.dayCoolBandHigh; // passive: broader band
+            bandLo=C.dayHeatBandLow;bandHi=C.dayCoolBandHigh; 
         }
         if(indoor>bandHi){totalScore+=C.warmPenalty*(indoor-bandHi);hoursOut++;}
         else if(indoor<bandLo){totalScore+=C.coldPenalty*(bandLo-indoor);hoursOut++;}
@@ -735,43 +504,25 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,elapsedF
     };
 }
 
-// Top-level selector: evaluate all candidates, apply tiebreaker, pick MaxxFan variant.
-// Returns {winner, allCandidates, envelope}
 function selectOvernightSetup(envelope,isOvernight){
     const setpoints=isOvernight?{heat:C.nightHeat,cool:C.nightCool}:{heat:C.dayHeat,cool:C.dayCool};
     const meta=isOvernight?C.metaSleep:C.metaAwake;
 
-    // Elapsed-since-sunset for each envelope point — needed for solar soak decay overnight
-    const today=new Date();
-    const loc=(forecast.fetched&&forecast._lat!=null)?{lat:forecast._lat,lon:forecast._lon}:null;
-    const elapsedFn=(t)=>{
-        if(!isOvernight) return null; // daytime path: solarLoad doesn't use elapsed
-        if(!loc) return 2; // fallback
-        const evalHour=t.getHours()+t.getMinutes()/60;
-        return computeElapsed(evalHour,loc.lat,loc.lon,today);
-    };
-
     const candidates=['passive','maxxfan','ac','hp','furnace'];
-    const results=candidates.map(c=>evaluateCandidate(c,envelope,isOvernight,setpoints,elapsedFn,meta));
+    const results=candidates.map(c=>evaluateCandidate(c,envelope,isOvernight,setpoints,meta));
 
-    // Sort by score ascending (lower = better)
     results.sort((a,b)=>a.score-b.score);
 
-    // Tiebreaker: within tiebreakRange points of the winner, prefer per priority order:
-    //   maxxfan > passive > hp > furnace > ac
-    // Bedroom MaxxFan within MaxxFan family is decided after winner selection
     const priority={maxxfan:1,passive:2,hp:3,furnace:4,ac:5};
     const bestScore=results[0].score;
     const inRange=results.filter(r=>r.safe&&r.score<=bestScore+C.tiebreakRange);
     inRange.sort((a,b)=>priority[a.type]-priority[b.type]);
     const winner=inRange.length?inRange[0]:results[0];
 
-    // MaxxFan variant: Bedroom if median > band midpoint, Dining if ≤ band midpoint
     if(winner.type==='maxxfan'){
         const bandMid=isOvernight?(C.nightBandLow+C.nightBandHigh)/2:(C.dayHeatBandLow+C.dayCoolBandHigh)/2;
         winner.variant=winner.indoorMedian>bandMid?'Bedroom MaxxFan':'Dining MaxxFan';
     }
-    // Compute envelope tOut range for display
     const touts=envelope.points.map(p=>p.tOut);
     const tOutMin=Math.min(...touts),tOutMax=Math.max(...touts);
     const tOutMinPt=envelope.points.find(p=>p.tOut===tOutMin);
@@ -779,7 +530,6 @@ function selectOvernightSetup(envelope,isOvernight){
     return{winner,allCandidates:results,envelope,tOutMin,tOutMax,tOutMinTime:tOutMinPt?tOutMinPt.timeStr:'?',tOutMaxTime:tOutMaxPt?tOutMaxPt.timeStr:'?',setpoints};
 }
 
-// Map internal candidate types to user-facing system names
 function systemDisplayName(winner){
     if(winner.type==='passive') return 'No system needed';
     if(winner.type==='maxxfan') return winner.variant||'MaxxFan vents';
@@ -789,22 +539,13 @@ function systemDisplayName(winner){
     return 'Unknown';
 }
 
-// ========== RENDER ==========
-
 function analyze(){
     const isDay=state.period==='day';const container=document.getElementById('results');
     if(isDay){
-        // ===== DAYTIME: envelope-based evaluation, single recommendation card =====
-        // v1.10: Daytime is now treated as unattended (owner sightseeing for the day).
-        // Same envelope-and-clamp model as overnight, with daytime window 9 AM – 7 PM.
-        // Same safety gates (forecast buffer, dp-adjusted HP min) apply.
-        // Solar load scales by hour via solarHourFactor() so morning/evening don't
-        // overstate gain.
         const envelope=buildEnvelope(false);
         const result=selectOvernightSetup(envelope,false);
         container.innerHTML=renderRecommendation('dayCard','Daytime Recommendation',result,false);
     }else{
-        // ===== OVERNIGHT: envelope-based evaluation, single recommendation card =====
         const envelope=buildEnvelope(true);
         const result=selectOvernightSetup(envelope,true);
         container.innerHTML=renderRecommendation('overnightCard','Overnight Recommendation',result,true);
@@ -812,22 +553,17 @@ function analyze(){
     container.classList.add('visible');container.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
-// Render the envelope-based recommendation card.
-// Replaces the old two-card (bedtime + worst-case) structure.
 function renderRecommendation(id,title,result,isOvernight){
     const w=result.winner;
     const envelope=result.envelope;
     const sysName=systemDisplayName(w);
 
-    // Risk badge: safe if winner is safe, otherwise show the disqualification severity
     const riskBadge=w.safe?'<div class="risk-badge safe"><div class="risk-dot safe"></div><span>Safe</span></div>':'<div class="risk-badge high"><div class="risk-dot high"></div><span>No Safe Option</span></div>';
 
-    // Indoor range display: collapse to single value if min ≈ max
     const rangeSame=Math.abs(w.indoorMax-w.indoorMin)<0.5;
     const indoorRangeStr=rangeSame?(w.indoorMin+'°F'):(w.indoorMin+'°F – '+w.indoorMax+'°F');
     const indoorRangeDetail=rangeSame?'':' ('+w.indoorMin+'°F at '+w.minTime+', '+w.indoorMax+'°F at '+w.maxTime+')';
 
-    // Comfort band compliance
     const bandLo=isOvernight?C.nightBandLow:C.dayHeatBandLow;
     const bandHi=isOvernight?C.nightBandHigh:C.dayCoolBandHigh;
     const bandLabel=isOvernight?'Sleep Band ['+C.nightBandLow+'°F – '+C.nightBandHigh+'°F]':'Comfort Band ['+C.dayHeatBandLow+'°F – '+C.dayCoolBandHigh+'°F]';
@@ -837,7 +573,6 @@ function renderRecommendation(id,title,result,isOvernight){
     else if(w.indoorMin<bandLo){bandStatus='Drifts '+(bandLo-w.indoorMin).toFixed(1)+'°F below band at '+w.minTime+' — bring an extra blanket';bandColor='var(--accent-amber)';}
     else {bandStatus='In band';bandColor='var(--accent-green)';}
 
-    // Forecast envelope summary
     let envelopeStr;
     if(envelope.singlePoint){
         envelopeStr=envelope.points[0].tOut+'°F (single-point analysis)';
@@ -845,10 +580,8 @@ function renderRecommendation(id,title,result,isOvernight){
         envelopeStr=result.tOutMin+'°F at '+result.tOutMinTime+' → '+result.tOutMax+'°F at '+result.tOutMaxTime;
     }
 
-    // Manual-entry caveat banner
     const manualBanner=envelope.singlePoint?'<div class="mitigation-box" style="border-color:var(--accent-amber);background:rgba(245,158,11,0.08);"><strong style="color:var(--accent-amber);">Single-Point Analysis</strong>Without an hourly forecast, this recommendation evaluates only the conditions you entered. Indoor conditions may shift if outdoor temp changes across the '+(isOvernight?'night':'day')+'. Enter the worst-case expected '+(isOvernight?'low':'high')+' for the safest setup.</div>':'';
 
-    // Setup instructions per candidate type
     let setupInstructions='';
     if(w.type==='passive'){
         setupInstructions='Windows and MaxxFan closed. No thermostat changes needed.';
@@ -866,8 +599,6 @@ function renderRecommendation(id,title,result,isOvernight){
         setupInstructions='Thermostat in Furnace (LP gas) mode, set to '+result.setpoints.heat+'°F. Windows and MaxxFan closed.';
     }
 
-    // Equipment safety note for active heating modes (HP frost window, furnace dp rationale)
-    // Applies to both daytime and overnight as of v1.10 (daytime unattended uses same gates).
     let equipNote='';
     if(w.type==='hp'){
         const minTout=result.tOutMin;
@@ -875,19 +606,16 @@ function renderRecommendation(id,title,result,isOvernight){
             equipNote='Outdoor temp dips into '+C.heatPumpMinTemp+'–'+C.heatPumpFrostThresh+'°F range (frost window). Defrost cycle should manage it. If cabin struggles to reach setpoint, switch to LP Furnace.';
         }
     }else if(w.type==='furnace'){
-        // Surface overnightHeatSystem rationale for why HP wasn't chosen
         const hs=overnightHeatSystem(result.tOutMin,envelope.points[0].rh);
         equipNote=hs.reason;
     }
 
-    // "Why not the alternatives" — diagnostic section listing all candidates
     const altRows=result.allCandidates.map(c=>{
         const name=c.type==='passive'?'Closed up (no system)':c.type==='maxxfan'?'MaxxFan':c.type==='ac'?'Air Conditioner':c.type==='hp'?'Heat Pump':c.type==='furnace'?'LP Furnace':'?';
         const status=c===w?'<strong style="color:var(--accent-green);">RECOMMENDED</strong>':!c.safe?'<span style="color:var(--accent-red);">Unsafe: '+c.equipmentReason+'</span>':'Score '+c.score+' · indoor '+c.indoorMin+'–'+c.indoorMax+'°F';
         return'<div class="diag-row"><span class="diag-key">'+name+'</span><span class="diag-val" style="font-size:11px;text-align:right;">'+status+'</span></div>';
     }).join('');
 
-    // No-safe-option fallback message
     let unmetMsg='';
     if(!w.safe){
         unmetMsg='<div class="mitigation-box" style="border-color:var(--accent-red);background:rgba(239,68,68,0.08);"><strong style="color:var(--accent-red);">No Safe Setup Found</strong>None of the evaluated candidates passed equipment safety gates across the forecast envelope. Closest match shown above. Review the alternatives below and choose manually based on your judgment.</div>';
@@ -914,11 +642,6 @@ function renderRecommendation(id,title,result,isOvernight){
     </div>`;
 }
 
-// ========== UI ==========
-// v1.10.3: Update tab sublabels to reflect which time window will be evaluated.
-// Re-evaluated on app init, forecast retrieval (GPS / zip lookup), and period changes.
-// Not live-updating — if the app is left open across a time-band transition (e.g. 7 PM),
-// labels stay until the next user action triggers a refresh.
 function updatePeriodSublabels(){
     const dayWin=computeWindow(false);
     const nightWin=computeWindow(true);
@@ -939,14 +662,18 @@ function setPeriod(p){
     if(forecast.fetched){applyForecast(p);analyze();}
     else{if(p==='night'&&state.temp>75){state.temp-=15;document.getElementById('tempValue').textContent=state.temp;}if(p==='day'&&state.temp<55){state.temp+=15;document.getElementById('tempValue').textContent=state.temp;}}
 }
-function step(f,d){if(f==='temp'){state.temp=Math.max(20,Math.min(110,state.temp+d));document.getElementById('tempValue').textContent=state.temp;}else if(f==='rh'){state.rh=Math.max(10,Math.min(100,state.rh+d));document.getElementById('rhValue').textContent=state.rh;}else if(f==='wind'){state.wind=Math.max(0,Math.min(50,state.wind+d));document.getElementById('windValue').textContent=state.wind;}}
+function step(f,d){
+    if(f==='temp'){state.temp=Math.max(20,Math.min(110,state.temp+d));document.getElementById('tempValue').textContent=state.temp;}
+    else if(f==='rh'){state.rh=Math.max(10,Math.min(100,state.rh+d));document.getElementById('rhValue').textContent=state.rh;}
+    else if(f==='wind'){state.wind=Math.max(0,Math.min(50,state.wind+d));document.getElementById('windValue').textContent=state.wind;}
+    else if(f==='indoor'){state.indoor=Math.max(40,Math.min(110,state.indoor+d));document.getElementById('indoorValue').textContent=state.indoor;}
+}
 function selectChip(g,v,el){el.parentElement.querySelectorAll('.selector-chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');if(g==='cloud')state.cloud=parseFloat(v);if(g==='precip')state.precip=v;}
 
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBanner').style.display='block';});
 document.getElementById('installBtn').addEventListener('click',async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;document.getElementById('installBanner').style.display='none';}});
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
-// v1.10.3: Init period sublabels at app start so they reflect current time bands
 updatePeriodSublabels();
 </script>
 </body>
