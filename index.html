@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v1.10.2 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v1.10.3 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -21,7 +21,8 @@
         .header-version{font-size:13px;font-weight:500;color:var(--text-muted);margin-left:6px;}
         .header-sub{font-size:12px;color:var(--text-secondary);margin-top:2px;}
         .period-toggle{display:flex;background:var(--bg-card);border-radius:var(--radius);padding:4px;margin:16px 0 4px;border:1px solid var(--border);}
-        .period-btn{flex:1;padding:12px 0;border:none;border-radius:var(--radius-sm);font-family:var(--font-display);font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s;background:transparent;color:var(--text-muted);}
+        .period-btn{flex:1;padding:8px 0;border:none;border-radius:var(--radius-sm);font-family:var(--font-display);font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s;background:transparent;color:var(--text-muted);display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.2;}
+        .period-btn .period-sublabel{font-size:10px;font-weight:600;opacity:0.85;margin-top:2px;letter-spacing:0.02em;}
         .period-btn.active{background:var(--accent-blue);color:#fff;box-shadow:0 2px 8px rgba(74,124,255,0.3);}
         .setpoint-display{text-align:center;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);padding:6px 0 12px;letter-spacing:0.02em;}
         .setpoint-display span{color:var(--text-secondary);font-weight:600;}
@@ -84,7 +85,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v1.10.2</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v1.10.3</span></div>
         <div class="header-sub">Thermodynamic analysis · Coil freeze prediction</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -101,8 +102,8 @@
     </div>
 
     <div class="period-toggle">
-        <button class="period-btn active" data-period="day" onclick="setPeriod('day')">☀ Daytime</button>
-        <button class="period-btn" data-period="night" onclick="setPeriod('night')">☾ Overnight</button>
+        <button class="period-btn active" data-period="day" onclick="setPeriod('day')"><span>☀ Daytime</span><span class="period-sublabel" id="daySublabel">(Today)</span></button>
+        <button class="period-btn" data-period="night" onclick="setPeriod('night')"><span>☾ Overnight</span><span class="period-sublabel" id="nightSublabel">(Tonight)</span></button>
     </div>
     <div class="setpoint-display" id="setpointDisplay">Cool <span>72°F</span> · Heat <span>70°F</span></div>
 
@@ -236,7 +237,7 @@ async function fetchNWS(lat,lon,placeName){
     forecast.location=loc;forecast._lat=lat;forecast._lon=lon;forecast.fetched=true;
     document.getElementById('weatherLocation').textContent=loc+' — '+dayP.name+' / '+nightP.name;
     document.getElementById('weatherLocation').style.display='block';
-    showStatus('Forecast retrieved successfully',false);applyForecast(state.period);analyze();
+    showStatus('Forecast retrieved successfully',false);updatePeriodSublabels();applyForecast(state.period);analyze();
 }
 function extractMaxRH(vals,sISO,eISO){if(!vals||!vals.length)return null;const s=new Date(sISO).getTime(),e=new Date(eISO).getTime();let mx=null;for(const v of vals){const t=new Date(v.validTime.split('/')[0]).getTime();const dm=v.validTime.match(/\/PT(\d+)H/);const dur=dm?parseInt(dm[1])*3600000:3600000;if(t+dur>s&&t<e&&v.value!=null){if(mx===null||v.value>mx)mx=v.value;}}return mx!==null?Math.round(mx):null;}
 function extractHourlyTemp(tv,tgt){if(!tv||!tv.length)return null;const t0=tgt.getTime();let c=null,cd=Infinity;for(const v of tv){const t=new Date(v.validTime.split('/')[0]).getTime();const d=Math.abs(t-t0);if(d<cd&&v.value!=null){cd=d;c=v.value;}}return c!==null?Math.round(c*9/5+32):null;}
@@ -445,7 +446,7 @@ function overnightHeatSystem(tOut,rh){
 
 // ========== LEGACY runAnalysis (pre-v1.9 setpoint-referenced load logic) ==========
 // Retained but not called. v1.9 selection uses passive equilibrium and clamp model
-// via selectOvernightSetup(). Scheduled for removal in v1.10.3 cleanup pass.
+// via selectOvernightSetup(). Scheduled for removal in v1.10.4 cleanup pass.
 function runAnalysis(tOut,rh,cf,wind,precip,isDay,elapsedHours){
     const coolSet=isDay?C.dayCool:C.nightCool;
     const heatSet=isDay?C.dayHeat:C.nightHeat;
@@ -542,48 +543,88 @@ function runAnalysis(tOut,rh,cf,wind,precip,isDay,elapsedHours){
 //   5. Score remaining candidates: warm-side 2x cold-side penalty per °F outside band
 //   6. Apply tiebreaker ordering within tiebreakRange points
 
+// v1.10.3: Window-selection logic for daytime and overnight evaluation.
+// Three time branches based on invocation time, producing both window bounds and a
+// UI label indicating which window is being evaluated.
+//
+// Morning/afternoon use (7 AM – 6:59 PM):
+//   - Daytime   → today 9 AM – 7 PM             label "Today"
+//   - Overnight → today 10 PM – tomorrow 7 AM   label "Tonight"
+// Evening use (7 PM – 11:59 PM):
+//   - Daytime   → tomorrow 9 AM – 7 PM          label "Tomorrow"
+//   - Overnight → today 10 PM – tomorrow 7 AM   label "Tonight"
+// Late-night use (12 AM – 6:59 AM):
+//   - Daytime   → today 9 AM – 7 PM             label "Today"
+//   - Overnight → yesterday 10 PM – today 7 AM  label "In Progress"
+//
+// Window start is clamped to max(now, windowStart) to exclude already-past hours
+// from the envelope (forward-looking analysis only).
+function computeWindow(isOvernight){
+    const now=new Date();
+    const nowH=now.getHours()+now.getMinutes()/60;
+    const Y=now.getFullYear(),M=now.getMonth(),D=now.getDate();
+    let start,end,label;
+    if(isOvernight){
+        if(nowH>=7&&nowH<19){
+            // Morning/afternoon: tonight's upcoming overnight
+            start=new Date(Y,M,D,22,0,0);
+            end=new Date(Y,M,D+1,7,0,0);
+            label='Tonight';
+        }else if(nowH>=19){
+            // Evening: tonight's overnight (may not have started yet)
+            start=new Date(Y,M,D,22,0,0);
+            end=new Date(Y,M,D+1,7,0,0);
+            label='Tonight';
+        }else{
+            // Late-night (12 AM – 6:59 AM): overnight already in progress, started yesterday
+            start=new Date(Y,M,D-1,22,0,0);
+            end=new Date(Y,M,D,7,0,0);
+            label='In Progress';
+        }
+    }else{
+        if(nowH>=7&&nowH<19){
+            // Morning/afternoon: today's daytime
+            start=new Date(Y,M,D,9,0,0);
+            end=new Date(Y,M,D,19,0,0);
+            label='Today';
+        }else if(nowH>=19){
+            // Evening: tomorrow's daytime
+            start=new Date(Y,M,D+1,9,0,0);
+            end=new Date(Y,M,D+1,19,0,0);
+            label='Tomorrow';
+        }else{
+            // Late-night (12 AM – 6:59 AM): today's daytime is coming up
+            start=new Date(Y,M,D,9,0,0);
+            end=new Date(Y,M,D,19,0,0);
+            label='Today';
+        }
+    }
+    // Clamp start to max(now, windowStart) — exclude already-past hours
+    const effectiveStart=now>start?now:start;
+    return{start:effectiveStart,end,label};
+}
+
 // Build the forecast envelope for either overnight or daytime evaluation.
-// Overnight: uses NWS night-period bounds (typically ~6 PM to ~6 AM).
-// Daytime:   uses fixed 9 AM – 7 PM window on today's date — the typical unattended
-//   sightseeing window. Window is bounded rather than full NWS daytime period (which
-//   spans sunrise to sunset, often 14+ hours) to focus on the practical away-from-coach
-//   hours and to avoid evaluating early-morning hours when the owner is still present.
+// v1.10.3: Window bounds determined by computeWindow() with three-branch time logic.
+// Hardcoded windows (9 AM – 7 PM daytime, 10 PM – 7 AM overnight) replace the prior
+// dependence on NWS-defined period boundaries which varied seasonally and didn't
+// align with the user's sleep/sightseeing schedule.
 // Falls back to single-point envelope when forecast.tempVals is unavailable.
 function buildEnvelope(isOvernight){
     const lat=forecast.fetched&&forecast._lat!=null?forecast._lat:null;
     const lon=forecast.fetched&&forecast._lon!=null?forecast._lon:null;
+    const win=computeWindow(isOvernight);
     if(!forecast.fetched||!forecast.tempVals){
         // Manual entry or pipeline failure — single-point envelope from current state
-        return{points:[{time:new Date(),tOut:state.temp,rh:state.rh,timeStr:'Current'}],singlePoint:true,cloud:state.cloud,wind:state.wind,precip:state.precip,lat,lon};
+        return{points:[{time:new Date(),tOut:state.temp,rh:state.rh,timeStr:'Current'}],singlePoint:true,cloud:state.cloud,wind:state.wind,precip:state.precip,lat,lon,windowLabel:win.label};
     }
-    // Window bounds
-    let s,e,fallbackTemp,fallbackRH,fallbackCloud,fallbackWind,fallbackPrecip,fallbackLabel;
-    if(isOvernight){
-        if(!forecast.nightStart||!forecast.nightEnd){
-            return{points:[{time:new Date(),tOut:state.temp,rh:state.rh,timeStr:'Current'}],singlePoint:true,cloud:state.cloud,wind:state.wind,precip:state.precip,lat,lon};
-        }
-        s=forecast.nightStart.getTime();e=forecast.nightEnd.getTime();
-        fallbackTemp=forecast.night.temp;fallbackRH=forecast.night.rh;
-        fallbackCloud=forecast.night.cloud;fallbackWind=forecast.night.wind;
-        fallbackPrecip=forecast.night.precip;fallbackLabel='Overnight';
-    }else{
-        // Daytime 9 AM – 7 PM local on today's date
-        const now=new Date();
-        const dayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate(),9,0,0);
-        const dayEnd=new Date(now.getFullYear(),now.getMonth(),now.getDate(),19,0,0);
-        // If current time is past 7 PM, evaluate tomorrow's 9 AM – 7 PM window
-        if(now>dayEnd){
-            dayStart.setDate(dayStart.getDate()+1);
-            dayEnd.setDate(dayEnd.getDate()+1);
-        }
-        s=dayStart.getTime();e=dayEnd.getTime();
-        fallbackTemp=forecast.day?forecast.day.temp:state.temp;
-        fallbackRH=forecast.day?forecast.day.rh:state.rh;
-        fallbackCloud=forecast.day?forecast.day.cloud:state.cloud;
-        fallbackWind=forecast.day?forecast.day.wind:state.wind;
-        fallbackPrecip=forecast.day?forecast.day.precip:state.precip;
-        fallbackLabel='Daytime';
-    }
+    const s=win.start.getTime(),e=win.end.getTime();
+    const fallbackTemp=isOvernight?(forecast.night?forecast.night.temp:state.temp):(forecast.day?forecast.day.temp:state.temp);
+    const fallbackRH=isOvernight?(forecast.night?forecast.night.rh:state.rh):(forecast.day?forecast.day.rh:state.rh);
+    const fallbackCloud=isOvernight?(forecast.night?forecast.night.cloud:state.cloud):(forecast.day?forecast.day.cloud:state.cloud);
+    const fallbackWind=isOvernight?(forecast.night?forecast.night.wind:state.wind):(forecast.day?forecast.day.wind:state.wind);
+    const fallbackPrecip=isOvernight?(forecast.night?forecast.night.precip:state.precip):(forecast.day?forecast.day.precip:state.precip);
+    const fallbackLabel=isOvernight?'Overnight':'Daytime';
     const points=[];
     for(const v of forecast.tempVals){
         const t=new Date(v.validTime.split('/')[0]).getTime();
@@ -607,12 +648,12 @@ function buildEnvelope(isOvernight){
         }
     }
     if(points.length===0){
-        return{points:[{time:new Date(s),tOut:fallbackTemp,rh:fallbackRH,timeStr:fallbackLabel}],singlePoint:true,cloud:fallbackCloud,wind:fallbackWind,precip:fallbackPrecip,lat,lon};
+        return{points:[{time:new Date(s),tOut:fallbackTemp,rh:fallbackRH,timeStr:fallbackLabel}],singlePoint:true,cloud:fallbackCloud,wind:fallbackWind,precip:fallbackPrecip,lat,lon,windowLabel:win.label};
     }
-    return{points,singlePoint:false,cloud:fallbackCloud,wind:fallbackWind,precip:fallbackPrecip,lat,lon};
+    return{points,singlePoint:false,cloud:fallbackCloud,wind:fallbackWind,precip:fallbackPrecip,lat,lon,windowLabel:win.label};
 }
 
-// Backward-compat alias used by analyze() — kept until full rename in v1.10.3
+// Backward-compat alias used by analyze() — kept until full rename in v1.10.4
 function buildOvernightEnvelope(){return buildEnvelope(true);}
 
 // Compute passive equilibrium indoor temp at a given envelope point.
@@ -853,7 +894,7 @@ function systemDisplayName(winner){
 // ========== RENDER ==========
 // ========== LEGACY renderCard (pre-v1.9 two-card structure) ==========
 // Retained but not called. v1.9 uses renderRecommendation() for envelope-based output.
-// Scheduled for removal in v1.10.3 cleanup pass.
+// Scheduled for removal in v1.10.4 cleanup pass.
 function renderCard(id,title,r,tOut,rh,isDay,extra){
     const rl={safe:'Safe',low:'Low',moderate:'Moderate',high:'High'};
     const mx=Math.max(Math.abs(r.qSol),Math.abs(r.qCond),Math.abs(r.qMeta),Math.abs(r.qApp),Math.abs(r.qTot),1);
@@ -1055,6 +1096,19 @@ function renderRecommendation(id,title,result,isOvernight){
 }
 
 // ========== UI ==========
+// v1.10.3: Update tab sublabels to reflect which time window will be evaluated.
+// Re-evaluated on app init, forecast retrieval (GPS / zip lookup), and period changes.
+// Not live-updating — if the app is left open across a time-band transition (e.g. 7 PM),
+// labels stay until the next user action triggers a refresh.
+function updatePeriodSublabels(){
+    const dayWin=computeWindow(false);
+    const nightWin=computeWindow(true);
+    const dayEl=document.getElementById('daySublabel');
+    const nightEl=document.getElementById('nightSublabel');
+    if(dayEl) dayEl.textContent='('+dayWin.label+')';
+    if(nightEl) nightEl.textContent='('+nightWin.label+')';
+}
+
 function setPeriod(p){
     state.period=p;
     document.querySelectorAll('.period-btn').forEach(b=>b.classList.toggle('active',b.dataset.period===p));
@@ -1062,6 +1116,7 @@ function setPeriod(p){
     document.getElementById('cloudLabel').textContent=p==='day'?'Cloud Cover':'Today\'s Cloud Cover';
     document.getElementById('cloudHint').style.display=p==='night'?'block':'none';
     document.getElementById('setpointDisplay').innerHTML=p==='day'?'Cool <span>72°F</span> · Heat <span>70°F</span>':'Cool <span>68°F</span> · Heat <span>66°F</span>';
+    updatePeriodSublabels();
     if(forecast.fetched){applyForecast(p);analyze();}
     else{if(p==='night'&&state.temp>75){state.temp-=15;document.getElementById('tempValue').textContent=state.temp;}if(p==='day'&&state.temp<55){state.temp+=15;document.getElementById('tempValue').textContent=state.temp;}}
 }
@@ -1072,6 +1127,8 @@ let deferredPrompt;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBanner').style.display='block';});
 document.getElementById('installBtn').addEventListener('click',async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;document.getElementById('installBanner').style.display='none';}});
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+// v1.10.3: Init period sublabels at app start so they reflect current time bands
+updatePeriodSublabels();
 </script>
 </body>
 </html>
