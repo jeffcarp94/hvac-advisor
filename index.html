@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v3.1 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v3.2 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -85,7 +85,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v3.1</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v3.2</span></div>
         <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -182,7 +182,7 @@ const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
 // Fan speed hierarchy for safety progression (Auto defaults to 0 for logic comparisons)
 const fanLevels = {'Low': 1, 'Medium': 2, 'High': 3, 'Auto': 0};
 
-const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/3.1','Accept':'application/geo+json'};
+const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/3.2','Accept':'application/geo+json'};
 
 async function retrieveWeather(){
     const zip=document.getElementById('zipInput').value.trim();
@@ -446,6 +446,14 @@ function passiveEqAt(tOut,wind,cf,isDay,meta,solarCtx){
     return tOut+qInt/ua;
 }
 
+// v3.2 doctrine: tEq vs tMass separation.
+//   tEq = passive equilibrium = tOut + qInt/UA. Drives equipment load (steady-state).
+//   tMass = damped air temp = tEq + (tInPrev - tEq)·exp(-Δt/τ). What occupants feel.
+//   Equipment load must be UA·(tEq - setpoint), NOT UA·(tMass - setpoint). The latter
+//   conflates transient cabin response with sustained load and contains a spurious
+//   exp(-Δt/τ) term proportional to (tInPrev - tEq). Engagement triggers also key off
+//   tEq because the AC engages based on where the cabin is going (steady state), not
+//   on its momentary value. tMass is still returned as the predicted indoor temp.
 function predictIndoor(candidateType,tOut,wind,cf,isDay,meta,setpoints,solarCtx, tInPrev, dtHours){
     const dt = (dtHours && dtHours > 0) ? dtHours : 1; // default 1hr if not provided
     const tEq=passiveEqAt(tOut,wind,cf,isDay,meta,solarCtx);
@@ -456,30 +464,33 @@ function predictIndoor(candidateType,tOut,wind,cf,isDay,meta,setpoints,solarCtx,
     if(candidateType==='auto'){
         const coolTrigger = setpoints.auto + 2;
         const heatTrigger = setpoints.auto - 2;
-        if (tMass > coolTrigger) {
-            // AC fires. If load > capacity, cabin overruns above setpoint.
-            const coolingLoad = (tMass - setpoints.auto) * ua;
+        // v3.2: engagement and load reference tEq (steady state), not tMass (transient).
+        if (tEq > coolTrigger) {
+            // AC fires. Load referenced to setpoint, not trigger.
+            const coolingLoad = (tEq - setpoints.auto) * ua;
             if(coolingLoad > C.acCapacity){
                 return setpoints.auto + (coolingLoad - C.acCapacity) / ua;
             }
             return setpoints.auto + 1;
         }
-        if (tMass < heatTrigger) {
+        if (tEq < heatTrigger) {
             // Heat fires. Auto mode prioritizes heat pump.
             // Capacity check: HP typically delivers ~12,000-15,000 BTU/hr at moderate outdoor temps,
             // furnace delivers 19,000 BTU/hr input (~15,000 BTU/hr output at ~80% efficiency).
             const heatCap = (tOut >= C.heatPumpMinTemp) ? 13000 : 15000; // HP derates at cold; furnace 15K output
-            const heatLoad = (setpoints.auto - tMass) * ua;
+            const heatLoad = (setpoints.auto - tEq) * ua;
             if(heatLoad > heatCap){
                 return setpoints.auto - (heatLoad - heatCap) / ua;
             }
             return setpoints.auto - 1;
         }
-        return tMass; 
+        return tMass; // deadband: passive damping prevails
     }
     if(candidateType==='maxxfan'){
         const mfSet=isDay?C.maxxFanSetDay:C.maxxFanSetNight;
-        if(tMass<=mfSet) return tMass;
+        // v3.2: engagement decision keyed off tEq. If passive equilibrium stays at/below the
+        // MaxxFan setpoint, the cabin won't need active ventilation; return the damped tMass.
+        if(tEq<=mfSet) return tMass;
         const uaPassive=UA_BASE*(1+0.02*wind);
         const ventUA=1.08*C.maxxFanCFM;
         const qInt=(tEq-tOut)*uaPassive;
@@ -489,30 +500,33 @@ function predictIndoor(candidateType,tOut,wind,cf,isDay,meta,setpoints,solarCtx,
         return tMassMaxxfan;
     }
     if(candidateType==='ac'){
-        // Capacity-limited: if AC can't meet load, cabin overruns above setpoint
-        if(tMass <= setpoints.cool) return tMass;
-        const coolingLoad = (tMass - setpoints.cool) * ua;
+        // v3.2: engagement and load reference tEq (steady state). If tEq is at or below setpoint,
+        // the cabin will not sustain above setpoint and AC won't carry meaningful load.
+        if(tEq <= setpoints.cool) return tMass;
+        const coolingLoad = (tEq - setpoints.cool) * ua;
         if(coolingLoad > C.acCapacity){
             return setpoints.cool + (coolingLoad - C.acCapacity) / ua;
         }
         return setpoints.cool;
     }
     if(candidateType==='hp'){
+        // v3.2: engagement and load reference tEq (steady state).
         // Heat pump capacity derates with cold. Conservative estimate: 13,000 BTU/hr at 41-50F,
         // 15,000 nominal above 50F.
-        if(tMass >= setpoints.heat) return tMass;
+        if(tEq >= setpoints.heat) return tMass;
         const heatCap = tOut > C.heatPumpFrostThresh ? 15000 : 13000;
-        const heatLoad = (setpoints.heat - tMass) * ua;
+        const heatLoad = (setpoints.heat - tEq) * ua;
         if(heatLoad > heatCap){
             return setpoints.heat - (heatLoad - heatCap) / ua;
         }
         return setpoints.heat;
     }
     if(candidateType==='furnace'){
+        // v3.2: engagement and load reference tEq (steady state).
         // Furnace 19,000 BTU/hr input × ~80% efficiency ≈ 15,000 BTU/hr output (Suburban NT-20SQ).
-        if(tMass >= setpoints.heat) return tMass;
+        if(tEq >= setpoints.heat) return tMass;
         const heatCap = 15000;
-        const heatLoad = (setpoints.heat - tMass) * ua;
+        const heatLoad = (setpoints.heat - tEq) * ua;
         if(heatLoad > heatCap){
             return setpoints.heat - (heatLoad - heatCap) / ua;
         }
@@ -533,9 +547,10 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
         let reqFan = isOvernight ? 'Low' : 'Auto';
         let freezeRisk = null;
         
-        if (tMass > coolTrigger) {
+        if (tEq > coolTrigger) {
             const uaPassive = UA_BASE*(1+0.02*wind);
-            const coolingLoad = (tMass - coolTrigger) * uaPassive;
+            // v3.2: steady-state load referenced to setpoint, not trigger.
+            const coolingLoad = (tEq - setpoints.auto) * uaPassive;
             const dutyCycle = Math.min(1, coolingLoad / C.acCapacity);
             
             if(tOut - C.acOutdoorBuffer < C.comfortFloor && dutyCycle >= C.acBufferDutyThreshold){
@@ -564,7 +579,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
                 // Severe — even with highest safe fan, coil too cold
                 return {safe: false, reason: 'Auto AC: '+freezeRisk.note, requiredFan:null, freezeRisk};
             }
-        } else if (tMass < heatTrigger) {
+        } else if (tEq < heatTrigger) {
             // Heat fires in AUTO. Heat pump is the only path AUTO will take per Dometic CCC2 priority.
             if (tOut < C.heatPumpMinTemp) {
                 return {safe: false, reason: 'Auto mode selects Heat Pump for heating, but outdoor '+tOut+'°F is below the heat pump minimum of '+C.heatPumpMinTemp+'°F. Use Furnace mode directly.', requiredFan:null, freezeRisk:null};
@@ -593,9 +608,10 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
     if(candidateType==='ac'){
         let reqFan = isOvernight ? 'Low' : 'Auto';
         let freezeRisk = null;
-        if(tMass<=setpoints.cool) return{safe:true,reason:'', requiredFan:reqFan, freezeRisk:null}; 
+        if(tEq<=setpoints.cool) return{safe:true,reason:'', requiredFan:reqFan, freezeRisk:null}; 
         const uaPassive=UA_BASE*(1+0.02*wind);
-        const coolingLoad=(tMass-setpoints.cool)*uaPassive;
+        // v3.2: steady-state load drives duty cycle and downstream coil temp.
+        const coolingLoad=(tEq-setpoints.cool)*uaPassive;
         const dutyCycle=Math.min(1,coolingLoad/C.acCapacity);
         
         if(tOut-C.acOutdoorBuffer<C.comfortFloor && dutyCycle>=C.acBufferDutyThreshold){
@@ -627,7 +643,9 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
     }
 
     if(candidateType==='hp'){
-        if(tMass>=setpoints.heat) return{safe:true,reason:'', requiredFan:null, freezeRisk:null}; 
+        // v3.2: engagement keyed off tEq (steady state). If passive equilibrium is at/above
+        // setpoint, HP will idle and the unattended dew-point check is moot.
+        if(tEq>=setpoints.heat) return{safe:true,reason:'', requiredFan:null, freezeRisk:null}; 
         const hs=overnightHeatSystem(tOut,rh);
         if(hs.sys!=='Heat Pump') return{safe:false,reason:hs.reason, requiredFan:null, freezeRisk:null};
         return{safe:true,reason:'', requiredFan:null, freezeRisk:null};
@@ -679,13 +697,14 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
         const indoor=predictIndoor(candidateType,pt.tOut,envelope.wind,envelope.cloud,!isOvernight,meta,setpoints,solarCtx,currentIn,dtHours);
         
         if (candidateType === 'auto') {
+            // v3.2: engagement flags key off tEq for consistency with predictIndoor.
             const tEqPt = passiveEqAt(pt.tOut,envelope.wind,envelope.cloud,!isOvernight,meta,solarCtx);
-            const tMassPt = tEqPt + (currentIn - tEqPt) * Math.exp(-dtHours / C.tau);
-            if (tMassPt > setpoints.auto + 2) autoDidCool = true;
-            if (tMassPt < setpoints.auto - 2) autoDidHeat = true;
+            if (tEqPt > setpoints.auto + 2) autoDidCool = true;
+            if (tEqPt < setpoints.auto - 2) autoDidHeat = true;
         } else if (candidateType === 'ac') {
+            // v3.2: AC engaged if steady-state would exceed setpoint.
             const tEqPt = passiveEqAt(pt.tOut,envelope.wind,envelope.cloud,!isOvernight,meta,solarCtx);
-            if (tEqPt + (currentIn - tEqPt) * Math.exp(-dtHours / C.tau) > setpoints.cool) autoDidCool = true;
+            if (tEqPt > setpoints.cool) autoDidCool = true;
         }
 
         indoorVals.push(indoor);
@@ -702,10 +721,10 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
         }else if(candidateType==='ac'){
             bandLo=C.dayCoolBandLow;bandHi=C.dayCoolBandHigh;
         }else if(candidateType==='maxxfan'){
+            // v3.2: regime classification keys off tEq (steady-state tendency), not damped tMass.
             const tEqPt=passiveEqAt(pt.tOut,envelope.wind,envelope.cloud,!isOvernight,meta,solarCtx);
-            const tMassPt = tEqPt + (currentIn - tEqPt) * Math.exp(-dtHours / C.tau);
             const mfSet=!isOvernight?C.maxxFanSetDay:C.maxxFanSetNight;
-            if(tMassPt>mfSet){bandLo=C.dayCoolBandLow;bandHi=C.dayCoolBandHigh;}
+            if(tEqPt>mfSet){bandLo=C.dayCoolBandLow;bandHi=C.dayCoolBandHigh;}
             else {bandLo=C.dayHeatBandLow;bandHi=C.dayCoolBandHigh;} 
         }else {
             bandLo=C.dayHeatBandLow;bandHi=C.dayCoolBandHigh; 
