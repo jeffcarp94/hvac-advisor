@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v3.2 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v3.3 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -85,7 +85,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v3.2</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v3.3</span></div>
         <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -162,12 +162,12 @@ const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:3
     dayCoolDefault:72,nightCoolDefault:68,dayHeatDefault:70,nightHeatDefault:66,comfortFloor:65,
     nightBandLow:66,nightBandHigh:70,
     dayHeatBandLow:68,dayHeatBandHigh:72,
-    dayCoolBandLow:70,dayCoolBandHigh:74,
+    dayCoolBandLow:70,dayCoolBandHigh:72,
     warmPenalty:2.0,coldPenalty:1.0,
     maxxFanDrift:2,
     maxxFanMinOutdoor:65,  // Hard outdoor-temp floor per documented doctrine — comfort floor at 65°F
     maxxFanSetNight:70,
-    maxxFanSetDay:74,
+    maxxFanSetDay:72,
     maxxFanCFM:900,
     acOutdoorBuffer:3,
     acBufferDutyThreshold:0.30,
@@ -755,8 +755,8 @@ function optimizeCandidate(candidateType, envelope, isOvernight, meta) {
     }
     if(candidateType === 'auto'){
         let bestSet = 70, bestScore = Infinity, bestRes = null;
-        // Search bounds 67-72°F per v3.1 doctrine: ±2°F deadband around any setpoint in this range
-        // keeps cabin inside [comfortFloor=65°F, dayCoolBandHigh=74°F] under all conditions.
+        // Search bounds 67-72°F per v3.3 doctrine: ±2°F deadband around any setpoint in this range
+        // keeps cabin inside [comfortFloor=65°F, dayCoolBandHigh=72°F] under all conditions.
         for (let testSet = 67; testSet <= 72; testSet++) {
             const tempSetpoints = { auto: testSet, cool: testSet, heat: testSet };
             const res = evaluateCandidate('auto', envelope, isOvernight, tempSetpoints, meta);
@@ -771,10 +771,12 @@ function optimizeCandidate(candidateType, envelope, isOvernight, meta) {
     }
     if(candidateType === 'ac'){
         let bestSet = 72, bestScore = Infinity, bestRes = null;
-        // Search 74 down to 66 per v3.1 doctrine. We want highest efficient setpoint, so first perfect score wins.
-        // 66°F floor enables aggressive pre-cooling on heat-wave forecasts (still 1°F above comfort floor).
-        // If no perfect score, lower setpoints will organically win via smaller warm penalties.
-        for(let testSet = 74; testSet >= 66; testSet--){
+        // Search 72 down to 66 per v3.3 doctrine. Comfort ceiling = 72°F (owner's optimal daytime temp).
+        // Highest safe setpoint wins on mild days (≤72°F). On heat-wave forecasts where 72°F is not
+        // continuously achievable, lower setpoints organically win via smaller warm penalties, enabling
+        // aggressive pre-cooling down to 66°F (1°F above comfort floor). Equipment protection preserved:
+        // any setpoint triggering coil-freeze risk fails the safe check and is excluded from optimization.
+        for(let testSet = 72; testSet >= 66; testSet--){
             const res = evaluateCandidate('ac', envelope, isOvernight, {cool: testSet, heat: 66, auto: 70}, meta);
             if(res.safe && res.score < bestScore) {
                 bestScore = res.score; bestSet = testSet; bestRes = res;
