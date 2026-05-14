@@ -5,13 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v3.5 — Platinum III 250 DT</title>
+    <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
+    <title>HVAC Advisor v3.6 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root{--bg-deep:#0f1117;--bg-card:#1a1c25;--bg-input:#232530;--border:#2e3142;--text-primary:#e8eaf0;--text-secondary:#8b8fa3;--text-muted:#5a5e72;--accent-blue:#4a7cff;--accent-cyan:#22d3ee;--accent-amber:#f59e0b;--accent-red:#ef4444;--accent-green:#22c55e;--accent-purple:#a78bfa;--risk-none:#22c55e;--risk-low:#84cc16;--risk-moderate:#f59e0b;--risk-high:#ef4444;--font-display:'DM Sans',sans-serif;--font-mono:'IBM Plex Mono',monospace;--radius:12px;--radius-sm:8px;}
+        :root{--bg-deep:#0f1117;--bg-card:#1a1c25;--bg-input:#232530;--border:#2e3142;--text-primary:#e8eaf0;--text-secondary:#8b8fa3;--text-muted:#5a5e72;--accent-blue:#4a7cff;--accent-blue-2:#6366f1;--accent-cyan:#22d3ee;--accent-amber:#f59e0b;--accent-red:#ef4444;--accent-green:#22c55e;--risk-none:#22c55e;--risk-low:#84cc16;--risk-moderate:#f59e0b;--risk-high:#ef4444;--on-accent:#ffffff;--severity-amber-text:#f59e0b;--severity-red-text:#ef4444;--severity-green-text:#22c55e;--severity-lime-text:#84cc16;--tint-amber:rgba(245,158,11,0.08);--tint-amber-strong:rgba(245,158,11,0.15);--tint-red:rgba(239,68,68,0.08);--tint-red-soft:rgba(239,68,68,0.06);--tint-red-strong:rgba(239,68,68,0.15);--tint-green-strong:rgba(34,197,94,0.15);--tint-lime-strong:rgba(132,204,22,0.15);--shadow-accent-md:rgba(74,124,255,0.3);--shadow-accent-lg:rgba(74,124,255,0.25);--font-display:'DM Sans',sans-serif;--font-mono:'IBM Plex Mono',monospace;--radius:12px;--radius-sm:8px;}
+        @media (prefers-color-scheme: light){:root{--bg-deep:#f5f6fa;--bg-card:#ffffff;--bg-input:#eef0f5;--border:#d8dbe5;--text-primary:#1a1c25;--text-secondary:#5a5e72;--text-muted:#8b8fa3;--accent-blue:#3a66e8;--accent-blue-2:#4f46e5;--accent-cyan:#0891b2;--severity-amber-text:#b45309;--severity-red-text:#b91c1c;--severity-green-text:#15803d;--severity-lime-text:#4d7c0f;--tint-amber:rgba(245,158,11,0.18);--tint-amber-strong:rgba(245,158,11,0.28);--tint-red:rgba(239,68,68,0.18);--tint-red-soft:rgba(239,68,68,0.14);--tint-red-strong:rgba(239,68,68,0.28);--tint-green-strong:rgba(34,197,94,0.22);--tint-lime-strong:rgba(132,204,22,0.25);--shadow-accent-md:rgba(58,102,232,0.25);--shadow-accent-lg:rgba(58,102,232,0.2);}}
         *{margin:0;padding:0;box-sizing:border-box;}
         body{font-family:var(--font-display);background:var(--bg-deep);color:var(--text-primary);min-height:100vh;-webkit-font-smoothing:antialiased;}
         .app{max-width:480px;margin:0 auto;padding:0 16px 100px;}
@@ -23,7 +25,7 @@
         .period-toggle{display:flex;background:var(--bg-card);border-radius:var(--radius);padding:4px;margin:16px 0 4px;border:1px solid var(--border);}
         .period-btn{flex:1;padding:8px 0;border:none;border-radius:var(--radius-sm);font-family:var(--font-display);font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s;background:transparent;color:var(--text-muted);display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.2;}
         .period-btn .period-sublabel{font-size:10px;font-weight:600;opacity:0.85;margin-top:2px;letter-spacing:0.02em;}
-        .period-btn.active{background:var(--accent-blue);color:#fff;box-shadow:0 2px 8px rgba(74,124,255,0.3);}
+        .period-btn.active{background:var(--accent-blue);color:var(--on-accent);box-shadow:0 2px 8px var(--shadow-accent-md);}
         .setpoint-display{text-align:center;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);padding:6px 0 12px;letter-spacing:0.02em;}
         .setpoint-display span{color:var(--text-secondary);font-weight:600;}
         .input-section{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
@@ -38,18 +40,18 @@
         .stepper-value{font-family:var(--font-mono);font-size:18px;font-weight:700;min-width:44px;text-align:center;}
         .selector-group{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
         .selector-chip{padding:6px 10px;border-radius:20px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-secondary);font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s;white-space:nowrap;}
-        .selector-chip.active{background:var(--accent-blue);border-color:var(--accent-blue);color:#fff;}
-        .analyze-btn{width:100%;padding:16px;border:none;border-radius:var(--radius);background:linear-gradient(135deg,var(--accent-blue),#6366f1);color:#fff;font-family:var(--font-display);font-size:15px;font-weight:800;cursor:pointer;transition:all 0.2s;margin:20px 0;box-shadow:0 4px 16px rgba(74,124,255,0.25);}
+        .selector-chip.active{background:var(--accent-blue);border-color:var(--accent-blue);color:var(--on-accent);}
+        .analyze-btn{width:100%;padding:16px;border:none;border-radius:var(--radius);background:linear-gradient(135deg,var(--accent-blue),var(--accent-blue-2));color:var(--on-accent);font-family:var(--font-display);font-size:15px;font-weight:800;cursor:pointer;transition:all 0.2s;margin:20px 0;box-shadow:0 4px 16px var(--shadow-accent-lg);}
         .analyze-btn:active{transform:scale(0.98);}
         .results{display:none;}.results.visible{display:block;}
         .result-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:12px;}
         .result-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
         .result-card-title{font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;}
         .risk-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-family:var(--font-mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;}
-        .risk-badge.safe{background:rgba(34,197,94,0.15);color:var(--risk-none);}
-        .risk-badge.low{background:rgba(132,204,22,0.15);color:var(--risk-low);}
-        .risk-badge.moderate{background:rgba(245,158,11,0.15);color:var(--risk-moderate);}
-        .risk-badge.high{background:rgba(239,68,68,0.15);color:var(--risk-high);}
+        .risk-badge.safe{background:var(--tint-green-strong);color:var(--severity-green-text);}
+        .risk-badge.low{background:var(--tint-lime-strong);color:var(--severity-lime-text);}
+        .risk-badge.moderate{background:var(--tint-amber-strong);color:var(--severity-amber-text);}
+        .risk-badge.high{background:var(--tint-red-strong);color:var(--severity-red-text);}
         .risk-dot{width:7px;height:7px;border-radius:50%;}
         .risk-dot.safe{background:var(--risk-none);}.risk-dot.low{background:var(--risk-low);}
         .risk-dot.moderate{background:var(--risk-moderate);}
@@ -60,10 +62,14 @@
         .result-detail:last-child{border-bottom:none;}
         .result-detail-label{color:var(--text-muted);font-family:var(--font-mono);font-size:11px;font-weight:600;min-width:90px;text-transform:uppercase;letter-spacing:0.04em;}
         .result-detail-value{color:var(--text-primary);font-weight:600;}
-        .mitigation-box{margin-top:12px;padding:12px 14px;border-radius:var(--radius-sm);border-left:3px solid var(--accent-amber);background:rgba(245,158,11,0.08);font-size:13px;line-height:1.5;color:var(--text-secondary);}
-        .mitigation-box strong{color:var(--accent-amber);font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;}
-        .mitigation-box.alert{border-left-color:var(--accent-red);background:rgba(239,68,68,0.08);}
-        .mitigation-box.alert strong{color:var(--accent-red);}
+        .mitigation-box{margin-top:12px;padding:12px 14px;border-radius:var(--radius-sm);border-left:3px solid var(--accent-amber);background:var(--tint-amber);font-size:13px;line-height:1.5;color:var(--text-secondary);}
+        .mitigation-box strong{color:var(--severity-amber-text);font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;}
+        .mitigation-box.alert{border-left-color:var(--accent-red);background:var(--tint-red);}
+        .mitigation-box.alert strong{color:var(--severity-red-text);}
+        .mitigation-box.severity-amber{border-left-color:var(--accent-amber);background:var(--tint-amber);}
+        .mitigation-box.severity-amber strong{color:var(--severity-amber-text);}
+        .mitigation-box.severity-red{border-left-color:var(--accent-red);background:var(--tint-red-soft);}
+        .mitigation-box.severity-red strong{color:var(--severity-red-text);}
         .load-bar-container{margin-top:12px;}
         .load-bar-title{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;}
         .load-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;}
@@ -77,7 +83,7 @@
         .diag-key{color:var(--text-secondary);}.diag-val{font-family:var(--font-mono);font-weight:600;color:var(--text-primary);}
         .footer-note{margin-top:20px;padding:12px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:10px;color:var(--text-muted);line-height:1.6;font-family:var(--font-mono);}
         .install-banner{display:none;background:var(--bg-card);border:1px solid var(--accent-blue);border-radius:var(--radius);padding:12px 16px;margin-bottom:12px;font-size:13px;color:var(--text-secondary);}
-        .install-banner button{background:var(--accent-blue);color:#fff;border:none;padding:8px 16px;border-radius:var(--radius-sm);font-weight:700;font-size:12px;cursor:pointer;margin-top:8px;}
+        .install-banner button{background:var(--accent-blue);color:var(--on-accent);border:none;padding:8px 16px;border-radius:var(--radius-sm);font-weight:700;font-size:12px;cursor:pointer;margin-top:8px;}
         .section-divider{margin:16px 0 12px;padding:8px 0;border-top:2px solid var(--accent-blue);font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent-blue);}
     </style>
 </head>
@@ -85,7 +91,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v3.5</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v3.6</span></div>
         <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -94,7 +100,7 @@
         <div class="input-section-title">Weather Forecast</div>
         <div style="display:flex;gap:8px;align-items:center;">
             <input type="text" id="zipInput" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="Zip Code" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;color:var(--text-primary);font-family:var(--font-mono);font-size:16px;font-weight:600;letter-spacing:0.1em;outline:none;" onfocus="this.style.borderColor='var(--accent-blue)'" onblur="this.style.borderColor='var(--border)'" onkeydown="if(event.key==='Enter')retrieveWeather()">
-            <button onclick="retrieveWeather()" id="retrieveBtn" style="padding:12px 20px;border:none;border-radius:var(--radius-sm);background:var(--accent-blue);color:#fff;font-family:var(--font-display);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;min-width:90px;">Retrieve</button>
+            <button onclick="retrieveWeather()" id="retrieveBtn" style="padding:12px 20px;border:none;border-radius:var(--radius-sm);background:var(--accent-blue);color:var(--on-accent);font-family:var(--font-display);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;min-width:90px;">Retrieve</button>
         </div>
         <button onclick="useMyLocation()" id="gpsBtn" style="margin-top:8px;padding:8px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-input);color:var(--text-secondary);font-family:var(--font-display);font-size:12px;font-weight:600;cursor:pointer;width:100%;">◎ Use My Location</button>
         <div id="weatherStatus" style="font-size:12px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);display:none;"></div>
@@ -235,7 +241,7 @@ async function fetchNWS(lat,lon,placeName){
 function extractMaxRH(vals,sISO,eISO){if(!vals||!vals.length)return null;const s=new Date(sISO).getTime(),e=new Date(eISO).getTime();let mx=null;for(const v of vals){const t=new Date(v.validTime.split('/')[0]).getTime();const dm=v.validTime.match(/\/PT(\d+)H/);const dur=dm?parseInt(dm[1])*3600000:3600000;if(t+dur>s&&t<e&&v.value!=null){if(mx===null||v.value>mx)mx=v.value;}}return mx!==null?Math.round(mx):null;}
 function parsePeriod(p,exRH){const temp=p.temperature;let rh=exRH!=null?exRH:(p.isDaytime?50:75);const pp=p.probabilityOfPrecipitation?.value||0;const sf=(p.shortForecast||'').toLowerCase();const hasRain=sf.includes('rain')||sf.includes('shower')||sf.includes('storm')||sf.includes('drizzle');if(hasRain&&pp>=50&&rh<90)rh=90;let wind=5;const wn=(p.windSpeed||'').match(/(\d+)/g);if(wn&&wn.length>=2)wind=parseInt(wn[0]);else if(wn&&wn.length===1)wind=parseInt(wn[0]);let cloud=0.6;if(/^sunny$|^clear$/.test(sf))cloud=1.0;else if(sf.includes('mostly sunny')||sf.includes('mostly clear'))cloud=0.8;else if(sf.includes('partly sunny')||sf.includes('partly cloudy'))cloud=0.6;else if(sf.includes('mostly cloudy'))cloud=0.3;else if(sf.includes('cloudy')||sf.includes('overcast')||sf.includes('fog'))cloud=0.1;else if(sf.includes('sunny')||sf.includes('clear'))cloud=1.0;let precip='none';if(hasRain)precip='rain';else if(sf.includes('snow')||sf.includes('sleet')||sf.includes('ice')||sf.includes('flurr'))precip='snow';return{temp,rh,cloud,wind,precip};}
 function applyForecast(p){const d=p==='day'?forecast.day:forecast.night;if(!d)return;state.temp=d.temp;state.rh=d.rh;state.cloud=d.cloud;state.wind=d.wind;state.precip=d.precip;document.getElementById('tempValue').textContent=d.temp;document.getElementById('rhValue').textContent=d.rh;document.getElementById('windValue').textContent=d.wind;document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>c.classList.remove('active'));let best=null,bd=Infinity;document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>{const dist=Math.abs(parseFloat(c.dataset.val)-d.cloud);if(dist<bd){bd=dist;best=c;}});if(best)best.classList.add('active');document.querySelectorAll('#precipGroup .selector-chip').forEach(c=>c.classList.toggle('active',c.dataset.val===d.precip));}
-function showStatus(m,err){const e=document.getElementById('weatherStatus');e.textContent=m;e.style.display='block';e.style.color=err?'var(--accent-red)':'var(--text-muted)';}
+function showStatus(m,err){const e=document.getElementById('weatherStatus');e.textContent=m;e.style.display='block';e.style.color=err?'var(--severity-red-text)':'var(--text-muted)';}
 function setBtnLoad(id,on){const b=document.getElementById(id);if(id==='retrieveBtn')b.textContent=on?'...':'Retrieve';b.style.opacity=on?'0.6':'1';b.style.pointerEvents=on?'none':'auto';}
 
 function dewPt(tF,rh){const tc=(tF-32)*5/9;const g=Math.log(Math.max(1,Math.min(100,rh))/100)+(17.27*tc)/(237.3+tc);return(237.3*g)/(17.27-g)*9/5+32;}
@@ -1007,7 +1013,7 @@ function renderRecommendation(id,title,result,isOvernight){
         envelopeStr=result.tOutMin+'°F at '+result.tOutMinTime+' → '+result.tOutMax+'°F at '+result.tOutMaxTime;
     }
 
-    const manualBanner=envelope.singlePoint?'<div class="mitigation-box" style="border-color:var(--accent-amber);background:rgba(245,158,11,0.08);"><strong style="color:var(--accent-amber);">Single-Point Analysis</strong>Without an hourly forecast, this recommendation evaluates only the conditions you entered. Indoor conditions may shift if outdoor temp changes across the '+(isOvernight?'night':'day')+'. Enter the worst-case expected '+(isOvernight?'low':'high')+' for the safest setup.</div>':'';
+    const manualBanner=envelope.singlePoint?'<div class="mitigation-box severity-amber"><strong>Single-Point Analysis</strong>Without an hourly forecast, this recommendation evaluates only the conditions you entered. Indoor conditions may shift if outdoor temp changes across the '+(isOvernight?'night':'day')+'. Enter the worst-case expected '+(isOvernight?'low':'high')+' for the safest setup.</div>':'';
 
     let setupInstructions='';
     if(w.type==='passive'){
@@ -1090,16 +1096,16 @@ function renderRecommendation(id,title,result,isOvernight){
     // Dual freeze-risk banner (v3.1 restored from v1.4 doctrine)
     let freezeRiskBanner='';
     if(w.freezeRisk && w.freezeRisk.type !== 'none'){
-        const sevColor = w.freezeRisk.severity === 'high' ? 'var(--accent-red)' :
-                         w.freezeRisk.severity === 'moderate' ? 'var(--accent-amber)' :
-                         'var(--accent-amber)';
+        const sevColor = w.freezeRisk.severity === 'high' ? 'var(--severity-red-text)' :
+                         w.freezeRisk.severity === 'moderate' ? 'var(--severity-amber-text)' :
+                         'var(--severity-amber-text)';
         const sevLabel = w.freezeRisk.severity.toUpperCase();
         const typeLabel = w.freezeRisk.type === 'combined' ? 'Cold Air + Humidity Freeze Risk' :
                           w.freezeRisk.type === 'humidity' ? 'High Humidity Freeze Risk' :
                           'Cold Air Freeze Risk';
         const fanLine = w.freezeRisk.fan ? '<div style="margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);">Fan: <strong style="color:'+sevColor+';">'+w.freezeRisk.fan.toUpperCase()+'</strong></div>' : '';
-        const dehumLine = w.freezeRisk.dehumCritical ? '<div style="margin-top:4px;font-family:var(--font-mono);font-size:11px;color:var(--accent-red);"><strong>DEHUMIDIFIER CRITICAL</strong> — must be running to clear latent load</div>' : '';
-        freezeRiskBanner='<div class="mitigation-box alert" style="border-color:'+sevColor+';background:rgba(239,68,68,0.06);"><strong style="color:'+sevColor+';">'+typeLabel+' — '+sevLabel+'</strong>'+w.freezeRisk.note+fanLine+dehumLine+'</div>';
+        const dehumLine = w.freezeRisk.dehumCritical ? '<div style="margin-top:4px;font-family:var(--font-mono);font-size:11px;color:var(--severity-red-text);"><strong>DEHUMIDIFIER CRITICAL</strong> — must be running to clear latent load</div>' : '';
+        freezeRiskBanner='<div class="mitigation-box severity-red"><strong style="color:'+sevColor+';">'+typeLabel+' — '+sevLabel+'</strong>'+w.freezeRisk.note+fanLine+dehumLine+'</div>';
     }
 
     // v3.5: status taxonomy — three categories with distinct labels and colors:
@@ -1108,9 +1114,9 @@ function renderRecommendation(id,title,result,isOvernight){
     //   comfort → amber, "Overcools cabin"    (equipment runs but won't hold comfort)
     // Time-bounded variants append "until HH:MM" when the condition clears later.
     const categoryMeta = {
-        freeze:  {label:'Freeze risk',     color:'var(--accent-red)'},
-        range:   {label:'Out of range',    color:'var(--accent-amber)'},
-        comfort: {label:'Overcools cabin', color:'var(--accent-amber)'}
+        freeze:  {label:'Freeze risk',     color:'var(--severity-red-text)'},
+        range:   {label:'Out of range',    color:'var(--severity-amber-text)'},
+        comfort: {label:'Overcools cabin', color:'var(--severity-amber-text)'}
     };
 
     const altRows=result.allCandidates.map(c=>{
@@ -1119,7 +1125,7 @@ function renderRecommendation(id,title,result,isOvernight){
         // v3.5: status rendering keyed off equipmentCategory.
         let status;
         if(c===w){
-            status='<strong style="color:var(--accent-green);">RECOMMENDED</strong>';
+            status='<strong style="color:var(--severity-green-text);">RECOMMENDED</strong>';
         }else if(!c.safe){
             const meta = categoryMeta[c.equipmentCategory] || categoryMeta.comfort;
             if(c.firstSafeTimeStr){
@@ -1142,7 +1148,8 @@ function renderRecommendation(id,title,result,isOvernight){
         const body = w.equipmentCategory === 'freeze'
             ? 'None of the evaluated candidates passed equipment freeze-protection gates across the forecast envelope. Closest match shown above. Review the alternatives below and choose manually based on your judgment.'
             : 'None of the evaluated candidates can maintain the comfort band or operate within spec across the forecast envelope. Closest match shown above. Review the alternatives below and choose manually based on your judgment.';
-        unmetMsg='<div class="mitigation-box" style="border-color:'+meta.color+';background:rgba(239,68,68,0.06);"><strong style="color:'+meta.color+';">'+headline+'</strong>'+body+'</div>';
+        const sevClass = w.equipmentCategory === 'freeze' ? 'severity-red' : 'severity-amber';
+        unmetMsg='<div class="mitigation-box '+sevClass+'"><strong>'+headline+'</strong>'+body+'</div>';
     }
 
     return`<div class="result-card" id="${id}">
