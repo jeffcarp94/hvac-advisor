@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
-    <title>HVAC Advisor v3.4 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v3.5 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -85,7 +85,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v3.4</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v3.5</span></div>
         <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -567,7 +567,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
             if(tOut - C.acOutdoorBuffer < C.comfortFloor
                && dutyCycle >= C.acBufferDutyThreshold
                && tInPrev < freezePossibleReturnTemp){
-                return{safe:false,reason:'Auto AC: outdoor temp '+tOut+'°F within buffer and high duty cycle creates freeze risk (return air '+tInPrev.toFixed(1)+'°F below '+freezePossibleReturnTemp.toFixed(1)+'°F freeze-possible threshold)', requiredFan:null, freezeRisk:null};
+                return{safe:false,category:'freeze',reason:'Air conditioner coil could freeze in these conditions',detail:'Auto-AC duty cycle '+(dutyCycle*100).toFixed(0)+'% with return air '+tInPrev.toFixed(1)+'°F at '+tOut+'°F outdoor', requiredFan:null, freezeRisk:null};
             }
             // v3.4 Fix B: tRet uses actual return air (tInPrev) as upper bound, not tOut.
             // Return air comes from the cabin, not from outside.
@@ -591,16 +591,16 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
             freezeRisk = classifyFreezeRisk(tOut, rh, coilT, latentFrac);
             if(freezeRisk.type !== 'none' && coilT < (C.coilFreezeTemp - 5)){
                 // Severe — even with highest safe fan, coil too cold
-                return {safe: false, reason: 'Auto AC: '+freezeRisk.note, requiredFan:null, freezeRisk};
+                return {safe: false, category:'freeze', reason: 'Air conditioner coil could freeze in these conditions', detail:'Auto-AC '+freezeRisk.note, requiredFan:null, freezeRisk};
             }
         } else if (tEq < heatTrigger) {
             // Heat fires in AUTO. Heat pump is the only path AUTO will take per Dometic CCC2 priority.
             if (tOut < C.heatPumpMinTemp) {
-                return {safe: false, reason: 'Auto mode selects Heat Pump for heating, but outdoor '+tOut+'°F is below the heat pump minimum of '+C.heatPumpMinTemp+'°F. Use Furnace mode directly.', requiredFan:null, freezeRisk:null};
+                return {safe: false, category:'range', reason:'Too cold for heat pump — auto mode would fail to heat. Use Furnace mode directly.', detail:'Outdoor '+tOut+'°F is below the '+C.heatPumpMinTemp+'°F heat pump minimum', requiredFan:null, freezeRisk:null};
             }
             const hs = overnightHeatSystem(tOut, rh);
             if (hs.sys !== 'Heat Pump') {
-                return {safe: false, reason: 'Auto mode defaults to Heat Pump, but ' + hs.reason, requiredFan:null, freezeRisk:null};
+                return {safe: false, category:'range', reason:'Heat pump not reliable overnight at these conditions — auto mode would fail. Use Furnace mode directly.', detail:hs.reason, requiredFan:null, freezeRisk:null};
             }
         }
         return {safe: true, reason: '', requiredFan: reqFan, freezeRisk};
@@ -610,11 +610,11 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
         // Hard outdoor-temp floor per documented doctrine (v3.1 restored).
         // MaxxFan pulls ambient air; below comfort floor, ventilation overcools cabin.
         if(tOut < C.maxxFanMinOutdoor){
-            return{safe:false,reason:'outdoor temp '+tOut+'°F is below the '+C.maxxFanMinOutdoor+'°F MaxxFan minimum (passive ventilation would overcool cabin below comfort floor)', requiredFan:null, freezeRisk:null};
+            return{safe:false,category:'comfort',reason:'Overcools cabin — outdoor air too cold for ventilation',detail:'Outdoor '+tOut+'°F is below the '+C.maxxFanMinOutdoor+'°F MaxxFan minimum', requiredFan:null, freezeRisk:null};
         }
         const bandLo=isOvernight?C.nightBandLow:C.dayHeatBandLow;
         if(tMass<bandLo-C.maxxFanDrift){
-            return{safe:false,reason:'damped equilibrium '+tMass.toFixed(1)+'°F at '+tOut+'°F outdoor falls more than '+C.maxxFanDrift+'°F below comfort band ('+bandLo+'°F) — coach overcools', requiredFan:null, freezeRisk:null};
+            return{safe:false,category:'comfort',reason:'Overcools cabin — ventilation drops indoor temp below comfort band',detail:'Damped equilibrium '+tMass.toFixed(1)+'°F at '+tOut+'°F outdoor falls more than '+C.maxxFanDrift+'°F below comfort band ('+bandLo+'°F)', requiredFan:null, freezeRisk:null};
         }
         return{safe:true,reason:'', requiredFan:null, freezeRisk:null};
     }
@@ -642,7 +642,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
         if(tOut-C.acOutdoorBuffer<C.comfortFloor
            && dutyCycle>=C.acBufferDutyThreshold
            && tInPrev<freezePossibleReturnTemp){
-            return{safe:false,reason:'outdoor temp '+tOut+'°F within buffer and high duty cycle creates freeze risk (return air '+tInPrev.toFixed(1)+'°F below '+freezePossibleReturnTemp.toFixed(1)+'°F freeze-possible threshold)', requiredFan:null, freezeRisk:null};
+            return{safe:false,category:'freeze',reason:'Air conditioner coil could freeze in these conditions',detail:'Duty cycle '+(dutyCycle*100).toFixed(0)+'% with return air '+tInPrev.toFixed(1)+'°F at '+tOut+'°F outdoor', requiredFan:null, freezeRisk:null};
         }
         // v3.4 Fix B: tRet uses actual return air (tInPrev) as upper bound, not tOut.
         // Return air comes from the cabin, not from outside.
@@ -665,7 +665,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
         const latentFrac = estimateLatentFrac(tOut, rh, coilT);
         freezeRisk = classifyFreezeRisk(tOut, rh, coilT, latentFrac);
         if(freezeRisk.type !== 'none' && coilT < (C.coilFreezeTemp - 5)){
-            return {safe: false, reason: freezeRisk.note, requiredFan:null, freezeRisk};
+            return {safe: false, category:'freeze', reason: 'Air conditioner coil could freeze in these conditions', detail: freezeRisk.note, requiredFan:null, freezeRisk};
         }
         return{safe:true,reason:'', requiredFan:reqFan, freezeRisk};
     }
@@ -675,7 +675,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
         // setpoint, HP will idle and the unattended dew-point check is moot.
         if(tEq>=setpoints.heat) return{safe:true,reason:'', requiredFan:null, freezeRisk:null}; 
         const hs=overnightHeatSystem(tOut,rh);
-        if(hs.sys!=='Heat Pump') return{safe:false,reason:hs.reason, requiredFan:null, freezeRisk:null};
+        if(hs.sys!=='Heat Pump') return{safe:false,category:'range',reason:'Heat pump not reliable here — use Furnace instead',detail:hs.reason, requiredFan:null, freezeRisk:null};
         return{safe:true,reason:'', requiredFan:null, freezeRisk:null};
     }
 
@@ -697,8 +697,11 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
     // A candidate is overall-safe only when every evaluated hour is safe (strict).
     // Unsafe hours are still evaluated (equipment treated as off → passive fallback)
     // so the candidate can be scored and the user can see the trajectory.
-    const unsafeHours = []; // [{timeStr, time, reason}]
+    // v3.5: capture category (freeze | range | comfort) for layman-readable status rendering.
+    const unsafeHours = []; // [{timeStr, time, reason, category, detail}]
     let firstUnsafeReason = '';
+    let firstUnsafeCategory = '';
+    let firstUnsafeDetail = '';
     let firstUnsafeTimeStr = '';
 
     const indoorVals=[];
@@ -722,9 +725,11 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
         // behavior can be scored and reported.
         let effectiveType = candidateType;
         if(!eq.safe){
-            unsafeHours.push({timeStr: pt.timeStr, time: pt.time, reason: eq.reason});
+            unsafeHours.push({timeStr: pt.timeStr, time: pt.time, reason: eq.reason, category: eq.category||'comfort', detail: eq.detail||''});
             if(!firstUnsafeReason){
                 firstUnsafeReason = eq.reason;
+                firstUnsafeCategory = eq.category || 'comfort';
+                firstUnsafeDetail = eq.detail || '';
                 firstUnsafeTimeStr = pt.timeStr;
             }
             effectiveType = 'passive'; // equipment off this hour
@@ -807,7 +812,10 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
         minTime,maxTime,
         score: allHoursSafe ? Math.round(totalScore*10)/10 : Infinity,
         safe: allHoursSafe,
-        equipmentReason: firstUnsafeReason ? (firstUnsafeReason + ' (at ' + firstUnsafeTimeStr + ')') : '',
+        equipmentReason: firstUnsafeReason,
+        equipmentCategory: firstUnsafeCategory,
+        equipmentDetail: firstUnsafeDetail,
+        equipmentFirstUnsafeTimeStr: firstUnsafeTimeStr,
         hoursOutOfBand:hoursOut,
         fanSpeed: maxFan,
         autoDidCool, autoDidHeat,
@@ -1094,22 +1102,32 @@ function renderRecommendation(id,title,result,isOvernight){
         freezeRiskBanner='<div class="mitigation-box alert" style="border-color:'+sevColor+';background:rgba(239,68,68,0.06);"><strong style="color:'+sevColor+';">'+typeLabel+' — '+sevLabel+'</strong>'+w.freezeRisk.note+fanLine+dehumLine+'</div>';
     }
 
+    // v3.5: status taxonomy — three categories with distinct labels and colors:
+    //   freeze  → red,   "Freeze risk"        (true equipment-damage condition)
+    //   range   → amber, "Out of range"       (equipment can't operate / out of spec)
+    //   comfort → amber, "Overcools cabin"    (equipment runs but won't hold comfort)
+    // Time-bounded variants append "until HH:MM" when the condition clears later.
+    const categoryMeta = {
+        freeze:  {label:'Freeze risk',     color:'var(--accent-red)'},
+        range:   {label:'Out of range',    color:'var(--accent-amber)'},
+        comfort: {label:'Overcools cabin', color:'var(--accent-amber)'}
+    };
+
     const altRows=result.allCandidates.map(c=>{
         const name=c.type==='passive'?'Closed up (no system)':c.type==='maxxfan'?'MaxxFan':c.type==='auto'?'Auto Change-Over':c.type==='ac'?'Air Conditioner':c.type==='hp'?'Heat Pump':c.type==='furnace'?'LP Furnace':'?';
         const setStr=c.optimizedSet ? ' ('+c.optimizedSet+'°F)' : '';
-        // v3.4 Fix A: candidates with transient unsafe windows show "unsafe until HH:MM"
-        // when a contiguous unsafe block at the start of the envelope clears later in the day.
+        // v3.5: status rendering keyed off equipmentCategory.
         let status;
         if(c===w){
             status='<strong style="color:var(--accent-green);">RECOMMENDED</strong>';
         }else if(!c.safe){
+            const meta = categoryMeta[c.equipmentCategory] || categoryMeta.comfort;
             if(c.firstSafeTimeStr){
-                // Partial unsafe — equipment unsafe early, becomes safe at firstSafeTimeStr.
-                // Show the partial score (treating unsafe hours as passive fallback) so the
-                // user can compare what this candidate WOULD score if started later.
-                status='<span style="color:var(--accent-amber);">Unsafe until '+c.firstSafeTimeStr+'</span> · <span style="color:var(--text-muted);">indoor '+c.indoorMin+'–'+c.indoorMax+'°F</span>';
+                // Partial — condition clears later in the envelope. Show time-bounded label.
+                status='<span style="color:'+meta.color+';">'+meta.label+' until '+c.firstSafeTimeStr+'</span> · <span style="color:var(--text-muted);">indoor '+c.indoorMin+'–'+c.indoorMax+'°F</span>';
             }else{
-                status='<span style="color:var(--accent-red);">Unsafe: '+c.equipmentReason+'</span>';
+                // Never safe across the envelope. Show category label + layman reason.
+                status='<span style="color:'+meta.color+';">'+meta.label+'</span> · <span style="color:var(--text-muted);">'+c.equipmentReason+'</span>';
             }
         }else{
             status='Score '+c.score+' · indoor '+c.indoorMin+'–'+c.indoorMax+'°F';
@@ -1119,7 +1137,12 @@ function renderRecommendation(id,title,result,isOvernight){
 
     let unmetMsg='';
     if(!w.safe){
-        unmetMsg='<div class="mitigation-box" style="border-color:var(--accent-red);background:rgba(239,68,68,0.08);"><strong style="color:var(--accent-red);">No Safe Setup Found</strong>None of the evaluated candidates passed equipment safety gates across the forecast envelope. Closest match shown above. Review the alternatives below and choose manually based on your judgment.</div>';
+        const meta = categoryMeta[w.equipmentCategory] || categoryMeta.comfort;
+        const headline = w.equipmentCategory === 'freeze' ? 'No Safe Setup Found' : 'No Suitable Setup Found';
+        const body = w.equipmentCategory === 'freeze'
+            ? 'None of the evaluated candidates passed equipment freeze-protection gates across the forecast envelope. Closest match shown above. Review the alternatives below and choose manually based on your judgment.'
+            : 'None of the evaluated candidates can maintain the comfort band or operate within spec across the forecast envelope. Closest match shown above. Review the alternatives below and choose manually based on your judgment.';
+        unmetMsg='<div class="mitigation-box" style="border-color:'+meta.color+';background:rgba(239,68,68,0.06);"><strong style="color:'+meta.color+';">'+headline+'</strong>'+body+'</div>';
     }
 
     return`<div class="result-card" id="${id}">
