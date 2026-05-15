@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v3.6 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v3.7 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -91,7 +91,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v3.6</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v3.7</span></div>
         <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -1119,6 +1119,24 @@ function renderRecommendation(id,title,result,isOvernight){
         comfort: {label:'Overcools cabin', color:'var(--severity-amber-text)'}
     };
 
+    // v3.7 Fix C: for overnight unattended heat candidates (HP, AUTO) flagged as
+    // 'range', the time-bounded "until HH:MM" label is misleading — overnight runs
+    // chronologically from warmer (bedtime) to colder (early morning), so a candidate
+    // that's only safe at the first hour is actually becoming MORE unsafe over the
+    // night, not less. Replace with the underlying temperature gate that's failing.
+    // The binding gate is the worst-case (highest) hpEffectiveMin across the envelope,
+    // because dew point may vary through the night.
+    let overnightHpEffectiveMin=null;
+    if(isOvernight && envelope.points && envelope.points.length){
+        let maxGate=C.heatPumpMinTemp;
+        for(const pt of envelope.points){
+            const dp=dewPt(pt.tOut,pt.rh);
+            const gate=dp>=38?50:dp>=35?45:C.heatPumpMinTemp;
+            if(gate>maxGate) maxGate=gate;
+        }
+        overnightHpEffectiveMin=maxGate;
+    }
+
     const altRows=result.allCandidates.map(c=>{
         const name=c.type==='passive'?'Closed up (no system)':c.type==='maxxfan'?'MaxxFan':c.type==='auto'?'Auto Change-Over':c.type==='ac'?'Air Conditioner':c.type==='hp'?'Heat Pump':c.type==='furnace'?'LP Furnace':'?';
         const setStr=c.optimizedSet ? ' ('+c.optimizedSet+'°F)' : '';
@@ -1128,7 +1146,16 @@ function renderRecommendation(id,title,result,isOvernight){
             status='<strong style="color:var(--severity-green-text);">RECOMMENDED</strong>';
         }else if(!c.safe){
             const meta = categoryMeta[c.equipmentCategory] || categoryMeta.comfort;
-            if(c.firstSafeTimeStr){
+            // v3.7 Fix C: overnight HP/AUTO range cases use temperature-gate language,
+            // not time-bounded language. Time-bounded is correct for daytime (cold
+            // morning → warm afternoon trajectory) and other categories.
+            const useTempGate = isOvernight
+                && c.equipmentCategory === 'range'
+                && (c.type === 'hp' || c.type === 'auto')
+                && overnightHpEffectiveMin !== null;
+            if(useTempGate){
+                status='<span style="color:'+meta.color+';">'+meta.label+'</span> · <span style="color:var(--text-muted);">needs outdoor ≥'+overnightHpEffectiveMin+'°F (forecast low '+result.tOutMin+'°F)</span>';
+            }else if(c.firstSafeTimeStr){
                 // Partial — condition clears later in the envelope. Show time-bounded label.
                 status='<span style="color:'+meta.color+';">'+meta.label+' until '+c.firstSafeTimeStr+'</span> · <span style="color:var(--text-muted);">indoor '+c.indoorMin+'–'+c.indoorMax+'°F</span>';
             }else{
