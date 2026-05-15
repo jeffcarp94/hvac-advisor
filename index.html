@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v3.7 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v3.8 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -91,7 +91,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v3.7</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v3.8</span></div>
         <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -711,6 +711,7 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
     let firstUnsafeTimeStr = '';
 
     const indoorVals=[];
+    const hourly=[]; // v3.8: {timeStr, indoor} pairs for outdoor-anchored display lookup
     let currentIn = state.indoor;
     let prevTime = null; // for Δt computation
 
@@ -766,6 +767,7 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
         }
 
         indoorVals.push(indoor);
+        hourly.push({timeStr: pt.timeStr, indoor}); // v3.8: capture for outdoor-anchored display
         if(indoor<indoorMin){indoorMin=indoor;minTime=pt.timeStr;}
         if(indoor>indoorMax){indoorMax=indoor;maxTime=pt.timeStr;}
         currentIn = indoor;
@@ -828,7 +830,8 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
         freezeRisk: worstFreezeRisk,
         unsafeHourCount: unsafeHours.length,
         firstSafeTimeStr,
-        partialUnsafeScore: Math.round(totalScore*10)/10  // raw score regardless of safety (for diagnostic display)
+        partialUnsafeScore: Math.round(totalScore*10)/10,  // raw score regardless of safety (for diagnostic display)
+        hourly  // v3.8: per-hour {timeStr, indoor} for outdoor-anchored display lookup
     };
 }
 
@@ -956,7 +959,7 @@ function selectOvernightSetup(envelope,isOvernight){
         auto: winner.type === 'auto' ? winner.optimizedSet : 70
     };
 
-    return{winner,allCandidates:results,envelope,tOutMin,tOutMax,tOutMinTime:tOutMinPt?tOutMinPt.timeStr:'?',tOutMaxTime:tOutMaxPt?tOutMaxPt.timeStr:'?',setpoints: winner.setpoints};
+    return{winner,allCandidates:results,envelope,tOutMin,tOutMax,tOutMinTime:tOutMinPt?tOutMinPt.timeStr:'?',tOutMaxTime:tOutMaxPt?tOutMaxPt.timeStr:'?',tOutMinPt,tOutMaxPt,setpoints: winner.setpoints};
 }
 
 function systemDisplayName(winner){
@@ -993,9 +996,36 @@ function renderRecommendation(id,title,result,isOvernight){
 
     const riskBadge=w.safe?'<div class="risk-badge safe"><div class="risk-dot safe"></div><span>Safe</span></div>':'<div class="risk-badge high"><div class="risk-dot high"></div><span>No Safe Option</span></div>';
 
+    // v3.8: Chronological display of outdoor/indoor pair, anchored to outdoor extremes.
+    // Order the displayed pair by actual time (earliest first), regardless of value.
+    // Indoor values shown are looked up at the outdoor-extreme times (Option C anchoring),
+    // not the strict indoor extremes. bandStatus below still uses true indoor min/max.
+    const tMinPt=result.tOutMinPt, tMaxPt=result.tOutMaxPt;
+    let firstTOut,firstTOutTime,secondTOut,secondTOutTime,firstIndoor,secondIndoor;
+    if(tMinPt && tMaxPt){
+        const minIsEarlier = tMinPt.time.getTime() <= tMaxPt.time.getTime();
+        const firstPt = minIsEarlier ? tMinPt : tMaxPt;
+        const secondPt = minIsEarlier ? tMaxPt : tMinPt;
+        firstTOut = firstPt.tOut; firstTOutTime = firstPt.timeStr;
+        secondTOut = secondPt.tOut; secondTOutTime = secondPt.timeStr;
+        // Look up indoor at each outdoor-extreme time from the winner's hourly trace.
+        const lookupIndoor = (ts) => {
+            if(!w.hourly) return null;
+            const hit = w.hourly.find(h => h.timeStr === ts);
+            return hit ? Math.round(hit.indoor*10)/10 : null;
+        };
+        firstIndoor = lookupIndoor(firstTOutTime);
+        secondIndoor = lookupIndoor(secondTOutTime);
+    }
+
     const rangeSame=Math.abs(w.indoorMax-w.indoorMin)<0.5;
     const indoorRangeStr=rangeSame?(w.indoorMin+'°F'):(w.indoorMin+'°F – '+w.indoorMax+'°F');
-    const indoorRangeDetail=rangeSame?'':' ('+w.indoorMin+'°F at '+w.minTime+', '+w.indoorMax+'°F at '+w.maxTime+')';
+    let indoorRangeDetail;
+    if(rangeSame || firstIndoor==null || secondIndoor==null){
+        indoorRangeDetail = rangeSame ? '' : ' ('+w.indoorMin+'°F at '+w.minTime+', '+w.indoorMax+'°F at '+w.maxTime+')';
+    } else {
+        indoorRangeDetail = ' ('+firstIndoor+'°F at '+firstTOutTime+', '+secondIndoor+'°F at '+secondTOutTime+')';
+    }
 
     const bandLo=isOvernight?C.nightBandLow:C.dayHeatBandLow;
     const bandHi=isOvernight?C.nightBandHigh:C.dayCoolBandHigh;
@@ -1009,6 +1039,9 @@ function renderRecommendation(id,title,result,isOvernight){
     let envelopeStr;
     if(envelope.singlePoint){
         envelopeStr=envelope.points[0].tOut+'°F (single-point analysis)';
+    }else if(firstTOut!=null && secondTOut!=null){
+        // v3.8: chronological order (earliest time first) regardless of which value is min/max.
+        envelopeStr=firstTOut+'°F at '+firstTOutTime+' → '+secondTOut+'°F at '+secondTOutTime;
     }else{
         envelopeStr=result.tOutMin+'°F at '+result.tOutMinTime+' → '+result.tOutMax+'°F at '+result.tOutMaxTime;
     }
