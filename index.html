@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v4.1 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v4.2 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -91,7 +91,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v4.1</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v4.2</span></div>
         <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -440,24 +440,59 @@ function buildEnvelope(isOvernight){
     const fallbackWind=isOvernight?(forecast.night?forecast.night.wind:state.wind):(forecast.day?forecast.day.wind:state.wind);
     const fallbackPrecip=isOvernight?(forecast.night?forecast.night.precip:state.precip):(forecast.day?forecast.day.precip:state.precip);
     const fallbackLabel=isOvernight?'Overnight':'Daytime';
+    // v4.2: NWS gridpoint temperature values are run-length encoded — consecutive hours
+    // with the same forecast value are consolidated into one entry with a multi-hour
+    // PT{n}H duration. Expand each entry into hourly points across its duration so the
+    // evaluation loop sees true hour-resolution data. Without this expansion, a 4-hour
+    // entry contributed 1 sample instead of 4, biasing scores toward time periods with
+    // more temperature variation and skipping intermediate freeze-risk checks.
     const points=[];
     for(const v of forecast.tempVals){
-        const t=new Date(v.validTime.split('/')[0]).getTime();
+        if(v.value==null) continue;
+        const entryStart=new Date(v.validTime.split('/')[0]).getTime();
         const dm=v.validTime.match(/\/PT(\d+)H/);
         const dur=dm?parseInt(dm[1])*3600000:3600000;
-        if(t+dur>s&&t<e&&v.value!=null){
-            const tOut=Math.round(v.value*9/5+32);
+        const entryEnd=entryStart+dur;
+        // Skip entries entirely outside the window.
+        if(entryEnd<=s||entryStart>=e) continue;
+        const tOut=Math.round(v.value*9/5+32);
+        // Compute hourly emission anchors within the entry, clipped to window.
+        // First emitted point: snap to max(entryStart, windowStart) so we don't emit
+        // points in the past when the user opens the app mid-window.
+        const segStart=Math.max(entryStart,s);
+        const segEnd=Math.min(entryEnd,e);
+        // Build candidate point times: first at segStart, then at each subsequent
+        // whole-hour boundary until segEnd. Cap at 24 points per entry as a defensive
+        // bound against malformed durations.
+        const emitTimes=[segStart];
+        // Round segStart up to next whole hour for subsequent stride anchors.
+        const segStartDate=new Date(segStart);
+        let nextHour=new Date(segStartDate.getFullYear(),segStartDate.getMonth(),segStartDate.getDate(),segStartDate.getHours()+1,0,0).getTime();
+        let guard=0;
+        while(nextHour<segEnd&&guard<24){
+            emitTimes.push(nextHour);
+            nextHour+=3600000;
+            guard++;
+        }
+        for(const pointMs of emitTimes){
+            // Match RH per emitted point (NWS humVals are also run-length encoded
+            // and may have different boundaries than tempVals).
             let rh=fallbackRH;
             if(forecast.humVals){
                 let best=null,bd=Infinity;
                 for(const h of forecast.humVals){
+                    if(h.value==null) continue;
                     const ht=new Date(h.validTime.split('/')[0]).getTime();
-                    const hd=Math.abs(ht-t);
-                    if(hd<bd&&h.value!=null){bd=hd;best=Math.round(h.value);}
+                    const hdm=h.validTime.match(/\/PT(\d+)H/);
+                    const hdur=hdm?parseInt(hdm[1])*3600000:3600000;
+                    // Prefer entries whose interval contains pointMs; otherwise nearest start.
+                    if(ht<=pointMs&&ht+hdur>pointMs){best=Math.round(h.value);bd=0;break;}
+                    const hd=Math.abs(ht-pointMs);
+                    if(hd<bd){bd=hd;best=Math.round(h.value);}
                 }
                 if(best!=null)rh=best;
             }
-            const dtObj=new Date(v.validTime.split('/')[0]);
+            const dtObj=new Date(pointMs);
             const timeStr=dtObj.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
             points.push({time:dtObj,tOut,rh,timeStr});
         }
@@ -1085,18 +1120,18 @@ function renderRecommendation(id,title,result,isOvernight){
     const riskBadge=w.safe?'<div class="risk-badge safe"><div class="risk-dot safe"></div><span>Safe</span></div>':'<div class="risk-badge high"><div class="risk-dot high"></div><span>No Safe Option</span></div>';
 
     // v3.8: Chronological display of outdoor/indoor pair, anchored to outdoor extremes.
-    // Order the displayed pair by actual time (earliest first), regardless of value.
-    // Indoor values shown are looked up at the outdoor-extreme times (Option C anchoring),
-    // not the strict indoor extremes. bandStatus below still uses true indoor min/max.
-    const tMinPt=result.tOutMinPt, tMaxPt=result.tOutMaxPt;
+    // v4.2 Fix 2: anchor displayed "Outdoor Range" to window endpoints (first → last
+    // evaluated hour) instead of min/max temperature times. After Fix 3 expanded each
+    // NWS entry to hourly points, envelope.points[0] is the first evaluated hour and
+    // envelope.points[last] is the last, matching the user's mental model of the
+    // evaluation window. Min/max are preserved as a secondary annotation.
+    const firstPt = envelope.points && envelope.points.length>0 ? envelope.points[0] : null;
+    const lastPt = envelope.points && envelope.points.length>0 ? envelope.points[envelope.points.length-1] : null;
     let firstTOut,firstTOutTime,secondTOut,secondTOutTime,firstIndoor,secondIndoor;
-    if(tMinPt && tMaxPt){
-        const minIsEarlier = tMinPt.time.getTime() <= tMaxPt.time.getTime();
-        const firstPt = minIsEarlier ? tMinPt : tMaxPt;
-        const secondPt = minIsEarlier ? tMaxPt : tMinPt;
+    if(firstPt && lastPt && firstPt !== lastPt){
         firstTOut = firstPt.tOut; firstTOutTime = firstPt.timeStr;
-        secondTOut = secondPt.tOut; secondTOutTime = secondPt.timeStr;
-        // Look up indoor at each outdoor-extreme time from the winner's hourly trace.
+        secondTOut = lastPt.tOut; secondTOutTime = lastPt.timeStr;
+        // Look up indoor at each window endpoint from the winner's hourly trace.
         const lookupIndoor = (ts) => {
             if(!w.hourly) return null;
             const hit = w.hourly.find(h => h.timeStr === ts);
@@ -1104,6 +1139,17 @@ function renderRecommendation(id,title,result,isOvernight){
         };
         firstIndoor = lookupIndoor(firstTOutTime);
         secondIndoor = lookupIndoor(secondTOutTime);
+    }
+
+    // Secondary annotation: low/high if the range is non-trivial AND at least one
+    // extreme differs from the displayed endpoints (avoid redundancy).
+    const tMinPt=result.tOutMinPt, tMaxPt=result.tOutMaxPt;
+    let extremesDetail = '';
+    if(tMinPt && tMaxPt && firstPt && lastPt &&
+       Math.abs(result.tOutMax - result.tOutMin) >= 1 &&
+       (tMinPt.timeStr !== firstPt.timeStr || tMaxPt.timeStr !== lastPt.timeStr) &&
+       (tMinPt.timeStr !== lastPt.timeStr || tMaxPt.timeStr !== firstPt.timeStr)){
+        extremesDetail = 'low '+result.tOutMin+'°F at '+result.tOutMinTime+' · high '+result.tOutMax+'°F at '+result.tOutMaxTime;
     }
 
     const rangeSame=Math.abs(w.indoorMax-w.indoorMin)<0.5;
@@ -1318,6 +1364,7 @@ function renderRecommendation(id,title,result,isOvernight){
         ${unmetMsg}
         <div class="diag-panel"><div class="diag-title">Forecast Envelope</div>
             <div class="diag-row"><span class="diag-key">Outdoor Range</span><span class="diag-val">${envelopeStr}</span></div>
+            ${extremesDetail?`<div class="diag-row" style="margin-top:-4px;"><span class="diag-key" style="font-size:11px;"></span><span class="diag-val" style="font-size:11px;color:var(--text-muted);font-weight:normal;">${extremesDetail}</span></div>`:''}
             <div class="diag-row"><span class="diag-key">Hours Evaluated</span><span class="diag-val">${envelope.points.length}</span></div>
             <div class="diag-row"><span class="diag-key">Wind</span><span class="diag-val">${envelope.wind} mph</span></div>
             <div class="diag-row"><span class="diag-key">Cloud Cover</span><span class="diag-val">${(envelope.cloud*100).toFixed(0)}%</span></div>
