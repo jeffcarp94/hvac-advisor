@@ -143,7 +143,7 @@ test('Current and scheduled evaluations share the same physics and full end time
 });
 
 test('equipment checks see actual recovery calls and reject the candidate for the window',()=>{
-    const a=setup();a.run('envelope.points[0].tOut=45;envelope.points[0].rh=95');
+    const a=setup();a.run('envelope.points[0].tOut=40;envelope.points[0].rh=95');
     a.run("s=simulateThermalProfile('hp',envelope,false,sp,1400,50)");
     assert.ok(a.run('s.unsafe.length')>0);
     // A warm passive equilibrium cannot hide the initial cold-cabin heat call.

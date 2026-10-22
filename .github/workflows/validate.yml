@@ -1,4 +1,4 @@
-name: Validate weather and PWA behavior
+name: Validate HVAC model and PWA behavior
 on:
   pull_request:
   push:
