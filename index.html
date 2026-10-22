@@ -735,7 +735,7 @@ function simulateThermalProfileAtFan(mode,envelope,isOvernight,setpoints,meta,st
     const unsafe=[],allSegments=[];
     const knownDP=state.indoorRH==null?null:dewPt(startIndoor,state.indoorRH),warnings=new Set();
     let tIn=startIndoor,control={phase:'off'},score=0,hoursOut=0,maxFan=options.fanSetting||(isOvernight?'Low':'Auto'),freezeRisk=null;
-    let didCool=false,didHeat=false,capacityCool=false,capacityHeat=false;
+    let didCool=false,didHeat=false,capacityCool=false,capacityHeat=false,heatingFloorLimited=false;
     for(let i=1;i<timeline.length;i++){
         const from=timeline[i-1],to=timeline[i],dt=(to-from)/3600000;
         const weather=lookupEnvelopeAt(envelope,new Date(from));
@@ -782,10 +782,11 @@ function simulateThermalProfileAtFan(mode,envelope,isOvernight,setpoints,meta,st
             didCool ||= segment.operation==='ac';didHeat ||= segment.operation==='hp'||segment.operation==='furnace';
             capacityCool ||= segment.operation==='ac'&&segment.capacityLimited;
             capacityHeat ||= (segment.operation==='hp'||segment.operation==='furnace')&&segment.capacityLimited;
+            heatingFloorLimited ||= (segment.operation==='hp'||segment.operation==='furnace')&&segment.eq<C.comfortFloor-THERMAL_EPS;
         }
         tIn=step.temperature;
     }
-    return{start,end,trace,segments:allSegments,unsafe,score,hoursOut,maxFan,freezeRisk,didCool,didHeat,capacityCool,capacityHeat,finalIndoor:tIn,warnings:[...warnings]};
+    return{start,end,trace,segments:allSegments,unsafe,score,hoursOut,maxFan,freezeRisk,didCool,didHeat,capacityCool,capacityHeat,heatingFloorLimited,finalIndoor:tIn,warnings:[...warnings]};
 }
 
 function simulateThermalProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,options={}){
@@ -811,7 +812,7 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
         equipmentReason:first?.reason||'',equipmentCategory:first?.category||'',equipmentCategoryLabel:first?.categoryLabel||'',equipmentDetail:first?.detail||'',equipmentFirstUnsafeTimeStr:first?.timeStr||'',
         hoursOutOfBand:sim.hoursOut,fanSpeed:sim.maxFan,autoDidCool:sim.didCool,autoDidHeat:sim.didHeat,freezeRisk:sim.freezeRisk,warnings:sim.warnings,
         rejectedIntervalCount:sim.unsafe.length,
-        capacityCool:sim.capacityCool,capacityHeat:sim.capacityHeat,hourly:sim.trace,simulationStart:sim.start,simulationEnd:sim.end};
+        capacityCool:sim.capacityCool,capacityHeat:sim.capacityHeat,heatingFloorLimited:sim.heatingFloorLimited,hourly:sim.trace,simulationStart:sim.start,simulationEnd:sim.end};
 }
 function candidateRank(r){return r.suitable?0:r.equipmentEligible&&r.floorCompliant?1:r.equipmentEligible?2:3;}
 function optimizeCandidate(type,envelope,isOvernight,meta){
@@ -887,34 +888,69 @@ function setupForMode(type,setpoints,fan,isOvernight,variant){
     if(type==='auto'||type==='ac')text+=' Keep a clean filter and at least two distribution vents open, or quick-cool plus one distribution vent; do not obstruct airflow.';
     return text;
 }
-function policyBadge(suitable,equipmentEligible){
+function policyBadge(suitable,equipmentEligible,category){
+    if(!equipmentEligible&&category==='freeze')return '<div class="risk-badge high"><div class="risk-dot high"></div><span>AC icing risk</span></div>';
     return suitable?'<div class="risk-badge safe"><div class="risk-dot safe"></div><span>Fits criteria</span></div>'
-        :'<div class="risk-badge moderate"><div class="risk-dot moderate"></div><span>'+(equipmentEligible?'Comfort shortfall':'Policy blocked')+'</span></div>';
+        :'<div class="risk-badge moderate"><div class="risk-dot moderate"></div><span>'+(equipmentEligible?'Comfort shortfall':'Use another setting')+'</span></div>';
 }
 function assumptionPanel(mode,fan){
     const ice=mode==='ac'||mode==='auto'?' If icing is observed: stop cooling, inspect/clean the filter, and ensure vents are open. Use FAN ONLY until ice clears; resume at a warmer setpoint. If icing persists, obtain service.':'';
     return '<details class="mitigation-box"><summary>Operating assumptions'+(ice?' & icing guidance':'')+'</summary><div style="margin-top:8px;line-height:1.5;">'+operatingAssumptions(mode,fan)+ice+'</div></details>';
 }
 function humidityDescription(){return state.indoorRH==null?'Indoor RH unknown; coil checks use a rough outdoor dew-point proxy; the 50% dehumidifier setting is not a humidity measurement.':state.indoorRH+'% starting indoor RH entered; constant dew point assumed for coil checks.';}
+function temperatureIssue(c,setpoints,end){
+    const mode=c.type||c.mode,trace=c.hourly||c.trace||[],initial=trace[0]?.indoor;
+    const heating=mode==='furnace'?'The furnace':mode==='auto'?'The heat pump in AUTO mode':'The heat pump';
+    const cooling=mode==='auto'?'The AC in AUTO mode':'The AC';
+    const set=mode==='auto'?(c.optimizedSet??setpoints.auto):mode==='ac'?(c.optimizedSet??setpoints.cool):(c.optimizedSet??setpoints.heat);
+    const final='The RV is predicted to be '+c.finalIndoor+'°F at '+formatTime(end)+'.';
+    const issue=(headline,text,equipmentRisk=false)=>({headline,text,equipmentRisk});
+    if(!c.equipmentEligible){
+        if((mode==='ac'||mode==='auto')&&(c.equipmentCategory||c.category)==='freeze')return issue('The AC may ice up','The AC may ice up at this setting. Do not use this cooling setting. If ice is visible, stop cooling and use FAN ONLY until it clears. '+final,true);
+        return issue(mode==='hp'||mode==='auto'?'The heat pump should not be used':mode==='maxxfan'?'Ventilation will not work here':'This setting should not be used',(c.equipmentReason||c.disqualReason)+' '+final);
+    }
+    if(c.heatingFloorLimited&&!c.floorCompliant)return issue('Heating cannot keep up',heating+' cannot maintain your minimum set point of '+C.comfortFloor+'°F in this weather. '+final);
+    if(initial<C.comfortFloor&&!c.floorCompliant){
+        const recovery=mode==='furnace'||mode==='hp'||mode==='auto'?heating+(c.endInBand?' can warm the RV during this period. ':' needs more time to reach your set point of '+set+'°F. '):'';
+        return issue('The RV starts too cold','The RV starts at '+initial+'°F, below your minimum temperature of '+C.comfortFloor+'°F. '+recovery+final);
+    }
+    if((mode==='hp'||mode==='furnace')&&!c.endInBand&&c.finalIndoor>c.comfortHigh+.5)return issue('Cooling is needed',heating+' cannot cool the RV. '+final+' Your preferred maximum is '+c.comfortHigh+'°F.');
+    if(mode==='ac'&&!c.endInBand&&c.finalIndoor<c.comfortLow-.5)return issue('Heating is needed','The AC cannot heat the RV. '+final+' Your preferred minimum is '+c.comfortLow+'°F.');
+    if(c.capacityCool)return issue('The AC cannot keep up',cooling+' cannot maintain your set point of '+set+'°F throughout this period. '+final);
+    if(c.capacityHeat)return issue('Heating cannot keep up',heating+' cannot maintain your set point of '+set+'°F throughout this period. '+final);
+    if(c.overshoot){
+        const temperatures=trace.map(p=>p.indoor);
+        return issue('The RV goes outside your comfort range','The RV is predicted to range from '+Math.min(...temperatures).toFixed(1)+' to '+Math.max(...temperatures).toFixed(1)+'°F during this period, outside your '+c.comfortLow+'–'+c.comfortHigh+'°F comfort range. '+final);
+    }
+    if(mode==='furnace'||mode==='hp')return issue('More heating time is needed',heating+' needs more time to reach your set point of '+set+'°F. '+final);
+    if(mode==='ac')return issue('More cooling time is needed','The AC needs more time to reach your set point of '+set+'°F. '+final);
+    if(mode==='auto'){
+        const warm=c.finalIndoor>c.comfortHigh;
+        return issue('AUTO allows too much temperature drift','At a set point of '+set+'°F, AUTO waits until '+(warm?set+2:set-2)+'°F before '+(warm?'cooling':'heating')+'. '+final);
+    }
+    if(mode==='maxxfan')return issue(c.finalIndoor>c.comfortHigh?'The MaxxFan cannot cool enough':'Heating is needed',c.finalIndoor>c.comfortHigh?'The MaxxFan cannot cool the RV to '+c.comfortHigh+'°F using outdoor air during this period. '+final:'The MaxxFan cannot heat the RV. '+final);
+    return issue(c.finalIndoor>c.comfortHigh?'The RV will get too warm':'The RV will get too cold','With the thermostat OFF, the RV cannot stay '+(c.finalIndoor>c.comfortHigh?'at or below '+c.comfortHigh:'at or above '+(c.floorCompliant?c.comfortLow:C.comfortFloor))+'°F. '+final);
+}
 function renderRecommendation(id,title,result,isOvernight){
     const w=result.winner,e=result.envelope,sys=systemDisplayName(w),sp=result.setpoints;
     document.getElementById('setpointDisplay').innerHTML='Cool <span>'+sp.cool+'°F</span> · Heat <span>'+sp.heat+'°F</span> · Auto <span>'+sp.auto+'°F</span>';
     const inBand=w.hoursOutOfBand<1e-8;
-    const comfort=w.comfortReason||(inBand?'Predicted in the desired band throughout.':'Predicted '+w.hoursOutOfBand.toFixed(1)+' hours outside the desired band, including recovery; final temperature meets the ±0.5°F tolerance.');
+    const problem=temperatureIssue(w,sp,w.simulationEnd);
+    const comfort=!w.suitable?problem.text:(inBand?'Predicted in the desired band throughout.':'Predicted '+w.hoursOutOfBand.toFixed(1)+' hours outside the desired band, including recovery; final temperature meets the ±0.5°F tolerance.');
     const rows=result.allCandidates.map(c=>{
         const name=systemDisplayName(c)+(c.optimizedSet!=null?' ('+c.optimizedSet+'°F)':'');
-        const status=!c.equipmentEligible?c.equipmentCategoryLabel+': '+c.equipmentReason:!c.suitable?c.comfortReason:'Discomfort '+c.score.toFixed(2)+' weighted °F·h';
+        const status=!c.suitable?temperatureIssue(c,sp,c.simulationEnd).text:'Discomfort '+c.score.toFixed(2)+' weighted °F·h';
         const fan=c.autoDidCool||c.type==='hp'&&c.autoDidHeat?' · Fan '+c.fanSpeed:'';
         return '<div class="diag-row"><span class="diag-key">'+name+fan+'</span><span class="diag-val" style="font-size:11px;text-align:right;">'+(c===w?(w.suitable?'RECOMMENDED · ':'BEST MODELED ALTERNATIVE · '):'')+status+' · '+c.indoorMin+'–'+c.indoorMax+'°F</span></div>';
     }).join('');
-    const noSetup=result.noSuitable?'<div class="mitigation-box severity-amber"><strong>No Suitable Single Setup</strong>No evaluated setup both passes equipment policies, stays at or above '+C.comfortFloor+'°F, and finishes in the desired band (±0.5°F tolerance). '+sys+' is the best modeled alternative, not a full-window comfort recommendation. '+(w.comfortReason||w.equipmentReason)+'.</div>':'';
-    const capacity=w.capacityCool||w.capacityHeat?'<div class="mitigation-box severity-amber"><strong>Capacity Shortfall</strong>At least part of the interval exceeds modeled '+(w.capacityCool?'cooling':'heating')+' output at the selected target. Starting outside target alone is not a capacity failure.</div>':'';
+    const noSetup=result.noSuitable?'<div class="mitigation-box '+(problem.equipmentRisk?'severity-red':'severity-amber')+'"><strong>'+problem.headline+'</strong>'+problem.text+'</div>':'';
+    const capacity=!result.noSuitable&&(w.capacityCool||w.capacityHeat)?'<div class="mitigation-box '+(problem.equipmentRisk?'severity-red':'severity-amber')+'"><strong>'+problem.headline+'</strong>'+problem.text+'</div>':'';
     const warnings=w.warnings?.length?'<div class="mitigation-box severity-amber"><strong>Monitor Heating</strong>'+w.warnings.join(' ')+'</div>':'';
     const manual=e.singlePoint?'<div class="mitigation-box severity-amber"><strong>Single-Point Analysis</strong>The entered outdoor conditions are held constant. Changing weather can change the result.</div>':'';
     return `<div class="result-card" id="${id}">
-        <div class="result-card-header"><div class="result-card-title">${title}</div>${policyBadge(w.suitable,w.equipmentEligible)}</div>
+        <div class="result-card-header"><div class="result-card-title">${title}</div>${policyBadge(w.suitable,w.equipmentEligible,w.equipmentCategory)}</div>
         <div class="result-primary">${sys}</div>${noSetup}
-        <div class="result-detail"><div class="result-detail-label">${w.suitable?'Setup':'Modeled Alternative'}</div><div class="result-detail-value" style="font-size:13px;line-height:1.5;">${setupForMode(w.type,sp,w.fanSpeed,isOvernight,w.variant)}</div></div>
+        ${w.equipmentEligible?'<div class="result-detail"><div class="result-detail-label">'+(w.suitable?'Setup':'Modeled Alternative')+'</div><div class="result-detail-value" style="font-size:13px;line-height:1.5;">'+setupForMode(w.type,sp,w.fanSpeed,isOvernight,w.variant)+'</div></div>':''}
         <div class="result-detail"><div class="result-detail-label">Expected Indoor</div><div class="result-detail-value">${w.indoorMin}–${w.indoorMax}°F<div style="font-size:11px;color:var(--text-muted);">${state.indoor}°F at ${formatTime(w.simulationStart)} → ${w.finalIndoor}°F at ${formatTime(w.simulationEnd)}</div></div></div>
         <div class="result-detail"><div class="result-detail-label">${isOvernight?'Sleep':'Comfort'} Band [${w.comfortLow}–${w.comfortHigh}°F]</div><div class="result-detail-value" style="font-size:13px;color:${inBand?'var(--accent-green)':'var(--accent-amber)'};">${comfort}</div></div>
         <div class="result-detail"><div class="result-detail-label">Equipment Policies</div><div class="result-detail-value" style="font-size:12px;">${w.equipmentEligible?'Passes the app’s operating policies; this is an estimated assessment.':w.equipmentReason}</div></div>
@@ -1016,7 +1052,7 @@ function simulateCurrentMode(mode,envelope,startIndoor,target,direction,setpoint
     const comfort=simulationComfort(sim,false,true),equipmentEligible=!unsafe;
     return{mode,...comfort,equipmentEligible,suitable:equipmentEligible&&!overshoot&&comfort.floorCompliant&&comfort.endInBand,hoursOutOfBand:sim.hoursOut,warnings:sim.warnings,status:unsafe?'unsafe':overshoot?'overshoot':'ok',timeToTargetMin,finalIndoor:Math.round(sim.finalIndoor*10)/10,overshoot,
         disqualReason:unsafe?'At '+unsafe.timeStr+': '+unsafe.reason+(unsafe.detail?' — '+unsafe.detail:''):overshoot?'Would overshoot past opposite comfort target':null,
-        category:unsafe?.category||null,categoryLabel:unsafe?.categoryLabel||null,worstFreezeRisk:sim.freezeRisk,maxFan:sim.didCool||sim.didHeat&&mode==='hp'?sim.maxFan:null,trace:sim.trace,capacityCool:sim.capacityCool,capacityHeat:sim.capacityHeat};
+        category:unsafe?.category||null,categoryLabel:unsafe?.categoryLabel||null,worstFreezeRisk:sim.freezeRisk,maxFan:sim.didCool||sim.didHeat&&mode==='hp'?sim.maxFan:null,trace:sim.trace,capacityCool:sim.capacityCool,capacityHeat:sim.capacityHeat,heatingFloorLimited:sim.heatingFloorLimited};
 }
 
 function runCurrentAnalysis(now){
@@ -1156,13 +1192,14 @@ function renderCurrentCard(result){
         const t=result.bandTrajectory;
         return '<div class="result-card" id="currentCard"><div class="result-card-header"><div class="result-card-title">Current Recommendation</div>'+policyBadge(true,true)+'</div><div class="result-primary">No HVAC Needed</div><p>Predicted '+t.minIndoor.toFixed(1)+'–'+t.maxIndoor.toFixed(1)+'°F through '+end+' (target band 70–72°F, ±0.5°F tolerance).</p><p>'+setupForMode('passive',{},null,false)+'</p>'+assumptionPanel('passive',null)+'</div>';
     }
-    const w=result.winner,suitable=!!w?.suitable,name=w?currentModeDisplayName(w.mode):'No suitable setup';
+    const w=result.winner,suitable=!!w?.suitable,name=w?currentModeDisplayName(w.mode):'The RV needs heating or cooling';
     const sp={cool:C.currentCoolTarget,heat:C.currentHeatTarget,auto:71};
     const target=w?.timeToTargetMin==null?'Target not reached within this window.':'First reaches the ±0.5°F target tolerance in '+w.timeToTargetMin+' min.';
-    const noSetup=!suitable?'<div class="mitigation-box severity-amber"><strong>No Suitable Single Setup</strong>No evaluated mode meets the equipment and comfort criteria for this whole window. '+(w?.comfortReason||w?.disqualReason||'Review the mode comparison.')+' '+(w?'The best modeled alternative is shown for review.':'')+'</div>':'';
-    const rows=result.allModes.map(r=>'<div class="diag-row"><span class="diag-key">'+currentModeDisplayName(r.mode)+'</span><span class="diag-val" style="font-size:11px;text-align:right;">'+(r.suitable?'Meets criteria':r.disqualReason||r.comfortReason||'Outside comfort criteria')+' · '+(r.timeToTargetMin==null?'target not reached':r.timeToTargetMin+' min')+' · '+r.finalIndoor+'°F at '+end+'</span></div>').join('');
+    const problem=w?temperatureIssue(w,sp,result.window.windowEnd):{headline:'The RV cannot reach '+result.target+'°F',text:'None of the available heating or cooling modes can bring the RV to '+result.target+'°F by '+end+'.'};
+    const noSetup=!suitable?'<div class="mitigation-box '+(problem.equipmentRisk?'severity-red':'severity-amber')+'"><strong>'+problem.headline+'</strong>'+problem.text+'</div>':'';
+    const rows=result.allModes.map(r=>'<div class="diag-row"><span class="diag-key">'+currentModeDisplayName(r.mode)+'</span><span class="diag-val" style="font-size:11px;text-align:right;">'+(r.suitable?'Meets criteria':temperatureIssue(r,sp,result.window.windowEnd).text)+' · '+(r.timeToTargetMin==null?'target not reached':r.timeToTargetMin+' min')+' · '+r.finalIndoor+'°F at '+end+'</span></div>').join('');
     const setup=w?.equipmentEligible?'<div class="result-detail"><div class="result-detail-label">'+(suitable?'Setup':'Modeled Alternative')+'</div><div class="result-detail-value" style="font-size:13px;line-height:1.5;">'+setupForMode(w.mode,sp,w.maxFan,false)+'</div></div>':'';
-    return '<div class="result-card" id="currentCard"><div class="result-card-header"><div class="result-card-title">Current — '+result.window.label+' Transition</div>'+policyBadge(suitable,!!w?.equipmentEligible)+'</div><div class="result-primary">'+name+'</div>'+noSetup+setup
+    return '<div class="result-card" id="currentCard"><div class="result-card-header"><div class="result-card-title">Current — '+result.window.label+' Transition</div>'+policyBadge(suitable,!!w?.equipmentEligible,w?.category)+'</div><div class="result-primary">'+name+'</div>'+noSetup+setup
         +'<div class="result-detail"><div class="result-detail-label">Predicted Recovery</div><div class="result-detail-value" style="font-size:13px;">'+target+' Final '+(w?w.finalIndoor:'—')+'°F at '+end+'. '+(w?.hoursOutOfBand>0?w.hoursOutOfBand.toFixed(1)+' h outside the 70–72°F band, including recovery.':'')+'</div></div>'
         +(w?.warnings?.length?'<div class="mitigation-box severity-amber"><strong>Monitor Heating</strong>'+w.warnings.join(' ')+'</div>':'')
         +'<div class="result-detail"><div class="result-detail-label">Calculation Context</div><div class="result-detail-value" style="font-size:12px;">Run at '+start+' · Window ends '+end+'<br>Indoor '+result.indoor+'°F · Target '+result.target+'°F<br>'+humidityDescription()+'</div></div>'

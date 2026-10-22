@@ -77,6 +77,16 @@ function weather(url){
   await page.evaluate(()=>{setPeriod('night');analyze();});
   assert.match(await page.locator('#results').innerText(),/Overnight Recommendation/i);
   await page.evaluate(()=>{setPeriod('day');analyze();});
+  // Capacity failures remain readable and distinct from equipment-risk warnings.
+  await page.evaluate(()=>{state.temp=-10;state.wind=50;state.cloud=0;state.indoor=66;setPeriod('night');analyze();});
+  assert.match(await page.locator('#results').innerText(),/The furnace cannot maintain your minimum set point of 65°F/);
+  assert.doesNotMatch(await page.locator('#results').innerText(),/No Suitable Single Setup/);
+  if(screenshotDir){await page.locator('#results').screenshot({path:path.join(screenshotDir,'v45-cold-capacity.png')});}
+  await page.evaluate(()=>{state.temp=110;state.indoor=72;setPeriod('day');analyze();});
+  assert.match(await page.locator('#results').innerText(),/The AC(?: in AUTO mode)? cannot maintain your set point of \d+°F/);
+  assert.doesNotMatch(await page.locator('#results').innerText(),/No Suitable Single Setup/);
+  if(screenshotDir){await page.locator('#results').screenshot({path:path.join(screenshotDir,'v45-hot-capacity.png')});}
+  results.capacityMessages={furnace:true,ac:true};
   const widths=[];
   for(const width of [390,448,480]){await page.setViewportSize({width,height:950});widths.push(await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})));}
   assert.ok(widths.every(x=>x.width===x.scroll),JSON.stringify(widths));
