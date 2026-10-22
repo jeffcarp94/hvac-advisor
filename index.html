@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v4.2 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v4.3.0 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -91,7 +91,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v4.2</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v4.3.0</span></div>
         <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -99,10 +99,16 @@
     <div class="input-section" style="margin-top:16px;">
         <div class="input-section-title">Weather Forecast</div>
         <div style="display:flex;gap:8px;align-items:center;">
-            <input type="text" id="zipInput" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="Zip Code" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;color:var(--text-primary);font-family:var(--font-mono);font-size:16px;font-weight:600;letter-spacing:0.1em;outline:none;" onfocus="this.style.borderColor='var(--accent-blue)'" onblur="this.style.borderColor='var(--border)'" onkeydown="if(event.key==='Enter')retrieveWeather()">
+            <input type="text" id="zipInput" oninput="locationEdited()" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="Zip Code" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;color:var(--text-primary);font-family:var(--font-mono);font-size:16px;font-weight:600;letter-spacing:0.1em;outline:none;" onfocus="this.style.borderColor='var(--accent-blue)'" onblur="this.style.borderColor='var(--border)'" onkeydown="if(event.key==='Enter')retrieveWeather()">
             <button onclick="retrieveWeather()" id="retrieveBtn" style="padding:12px 20px;border:none;border-radius:var(--radius-sm);background:var(--accent-blue);color:var(--on-accent);font-family:var(--font-display);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;min-width:90px;">Retrieve</button>
         </div>
         <button onclick="useMyLocation()" id="gpsBtn" style="margin-top:8px;padding:8px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-input);color:var(--text-secondary);font-family:var(--font-display);font-size:12px;font-weight:600;cursor:pointer;width:100%;">◎ Use My Location</button>
+        <label for="weatherMode" style="display:block;margin-top:12px;font-size:12px;">Weather source</label>
+        <select id="weatherMode" onchange="setWeatherMode(this.value)" style="width:100%;padding:10px;margin-top:4px;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;">
+            <option value="manual">Manual weather</option><option value="forecast">NWS forecast</option>
+        </select>
+        <div id="weatherContext" style="font-size:12px;line-height:1.5;margin-top:8px;color:var(--text-secondary);"></div>
+        <div id="offlineStatus" role="status" style="font-size:12px;margin-top:8px;color:var(--text-secondary);"></div>
         <div id="weatherStatus" style="font-size:12px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);display:none;"></div>
         <div id="weatherLocation" style="font-size:12px;color:var(--accent-cyan);margin-top:4px;font-weight:600;display:none;"></div>
     </div>
@@ -120,17 +126,18 @@
             <div class="input-control"><button class="stepper-btn" onclick="step('indoor',-1)">−</button><div class="stepper-value" id="indoorValue">72</div><button class="stepper-btn" onclick="step('indoor',1)">+</button></div></div>
         <div class="input-row"><div><div class="input-label">Current Indoor Temperature</div><div class="input-unit">°F</div></div>
             <div class="input-control"><button class="stepper-btn" onclick="step('currentIndoor',-1)">−</button><div class="stepper-value" id="currentIndoorValue">72</div><button class="stepper-btn" onclick="step('currentIndoor',1)">+</button></div></div>
-        <div class="input-row"><div><div class="input-label" id="tempLabel">Forecast High</div><div class="input-unit">°F</div></div>
+        <div class="input-row"><div><div class="input-label" id="tempLabel">Outdoor Temperature</div><div class="input-unit">°F</div></div>
             <div class="input-control"><button class="stepper-btn" onclick="step('temp',-1)">−</button><div class="stepper-value" id="tempValue">78</div><button class="stepper-btn" onclick="step('temp',1)">+</button></div></div>
         <div class="input-row"><div><div class="input-label">Relative Humidity</div><div class="input-unit">%</div></div>
             <div class="input-control"><button class="stepper-btn" onclick="step('rh',-5)">−</button><div class="stepper-value" id="rhValue">65</div><button class="stepper-btn" onclick="step('rh',5)">+</button></div></div></div>
 
     <div class="input-section"><div class="input-section-title">Sky & Wind</div>
         <div class="input-row" style="flex-direction:column;align-items:flex-start;gap:8px;">
-            <div class="input-label" id="cloudLabel">Cloud Cover</div>
-            <div class="input-unit" id="cloudHint" style="display:none;margin-top:-4px;">Solar soak from today's sun exposure</div>
+            <div class="input-label" id="cloudLabel">Solar Exposure</div>
+            <div class="input-unit" id="cloudHint" style="margin-top:-4px;">Clear = full modeled solar exposure; Overcast = reduced exposure</div>
             <div class="selector-group" id="cloudGroup">
                 <div class="selector-chip active" data-val="1.0" onclick="selectChip('cloud','1.0',this)">Clear</div>
+                <div class="selector-chip" data-val="0.8" onclick="selectChip('cloud','0.8',this)">Mostly Clear</div>
                 <div class="selector-chip" data-val="0.6" onclick="selectChip('cloud','0.6',this)">Partly</div>
                 <div class="selector-chip" data-val="0.3" onclick="selectChip('cloud','0.3',this)">Mostly</div>
                 <div class="selector-chip" data-val="0.1" onclick="selectChip('cloud','0.1',this)">Overcast</div>
@@ -150,13 +157,14 @@
 
     <button class="analyze-btn" id="analyzeBtn" onclick="analyze()">Analyze HVAC Requirements</button>
 
+    <div id="resultStatus" role="status" aria-live="polite" style="font-size:12px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px;"></div>
     <div class="results" id="results"></div>
 
-    <div class="footer-note">Model based on HVAC engineering estimates calibrated to Coach House Platinum III 250 DT. Dometic 15,000 BTU rooftop AC w/ heat pump. UA=136.6 BTU/hr/°F · Thermal Mass τ=2.0 hrs.</div>
+    <div class="footer-note">HVAC engineering estimates for Coach House Platinum III 250 DT; actual cabin temperatures and recovery times may differ. Dometic 15,000 BTU rooftop AC w/ heat pump. UA=136.6 BTU/hr/°F · Thermal Mass τ=2.0 hrs.</div>
 </div>
 
 <script>
-let state={period:'day',temp:78,rh:65,cloud:1.0,wind:5,precip:'none',indoor:72,indoorCurrent:72};
+let state={weatherMode:'manual',period:'day',temp:78,rh:65,cloud:1.0,wind:5,precip:'none',indoor:72,indoorCurrent:72};
 let forecast={day:null,night:null,location:null,fetched:false,tempVals:null,humVals:null};
 
 const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,
@@ -213,61 +221,251 @@ const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
 // Fan speed hierarchy for safety progression (Auto defaults to 0 for logic comparisons)
 const fanLevels = {'Low': 1, 'Medium': 2, 'High': 3, 'Auto': 0};
 
-const NWS_H={'User-Agent':'CoachHouseHVACAdvisor/3.4','Accept':'application/geo+json'};
-
+// Data freshness policies are independent of thermodynamic model constants.
+const WEATHER_POLICY={maxFetchAgeMs:2*3600000,maxIssueAgeMs:24*3600000,timeoutMs:15000};
+const NWS_H={Accept:'application/geo+json'};
+let weatherRequestId=0,weatherAbort=null,weatherLoading=false,resultContext=null;
+function analysisTimeZone(){return forecast.timeZone||Intl.DateTimeFormat().resolvedOptions().timeZone||'America/Chicago';}
+function localParts(date){
+    const parts=new Intl.DateTimeFormat('en-US',{timeZone:analysisTimeZone(),year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'}).formatToParts(date);
+    return Object.fromEntries(parts.filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));
+}
+function localDateTime(parts,hour,dayOffset=0){
+    const target=Date.UTC(parts.year,parts.month-1,parts.day+dayOffset,hour);
+    let guess=target;
+    // Resolve the location's DST offset on the requested calendar date.
+    for(let i=0;i<4;i++){
+        const p=localParts(new Date(guess));
+        const adjustment=target-Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute,p.second);
+        guess+=adjustment;if(adjustment===0)break;
+    }
+    return new Date(guess);
+}
+function formatTime(date){return date.toLocaleTimeString('en-US',{timeZone:analysisTimeZone(),hour:'numeric',minute:'2-digit',hour12:true});}
+function formatStamp(date){return date.toLocaleString('en-US',{timeZone:analysisTimeZone(),month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});}
+function emptyForecast(){return{day:null,night:null,location:null,fetched:false,tempVals:null,humVals:null,periods:[],intervals:null};}
+function forecastProblem(now=new Date()){
+    if(weatherLoading)return 'Weather retrieval is still in progress.';
+    if(!forecast.fetched)return 'Retrieve a forecast or select Manual weather.';
+    const age=now.getTime()-forecast.fetchedAt;
+    if(!Number.isFinite(age)||age<0||age>=WEATHER_POLICY.maxFetchAgeMs)return 'Forecast is more than two hours old. Retrieve fresh weather or select Manual.';
+    const issueAge=now.getTime()-forecast.issuedAt;
+    if(!Number.isFinite(issueAge)||issueAge < -5*60000||issueAge>=WEATHER_POLICY.maxIssueAgeMs)return 'NWS forecast issue time is missing or stale. Retrieve fresh weather or select Manual.';
+    return '';
+}
+function updateWeatherContext(){
+    const e=document.getElementById('weatherContext');if(!e)return;
+    document.getElementById('tempLabel').textContent=state.weatherMode==='manual'?'Outdoor Temperature':state.period==='day'?'Forecast High':state.period==='night'?'Forecast Low':'Forecast Temperature';
+    const mode=document.getElementById('weatherMode');if(mode)mode.value=state.weatherMode;
+    if(state.weatherMode==='manual')e.textContent='Manual: displayed weather values are used. Single-point estimate; weather changes are not forecast. Times: '+analysisTimeZone()+(forecast.timeZone?' (selected location).':' (device time zone).');
+    else if(forecast.fetched)e.textContent='Forecast: weather controls summarize the window. Hourly temperature/RH; period wind/sky. Retrieved '+formatStamp(new Date(forecast.fetchedAt))+'; NWS issued '+formatStamp(new Date(forecast.issuedAt))+'. Times: '+analysisTimeZone()+'. Weather edits switch to Manual.';
+    else e.textContent='Retrieve weather to use Forecast mode. Times: '+analysisTimeZone()+'.';
+}
+function invalidateResults(message='Inputs changed. Analyze again.'){
+    resultContext=null;const c=document.getElementById('results');c.replaceChildren();c.classList.remove('visible');
+    document.getElementById('resultStatus').textContent=message;
+    document.getElementById('setpointDisplay').textContent=state.period==='current'?'Current tab targets cool 72°F / heat 70°F':'Analyze to calculate recommended setpoints';
+}
+function locationEdited(){
+    weatherRequestId++;weatherAbort?.abort();weatherLoading=false;forecast=emptyForecast();
+    setBtnLoad('retrieveBtn',false);
+    const gps=document.getElementById('gpsBtn');gps.textContent='◎ Use My Location';gps.disabled=false;
+    document.getElementById('weatherLocation').textContent='';document.getElementById('weatherLocation').style.display='none';
+    invalidateResults('Location changed. Retrieve weather or use Manual.');
+    showStatus('Retrieve weather for the entered ZIP code.',false);updateWeatherContext();updatePeriodSublabels();
+}
+function setWeatherMode(mode){
+    if(!['forecast','manual'].includes(mode))return;
+    // Late ZIP/GPS responses must never overwrite an explicit user edit.
+    weatherRequestId++;weatherAbort?.abort();weatherLoading=false;setBtnLoad('retrieveBtn',false);
+    const gps=document.getElementById('gpsBtn');gps.textContent='◎ Use My Location';gps.disabled=false;
+    state.weatherMode=mode;invalidateResults();
+    if(mode==='forecast'&&!forecastProblem())applyForecast(state.period);
+    updateWeatherContext();updatePeriodSublabels();
+}
+function manualWeatherEdited(){if(state.weatherMode!=='manual')setWeatherMode('manual');invalidateResults();updateWeatherContext();}
+function beginWeatherRequest(){
+    weatherAbort?.abort();weatherAbort=new AbortController();weatherLoading=true;
+    const id=++weatherRequestId;forecast=emptyForecast();state.weatherMode='forecast';
+    document.getElementById('weatherLocation').textContent='';document.getElementById('weatherLocation').style.display='none';
+    invalidateResults('Retrieving weather…');updateWeatherContext();return{id,signal:weatherAbort.signal};
+}
+async function fetchJSON(url,signal){
+    const controller=new AbortController(),abort=()=>controller.abort();
+    signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)controller.abort();
+    const timer=setTimeout(()=>controller.abort(),WEATHER_POLICY.timeoutMs);
+    try{
+        const response=await fetch(url,{headers:NWS_H,cache:'no-store',signal:controller.signal});
+        if(!response.ok)throw new Error('Weather service returned HTTP '+response.status+'.');
+        return await response.json();
+    }catch(error){if(controller.signal.aborted)throw new Error('Weather request timed out or was cancelled. Try again.');throw error;}
+    finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
+}
+function finishWeatherRequest(request,error){
+    if(request.id!==weatherRequestId)return;
+    weatherLoading=false;setBtnLoad('retrieveBtn',false);
+    const gps=document.getElementById('gpsBtn');gps.textContent='◎ Use My Location';gps.disabled=false;
+    if(error){forecast=emptyForecast();invalidateResults('Weather unavailable. Retry or select Manual.');showStatus(error.message,true);}
+    updateWeatherContext();
+}
 async function retrieveWeather(){
     const zip=document.getElementById('zipInput').value.trim();
-    if(!/^\d{5}$/.test(zip)){showStatus('Enter a valid 5-digit zip code',true);return;}
-    setBtnLoad('retrieveBtn',true);showStatus('Looking up zip code...',false);
+    if(!/^\d{5}$/.test(zip)){showStatus('Enter a valid 5-digit ZIP code.',true);return;}
+    const request=beginWeatherRequest();setBtnLoad('retrieveBtn',true);showStatus('Looking up ZIP code…',false);
     try{
-        let r;try{r=await fetch(`https://api.zippopotam.us/us/${zip}`);}
-        catch(e){throw new Error('Network error — browsers block fetch from file:// URLs. Use a local server or the GPS button.');}
-        if(!r.ok)throw new Error('Zip code not found');
-        const g=await r.json();const lat=parseFloat(g.places[0].latitude),lon=parseFloat(g.places[0].longitude);
-        const name=g.places[0]['place name']+', '+g.places[0]['state abbreviation'];
-        showStatus('Fetching NWS forecast...',false);await fetchNWS(lat,lon,name);
-    }catch(e){
-        showStatus(e.message,true);
-        if(window.location.protocol==='file:')document.getElementById('weatherStatus').innerHTML+='<br><br><span style="color:var(--text-secondary)">Run: <code style="color:var(--accent-cyan)">python3 -m http.server 8000</code> then open <code style="color:var(--accent-cyan)">http://localhost:8000</code></span>';
-        forecast.fetched=false;
-    }finally{setBtnLoad('retrieveBtn',false);}
+        const g=await fetchJSON('https://api.zippopotam.us/us/'+zip,request.signal),place=g.places?.[0];
+        if(!place)throw new Error('ZIP code not found.');
+        await fetchNWS(Number(place.latitude),Number(place.longitude),place['place name']+', '+place['state abbreviation'],request);
+    }catch(error){finishWeatherRequest(request,error);}
 }
 async function useMyLocation(){
-    if(!navigator.geolocation){showStatus('Geolocation not supported',true);return;}
-    const btn=document.getElementById('gpsBtn');btn.textContent='◎ Locating...';btn.style.opacity='0.6';
-    showStatus('Requesting location...',false);
-    try{const pos=await new Promise((ok,no)=>navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:false,timeout:10000,maximumAge:300000}));
-        showStatus('Fetching NWS forecast...',false);await fetchNWS(pos.coords.latitude,pos.coords.longitude,null);
-    }catch(e){const m=e.code===1?'Location permission denied':e.code===2?'Location unavailable':e.code===3?'Timed out':e.message;showStatus('Error: '+m,true);forecast.fetched=false;
-    }finally{btn.textContent='◎ Use My Location';btn.style.opacity='1';}
+    if(!navigator.geolocation){showStatus('Geolocation is unavailable. Use ZIP code or Manual.',true);return;}
+    const request=beginWeatherRequest(),gps=document.getElementById('gpsBtn');gps.textContent='◎ Locating…';gps.disabled=true;
+    try{
+        const pos=await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:false,timeout:10000,maximumAge:300000}));
+        if(request.id!==weatherRequestId)return;
+        await fetchNWS(pos.coords.latitude,pos.coords.longitude,null,request);
+    }catch(error){finishWeatherRequest(request,new Error(error.code===1?'Location permission denied. Use ZIP code or Manual.':error.message||'Location unavailable.'));}
 }
-async function fetchNWS(lat,lon,placeName){
-    let r1;try{r1=await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,{headers:NWS_H});}catch(e){throw new Error('NWS grid lookup failed: '+e.message);}
-    if(!r1.ok)throw new Error('NWS point error ('+r1.status+')');
-    const p1=await r1.json();const fcUrl=p1.properties.forecast,gid=p1.properties.gridId,gx=p1.properties.gridX,gy=p1.properties.gridY;
-    const city=p1.properties.relativeLocation?.properties?.city||'',st=p1.properties.relativeLocation?.properties?.state||'';
-    const loc=placeName||(city&&st?city+', '+st:lat.toFixed(2)+', '+lon.toFixed(2));
-    let r2;try{r2=await fetch(fcUrl,{headers:NWS_H});}catch(e){throw new Error('NWS forecast failed: '+e.message);}
-    if(!r2.ok)throw new Error('NWS forecast error ('+r2.status+')');
-    const f2=await r2.json();const periods=f2.properties.periods;
-    let humVals=null,tempVals=null;
-    try{const r3=await fetch(`https://api.weather.gov/gridpoints/${gid}/${gx},${gy}`,{headers:NWS_H});if(r3.ok){const g3=await r3.json();humVals=g3.properties.relativeHumidity?.values||null;tempVals=g3.properties.temperature?.values||null;}}catch(e){}
-    let dayP=null,nightP=null;
-    for(const p of periods){if(p.isDaytime&&!dayP)dayP=p;if(!p.isDaytime&&!nightP)nightP=p;if(dayP&&nightP)break;}
-    if(!dayP||!nightP)throw new Error('Could not parse forecast periods');
-    forecast.day=parsePeriod(dayP,extractMaxRH(humVals,dayP.startTime,dayP.endTime));
-    forecast.night=parsePeriod(nightP,extractMaxRH(humVals,nightP.startTime,nightP.endTime));
-    forecast.tempVals=tempVals;forecast.humVals=humVals;
-    forecast.location=loc;forecast._lat=lat;forecast._lon=lon;forecast.fetched=true;
-    document.getElementById('weatherLocation').textContent=loc+' — '+dayP.name+' / '+nightP.name;
-    document.getElementById('weatherLocation').style.display='block';
-    showStatus('Forecast retrieved successfully',false);updatePeriodSublabels();applyForecast(state.period);analyze();
+function durationMs(text){
+    // Fixed-length ISO days/hours/minutes/seconds; calendar months/years are ambiguous.
+    const m=/^P(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/.exec(text);
+    if(!m||!m.slice(1).some(Boolean))throw new Error('Unsupported forecast duration: '+text);
+    const ms=((Number(m[1]||0)*24+Number(m[2]||0))*3600+Number(m[3]||0)*60+Number(m[4]||0))*1000;
+    if(ms<=0||!Number.isFinite(ms))throw new Error('Invalid forecast duration.');return ms;
 }
-function extractMaxRH(vals,sISO,eISO){if(!vals||!vals.length)return null;const s=new Date(sISO).getTime(),e=new Date(eISO).getTime();let mx=null;for(const v of vals){const t=new Date(v.validTime.split('/')[0]).getTime();const dm=v.validTime.match(/\/PT(\d+)H/);const dur=dm?parseInt(dm[1])*3600000:3600000;if(t+dur>s&&t<e&&v.value!=null){if(mx===null||v.value>mx)mx=v.value;}}return mx!==null?Math.round(mx):null;}
-function parsePeriod(p,exRH){const temp=p.temperature;let rh=exRH!=null?exRH:(p.isDaytime?50:75);const pp=p.probabilityOfPrecipitation?.value||0;const sf=(p.shortForecast||'').toLowerCase();const hasRain=sf.includes('rain')||sf.includes('shower')||sf.includes('storm')||sf.includes('drizzle');if(hasRain&&pp>=50&&rh<90)rh=90;let wind=5;const wn=(p.windSpeed||'').match(/(\d+)/g);if(wn&&wn.length>=2)wind=parseInt(wn[0]);else if(wn&&wn.length===1)wind=parseInt(wn[0]);let cloud=0.6;if(/^sunny$|^clear$/.test(sf))cloud=1.0;else if(sf.includes('mostly sunny')||sf.includes('mostly clear'))cloud=0.8;else if(sf.includes('partly sunny')||sf.includes('partly cloudy'))cloud=0.6;else if(sf.includes('mostly cloudy'))cloud=0.3;else if(sf.includes('cloudy')||sf.includes('overcast')||sf.includes('fog'))cloud=0.1;else if(sf.includes('sunny')||sf.includes('clear'))cloud=1.0;let precip='none';if(hasRain)precip='rain';else if(sf.includes('snow')||sf.includes('sleet')||sf.includes('ice')||sf.includes('flurr'))precip='snow';return{temp,rh,cloud,wind,precip};}
-function applyForecast(p){const d=p==='day'?forecast.day:forecast.night;if(!d)return;state.temp=d.temp;state.rh=d.rh;state.cloud=d.cloud;state.wind=d.wind;state.precip=d.precip;document.getElementById('tempValue').textContent=d.temp;document.getElementById('rhValue').textContent=d.rh;document.getElementById('windValue').textContent=d.wind;document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>c.classList.remove('active'));let best=null,bd=Infinity;document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>{const dist=Math.abs(parseFloat(c.dataset.val)-d.cloud);if(dist<bd){bd=dist;best=c;}});if(best)best.classList.add('active');document.querySelectorAll('#precipGroup .selector-chip').forEach(c=>c.classList.toggle('active',c.dataset.val===d.precip));}
-function showStatus(m,err){const e=document.getElementById('weatherStatus');e.textContent=m;e.style.display='block';e.style.color=err?'var(--severity-red-text)':'var(--text-muted)';}
-function setBtnLoad(id,on){const b=document.getElementById(id);if(id==='retrieveBtn')b.textContent=on?'...':'Retrieve';b.style.opacity=on?'0.6':'1';b.style.pointerEvents=on?'none':'auto';}
+function decodeIntervals(values,convert,label,min,max){
+    if(!Array.isArray(values)||!values.length)throw new Error('NWS '+label+' data are missing.');
+    const intervals=values.map(entry=>{
+        const [startText,duration,...rest]=String(entry.validTime).split('/'),start=Date.parse(startText);
+        const end=duration?.startsWith('P')?start+durationMs(duration):Date.parse(duration);
+        if(rest.length||!Number.isFinite(start)||!Number.isFinite(end)||end<=start)throw new Error('Invalid NWS '+label+' interval.');
+        let value=null;
+        if(entry.value!==null){
+            if(typeof entry.value!=='number'||!Number.isFinite(entry.value))throw new Error('Invalid NWS '+label+' value.');
+            value=convert(entry.value);if(value<min||value>max)throw new Error('NWS '+label+' value is out of range.');
+        }
+        return{start,end,value};
+    }).sort((a,b)=>a.start-b.start);
+    for(let i=1;i<intervals.length;i++)if(intervals[i].start<intervals[i-1].end)throw new Error('Overlapping NWS '+label+' intervals.');
+    return intervals;
+}
+function intervalAt(intervals,time){return intervals.find(v=>v.start<=time&&time<v.end);}
+function requireCoverage(intervals,start,end,label){
+    let cursor=start;
+    for(const v of intervals){
+        if(v.end<=cursor)continue;if(v.start>cursor||v.value===null)break;
+        cursor=Math.min(end,v.end);if(cursor>=end)return;
+    }
+    throw new Error('Forecast '+label+' coverage is incomplete at '+formatStamp(new Date(cursor))+'. Retrieve again or use Manual weather.');
+}
+function extractMaxRH(vals,start,end){
+    if(!vals?.length)return null;
+    const hits=decodeIntervals(vals,v=>v,'humidity',0,100).filter(v=>v.end>Date.parse(start)&&v.start<Date.parse(end)&&v.value!==null);
+    return hits.length?Math.round(Math.max(...hits.map(v=>v.value))):null;
+}
+function parsePeriod(p,exRH){
+    let temp=p.temperature;
+    if(p.temperatureUnit==='C')temp=temp*9/5+32;else if(p.temperatureUnit!=='F')throw new Error('Unsupported NWS period temperature unit.');
+    if(!Number.isFinite(temp))throw new Error('Missing forecast temperature.');
+    const sf=(p.shortForecast||'').toLowerCase(),hasRain=/rain|shower|storm|drizzle/.test(sf);
+    const rainFloor=hasRain&&(p.probabilityOfPrecipitation?.value??0)>=50;
+    let rh=exRH;if(rh!=null&&rainFloor)rh=Math.max(90,rh);
+    const speeds=(p.windSpeed||'').match(/\d+(?:\.\d+)?/g),calm=/^calm$/i.test(p.windSpeed||'');
+    let wind=calm?0:(speeds?Math.min(...speeds.map(Number)):null);
+    if(wind!==null&&!calm){if(/km\/h|kph/i.test(p.windSpeed))wind/=1.609344;else if(!/mph/i.test(p.windSpeed))throw new Error('Unsupported NWS wind unit.');}
+    let cloud=.6;
+    if(/^sunny$|^clear$/.test(sf))cloud=1;else if(/mostly sunny|mostly clear/.test(sf))cloud=.8;
+    else if(/partly sunny|partly cloudy/.test(sf))cloud=.6;else if(sf.includes('mostly cloudy'))cloud=.3;
+    else if(/cloudy|overcast|fog/.test(sf))cloud=.1;else if(/sunny|clear/.test(sf))cloud=1;
+    const precip=hasRain?'rain':(/snow|sleet|ice|flurr/.test(sf)?'snow':'none'),start=Date.parse(p.startTime),end=Date.parse(p.endTime);
+    if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)throw new Error('Invalid NWS forecast period.');
+    return{temp,rh,wind,cloud,precip,rainFloor,start,end,name:p.name,isDaytime:p.isDaytime};
+}
+async function fetchNWS(lat,lon,placeName,request){
+    if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)throw new Error('Invalid location coordinates.');
+    const p1=await fetchJSON(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,request.signal),p=p1.properties;
+    if(!p?.forecast||!p?.forecastGridData||!p?.timeZone)throw new Error('NWS location metadata are incomplete.');
+    new Intl.DateTimeFormat('en-US',{timeZone:p.timeZone});
+    const [f2,g3]=await Promise.all([fetchJSON(p.forecast,request.signal),fetchJSON(p.forecastGridData,request.signal)]);
+    if(request.id!==weatherRequestId)return;
+    const gp=g3.properties,unit=gp?.temperature?.uom,convert=unit==='wmoUnit:degC'?v=>v*9/5+32:unit==='wmoUnit:degF'?v=>v:null;
+    if(!convert||gp?.relativeHumidity?.uom!=='wmoUnit:percent')throw new Error('Unsupported NWS grid units.');
+    const temperature=decodeIntervals(gp.temperature.values,convert,'temperature',-150,160),humidity=decodeIntervals(gp.relativeHumidity.values,v=>v,'humidity',0,100);
+    if(!Array.isArray(f2.properties?.periods)||!f2.properties.periods.length)throw new Error('NWS forecast periods are missing.');
+    const periods=f2.properties.periods.map(v=>parsePeriod(v,extractMaxRH(gp.relativeHumidity.values,v.startTime,v.endTime))).sort((a,b)=>a.start-b.start);
+    for(let i=1;i<periods.length;i++)if(periods[i].start<periods[i-1].end)throw new Error('Overlapping NWS forecast periods.');
+    const issues=[gp.updateTime,f2.properties.updateTime].map(Date.parse);
+    if(issues.some(v=>!Number.isFinite(v)))throw new Error('NWS issue time is missing.');
+    const city=p.relativeLocation?.properties;
+    forecast={...emptyForecast(),fetched:true,intervals:{temperature,humidity},periods,tempVals:gp.temperature.values,humVals:gp.relativeHumidity.values,
+        location:placeName||(city?.city&&city?.state?city.city+', '+city.state:lat.toFixed(2)+', '+lon.toFixed(2)),
+        _lat:lat,_lon:lon,timeZone:p.timeZone,fetchedAt:Date.now(),issuedAt:Math.min(...issues)};
+    weatherLoading=false;const problem=forecastProblem();if(problem)throw new Error(problem);
+    document.getElementById('weatherLocation').textContent=forecast.location;document.getElementById('weatherLocation').style.display='block';
+    finishWeatherRequest(request);showStatus('Forecast retrieved from NWS.',false);updatePeriodSublabels();applyForecast(state.period);analyze();
+}
+function periodAt(time){return forecast.periods.find(p=>p.start<=time&&time<p.end);}
+function forecastPeriodsFor(start,end){
+    const hits=forecast.periods.filter(p=>p.end>start&&p.start<end);
+    requireCoverage(hits.map(p=>({...p,value:p.wind})),start,end,'wind/sky');return hits;
+}
+function applyForecast(period){
+    if(state.weatherMode!=='forecast'||!forecast.fetched)return;
+    const win=period==='current'?currentTransitionWindow(new Date()):computeWindow(period==='night');
+    const start=period==='current'?Date.now():win.start.getTime(),end=period==='current'?(win.windowEnd?.getTime()||start+1):win.end.getTime();
+    const periods=forecast.periods.filter(p=>p.end>start&&p.start<end);
+    const temps=forecast.intervals.temperature.filter(v=>v.end>start&&v.start<end&&v.value!==null),rhs=forecast.intervals.humidity.filter(v=>v.end>start&&v.start<end&&v.value!==null);
+    if(!periods.length||!temps.length||!rhs.length)return;
+    state.temp=Math.round(period==='current'?intervalAt(forecast.intervals.temperature,start).value:(period==='day'?Math.max:Math.min)(...temps.map(v=>v.value)));
+    state.rh=Math.round(Math.max(periods.some(p=>p.rainFloor)?90:0,...rhs.map(v=>v.value)));
+    state.cloud=periods[0].cloud;state.wind=periods[0].wind??0;state.precip=periods[0].precip;
+    document.getElementById('tempValue').textContent=state.temp;document.getElementById('rhValue').textContent=state.rh;document.getElementById('windValue').textContent=state.wind;
+    document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>c.classList.toggle('active',Number(c.dataset.val)===state.cloud));
+    document.querySelectorAll('#precipGroup .selector-chip').forEach(c=>c.classList.toggle('active',c.dataset.val===state.precip));updateWeatherContext();
+}
+function showStatus(message,error){const e=document.getElementById('weatherStatus');e.textContent=message;e.style.display='block';e.style.color=error?'var(--severity-red-text)':'var(--text-secondary)';}
+function setBtnLoad(id,on){const b=document.getElementById(id);if(id==='retrieveBtn')b.textContent=on?'…':'Retrieve';b.disabled=on;}
+function computeWindow(isOvernight,now=new Date()){
+    const p=localParts(now),h=p.hour+p.minute/60;let start,end,label;
+    if(isOvernight){const offset=h<7?-1:0;start=localDateTime(p,22,offset);end=localDateTime(p,7,offset+1);label=h<7?'In Progress':'Tonight';}
+    else{const offset=h>=19?1:0;start=localDateTime(p,9,offset);end=localDateTime(p,19,offset);label=offset?'Tomorrow':'Today';}
+    return{start:now>start?now:start,end,label};
+}
+function makeEnvelope(start,end,windowLabel,stepMs){
+    const common={lat:forecast._lat??null,lon:forecast._lon??null,windowLabel,windowStart:start,windowEnd:end,timeZone:analysisTimeZone(),source:state.weatherMode};
+    if(state.weatherMode==='manual')return{...common,points:[{time:start,tOut:state.temp,rh:state.rh,timeStr:formatTime(start)}],singlePoint:true,cloud:state.cloud,wind:state.wind,precip:state.precip};
+    const problem=forecastProblem();if(problem)throw new Error(problem);
+    const s=start.getTime(),e=end.getTime();
+    requireCoverage(forecast.intervals.temperature,s,e,'temperature');requireCoverage(forecast.intervals.humidity,s,e,'humidity');
+    const periods=forecastPeriodsFor(s,e),times=new Set([s]);
+    for(let t=s+stepMs;t<e;t+=stepMs)times.add(t);
+    // Include every interval boundary so short changes cannot disappear between samples.
+    for(const entries of [forecast.intervals.temperature,forecast.intervals.humidity,periods])for(const v of entries)if(v.start>s&&v.start<e)times.add(v.start);
+    const points=[...times].sort((a,b)=>a-b).map(t=>{
+        const p=periodAt(t),temp=intervalAt(forecast.intervals.temperature,t),hum=intervalAt(forecast.intervals.humidity,t);
+        return{time:new Date(t),timeStr:formatTime(new Date(t)),tOut:Math.round(temp.value),rh:Math.round(Math.max(hum.value,p.rainFloor?90:0)),cloud:p.cloud,wind:p.wind,precip:p.precip};
+    });
+    return{...common,points,singlePoint:false,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
+}
+function buildEnvelope(isOvernight){const win=computeWindow(isOvernight);return makeEnvelope(win.start,win.end,win.label,3600000);}
+function buildCurrentEnvelope(now,end){return makeEnvelope(now,end,'Current',C.currentStepMin*60000);}
+function resultRecorded(envelope){
+    resultContext={period:state.period,mode:state.weatherMode,windowEnd:envelope?.windowEnd?.getTime()||null,currentActive:state.period==='current'?currentTransitionWindow(new Date()).active:null};
+    document.getElementById('resultStatus').textContent='Calculated '+formatStamp(new Date())+' · '+(state.weatherMode==='forecast'?'NWS forecast':'Manual weather')+' · '+analysisTimeZone();
+}
+function checkResultValidity(){
+    updatePeriodSublabels();updateWeatherContext();if(!resultContext)return;
+    const problem=resultContext.mode==='forecast'?forecastProblem():'';
+    const currentChanged=resultContext.period==='current'&&resultContext.currentActive!==currentTransitionWindow(new Date()).active;
+    if(problem||currentChanged||(resultContext.windowEnd&&Date.now()>=resultContext.windowEnd))invalidateResults(problem||'Analysis window changed. Analyze again.');
+}
+function showAnalysisError(error){invalidateResults(error.message);showStatus(error.message,true);}
+function weatherRange(envelope,key,multiplier=1){
+    const values=envelope.points.map(p=>(p[key]??envelope[key])*multiplier);
+    const low=Math.round(Math.min(...values)*10)/10,high=Math.round(Math.max(...values)*10)/10;
+    return low===high?String(low):low+'–'+high;
+}
 
 function dewPt(tF,rh){const tc=(tF-32)*5/9;const g=Math.log(Math.max(1,Math.min(100,rh))/100)+(17.27*tc)/(237.3+tc);return(237.3*g)/(17.27-g)*9/5+32;}
 
@@ -386,121 +584,6 @@ function estimateLatentFrac(tOut, rh, coilT){
     if(dpIn <= coilT) return 0; // no condensation
     // Approximate: latent load grows with (dpIn - coilT). At dpIn = coilT, 0. At dpIn - coilT = 20F, ~0.5.
     return Math.min(0.6, Math.max(0, (dpIn - coilT) / 40));
-}
-
-function computeWindow(isOvernight){
-    const now=new Date();
-    const nowH=now.getHours()+now.getMinutes()/60;
-    const Y=now.getFullYear(),M=now.getMonth(),D=now.getDate();
-    let start,end,label;
-    if(isOvernight){
-        if(nowH>=7&&nowH<19){
-            start=new Date(Y,M,D,22,0,0);
-            end=new Date(Y,M,D+1,7,0,0);
-            label='Tonight';
-        }else if(nowH>=19){
-            start=new Date(Y,M,D,22,0,0);
-            end=new Date(Y,M,D+1,7,0,0);
-            label='Tonight';
-        }else{
-            start=new Date(Y,M,D-1,22,0,0);
-            end=new Date(Y,M,D,7,0,0);
-            label='In Progress';
-        }
-    }else{
-        if(nowH>=7&&nowH<19){
-            start=new Date(Y,M,D,9,0,0);
-            end=new Date(Y,M,D,19,0,0);
-            label='Today';
-        }else if(nowH>=19){
-            start=new Date(Y,M,D+1,9,0,0);
-            end=new Date(Y,M,D+1,19,0,0);
-            label='Tomorrow';
-        }else{
-            start=new Date(Y,M,D,9,0,0);
-            end=new Date(Y,M,D,19,0,0);
-            label='Today';
-        }
-    }
-    const effectiveStart=now>start?now:start;
-    return{start:effectiveStart,end,label};
-}
-
-function buildEnvelope(isOvernight){
-    const lat=forecast.fetched&&forecast._lat!=null?forecast._lat:null;
-    const lon=forecast.fetched&&forecast._lon!=null?forecast._lon:null;
-    const win=computeWindow(isOvernight);
-    if(!forecast.fetched||!forecast.tempVals){
-        return{points:[{time:new Date(),tOut:state.temp,rh:state.rh,timeStr:'Current'}],singlePoint:true,cloud:state.cloud,wind:state.wind,precip:state.precip,lat,lon,windowLabel:win.label};
-    }
-    const s=win.start.getTime(),e=win.end.getTime();
-    const fallbackTemp=isOvernight?(forecast.night?forecast.night.temp:state.temp):(forecast.day?forecast.day.temp:state.temp);
-    const fallbackRH=isOvernight?(forecast.night?forecast.night.rh:state.rh):(forecast.day?forecast.day.rh:state.rh);
-    const fallbackCloud=isOvernight?(forecast.night?forecast.night.cloud:state.cloud):(forecast.day?forecast.day.cloud:state.cloud);
-    const fallbackWind=isOvernight?(forecast.night?forecast.night.wind:state.wind):(forecast.day?forecast.day.wind:state.wind);
-    const fallbackPrecip=isOvernight?(forecast.night?forecast.night.precip:state.precip):(forecast.day?forecast.day.precip:state.precip);
-    const fallbackLabel=isOvernight?'Overnight':'Daytime';
-    // v4.2: NWS gridpoint temperature values are run-length encoded — consecutive hours
-    // with the same forecast value are consolidated into one entry with a multi-hour
-    // PT{n}H duration. Expand each entry into hourly points across its duration so the
-    // evaluation loop sees true hour-resolution data. Without this expansion, a 4-hour
-    // entry contributed 1 sample instead of 4, biasing scores toward time periods with
-    // more temperature variation and skipping intermediate freeze-risk checks.
-    const points=[];
-    for(const v of forecast.tempVals){
-        if(v.value==null) continue;
-        const entryStart=new Date(v.validTime.split('/')[0]).getTime();
-        const dm=v.validTime.match(/\/PT(\d+)H/);
-        const dur=dm?parseInt(dm[1])*3600000:3600000;
-        const entryEnd=entryStart+dur;
-        // Skip entries entirely outside the window.
-        if(entryEnd<=s||entryStart>=e) continue;
-        const tOut=Math.round(v.value*9/5+32);
-        // Compute hourly emission anchors within the entry, clipped to window.
-        // First emitted point: snap to max(entryStart, windowStart) so we don't emit
-        // points in the past when the user opens the app mid-window.
-        const segStart=Math.max(entryStart,s);
-        const segEnd=Math.min(entryEnd,e);
-        // Build candidate point times: first at segStart, then at each subsequent
-        // whole-hour boundary until segEnd. Cap at 24 points per entry as a defensive
-        // bound against malformed durations.
-        const emitTimes=[segStart];
-        // Round segStart up to next whole hour for subsequent stride anchors.
-        const segStartDate=new Date(segStart);
-        let nextHour=new Date(segStartDate.getFullYear(),segStartDate.getMonth(),segStartDate.getDate(),segStartDate.getHours()+1,0,0).getTime();
-        let guard=0;
-        while(nextHour<segEnd&&guard<24){
-            emitTimes.push(nextHour);
-            nextHour+=3600000;
-            guard++;
-        }
-        for(const pointMs of emitTimes){
-            // Match RH per emitted point (NWS humVals are also run-length encoded
-            // and may have different boundaries than tempVals).
-            let rh=fallbackRH;
-            if(forecast.humVals){
-                let best=null,bd=Infinity;
-                for(const h of forecast.humVals){
-                    if(h.value==null) continue;
-                    const ht=new Date(h.validTime.split('/')[0]).getTime();
-                    const hdm=h.validTime.match(/\/PT(\d+)H/);
-                    const hdur=hdm?parseInt(hdm[1])*3600000:3600000;
-                    // Prefer entries whose interval contains pointMs; otherwise nearest start.
-                    if(ht<=pointMs&&ht+hdur>pointMs){best=Math.round(h.value);bd=0;break;}
-                    const hd=Math.abs(ht-pointMs);
-                    if(hd<bd){bd=hd;best=Math.round(h.value);}
-                }
-                if(best!=null)rh=best;
-            }
-            const dtObj=new Date(pointMs);
-            const timeStr=dtObj.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-            points.push({time:dtObj,tOut,rh,timeStr});
-        }
-    }
-    if(points.length===0){
-        return{points:[{time:new Date(s),tOut:fallbackTemp,rh:fallbackRH,timeStr:fallbackLabel}],singlePoint:true,cloud:fallbackCloud,wind:fallbackWind,precip:fallbackPrecip,lat,lon,windowLabel:win.label};
-    }
-    return{points,singlePoint:false,cloud:fallbackCloud,wind:fallbackWind,precip:fallbackPrecip,lat,lon,windowLabel:win.label};
 }
 
 function passiveEqAt(tOut,wind,cf,isDay,meta,solarCtx){
@@ -815,6 +898,7 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
 
     for(let i=0;i<envelope.points.length;i++){
         const pt = envelope.points[i];
+        const pointWind=pt.wind??envelope.wind,pointCloud=pt.cloud??envelope.cloud;
         const solarCtx=envelope.lat!=null&&envelope.lon!=null?{date:pt.time,lat:envelope.lat,lon:envelope.lon}:null;
         // Δt in hours since previous point. First iteration uses 1hr default.
         let dtHours = 1;
@@ -823,7 +907,7 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
             if(dtHours <= 0 || dtHours > 12) dtHours = 1; // sanity clamp
         }
 
-        const eq=equipmentSafeAt(candidateType,pt.tOut,pt.rh,envelope.wind,envelope.cloud,!isOvernight,meta,setpoints,isOvernight,solarCtx,currentIn,dtHours);
+        const eq=equipmentSafeAt(candidateType,pt.tOut,pt.rh,pointWind,pointCloud,!isOvernight,meta,setpoints,isOvernight,solarCtx,currentIn,dtHours);
 
         // v3.4 Fix A: on unsafe hour, log it and fall back to passive trajectory for this hour.
         // Do NOT break — continue evaluating remaining hours so the candidate's full-day
@@ -852,16 +936,16 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
             }
         }
 
-        const indoor=predictIndoor(effectiveType,pt.tOut,envelope.wind,envelope.cloud,!isOvernight,meta,setpoints,solarCtx,currentIn,dtHours);
+        const indoor=predictIndoor(effectiveType,pt.tOut,pointWind,pointCloud,!isOvernight,meta,setpoints,solarCtx,currentIn,dtHours);
 
         if (candidateType === 'auto' && eq.safe) {
             // v3.2: engagement flags key off tEq for consistency with predictIndoor.
-            const tEqPt = passiveEqAt(pt.tOut,envelope.wind,envelope.cloud,!isOvernight,meta,solarCtx);
+            const tEqPt = passiveEqAt(pt.tOut,pointWind,pointCloud,!isOvernight,meta,solarCtx);
             if (tEqPt > setpoints.auto + 2) autoDidCool = true;
             if (tEqPt < setpoints.auto - 2) autoDidHeat = true;
         } else if (candidateType === 'ac' && eq.safe) {
             // v3.2: AC engaged if steady-state would exceed setpoint.
-            const tEqPt = passiveEqAt(pt.tOut,envelope.wind,envelope.cloud,!isOvernight,meta,solarCtx);
+            const tEqPt = passiveEqAt(pt.tOut,pointWind,pointCloud,!isOvernight,meta,solarCtx);
             if (tEqPt > setpoints.cool) autoDidCool = true;
         }
 
@@ -881,7 +965,7 @@ function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
             bandLo=C.dayCoolBandLow;bandHi=C.dayCoolBandHigh;
         }else if(candidateType==='maxxfan'){
             // v3.2: regime classification keys off tEq (steady-state tendency), not damped tMass.
-            const tEqPt=passiveEqAt(pt.tOut,envelope.wind,envelope.cloud,!isOvernight,meta,solarCtx);
+            const tEqPt=passiveEqAt(pt.tOut,pointWind,pointCloud,!isOvernight,meta,solarCtx);
             const mfSet=!isOvernight?C.maxxFanSetDay:C.maxxFanSetNight;
             if(tEqPt>mfSet){bandLo=C.dayCoolBandLow;bandHi=C.dayCoolBandHigh;}
             else {bandLo=C.dayHeatBandLow;bandHi=C.dayCoolBandHigh;} 
@@ -1092,6 +1176,9 @@ function systemDisplayName(winner){
 }
 
 function analyze(){
+    try{return analyzeUnchecked();}catch(error){showAnalysisError(error);}
+}
+function analyzeUnchecked(){
     if(state.period==='current'){
         analyzeCurrent();
         return;
@@ -1101,10 +1188,12 @@ function analyze(){
         const envelope=buildEnvelope(false);
         const result=selectOvernightSetup(envelope,false);
         container.innerHTML=renderRecommendation('dayCard','Daytime Recommendation',result,false);
+        resultRecorded(envelope);
     }else{
         const envelope=buildEnvelope(true);
         const result=selectOvernightSetup(envelope,true);
         container.innerHTML=renderRecommendation('overnightCard','Overnight Recommendation',result,true);
+        resultRecorded(envelope);
     }
     container.classList.add('visible');container.scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -1120,7 +1209,7 @@ function renderRecommendation(id,title,result,isOvernight){
     const riskBadge=w.safe?'<div class="risk-badge safe"><div class="risk-dot safe"></div><span>Safe</span></div>':'<div class="risk-badge high"><div class="risk-dot high"></div><span>No Safe Option</span></div>';
 
     // v3.8: Chronological display of outdoor/indoor pair, anchored to outdoor extremes.
-    // v4.2 Fix 2: anchor displayed "Outdoor Range" to window endpoints (first → last
+    // v4.3.0 Fix 2: anchor displayed "Outdoor Range" to window endpoints (first → last
     // evaluated hour) instead of min/max temperature times. After Fix 3 expanded each
     // NWS entry to hourly points, envelope.points[0] is the first evaluated hour and
     // envelope.points[last] is the last, matching the user's mental model of the
@@ -1365,9 +1454,9 @@ function renderRecommendation(id,title,result,isOvernight){
         <div class="diag-panel"><div class="diag-title">Forecast Envelope</div>
             <div class="diag-row"><span class="diag-key">Outdoor Range</span><span class="diag-val">${envelopeStr}</span></div>
             ${extremesDetail?`<div class="diag-row" style="margin-top:-4px;"><span class="diag-key" style="font-size:11px;"></span><span class="diag-val" style="font-size:11px;color:var(--text-muted);font-weight:normal;">${extremesDetail}</span></div>`:''}
-            <div class="diag-row"><span class="diag-key">Hours Evaluated</span><span class="diag-val">${envelope.points.length}</span></div>
-            <div class="diag-row"><span class="diag-key">Wind</span><span class="diag-val">${envelope.wind} mph</span></div>
-            <div class="diag-row"><span class="diag-key">Cloud Cover</span><span class="diag-val">${(envelope.cloud*100).toFixed(0)}%</span></div>
+            <div class="diag-row"><span class="diag-key">Samples Evaluated</span><span class="diag-val">${envelope.points.length}</span></div>
+            <div class="diag-row"><span class="diag-key">Wind</span><span class="diag-val">${weatherRange(envelope,'wind')} mph</span></div>
+            <div class="diag-row"><span class="diag-key">Solar Factor</span><span class="diag-val">${weatherRange(envelope,'cloud',100)}%</span></div>
         </div>
         <div class="diag-panel"><div class="diag-title">Candidates Optimized</div>
             ${altRows}
@@ -1406,7 +1495,7 @@ function updatePeriodSublabels(){
 // Architecture:
 //   currentTransitionWindow(now)  -> {active, period, label, windowEnd, redirectTab}
 //   buildCurrentEnvelope(now,end) -> {points:[{time,tOut,rh,timeStr}], cloud,wind,precip,lat,lon}
-//                                    Linearly interpolates NWS hourly data to 15-min granularity.
+//                                    Preserves NWS interval values at 15-minute samples and interval boundaries.
 //   simulateCurrentMode(mode,...) -> {timeToTargetMin, finalIndoor, overshoot, safe, disqualReason, freezeRisk, fan}
 //   runCurrentAnalysis(now)       -> {inactive, redirectTab} OR {modes:[...], winner, target, ...}
 //   renderCurrentCard(result)     -> HTML string
@@ -1414,18 +1503,17 @@ function updatePeriodSublabels(){
 // ============================================================================
 
 function currentTransitionWindow(now){
-    const h=now.getHours(),m=now.getMinutes();
-    const Y=now.getFullYear(),M=now.getMonth(),D=now.getDate();
+    const parts=localParts(now),h=parts.hour,m=parts.minute;
     const mStart=C.currentMorningStartH, mEnd=C.currentMorningEndH;
     const eStart=C.currentEveningStartH, eEnd=C.currentEveningEndH;
     const buf=C.currentBufferMin;
     // Morning active: 07:00:00 ≤ now < 09:59:00
     if(h>=mStart && (h<mEnd-1 || (h===mEnd-1 && m<60-buf))){
-        return{active:true,period:'morning',label:'Morning',windowEnd:new Date(Y,M,D,mEnd,0,0),redirectTab:null};
+        return{active:true,period:'morning',label:'Morning',windowEnd:localDateTime(parts,mEnd),redirectTab:null};
     }
     // Evening active: 19:00:00 ≤ now < 21:59:00
     if(h>=eStart && (h<eEnd-1 || (h===eEnd-1 && m<60-buf))){
-        return{active:true,period:'evening',label:'Evening',windowEnd:new Date(Y,M,D,eEnd,0,0),redirectTab:null};
+        return{active:true,period:'evening',label:'Evening',windowEnd:localDateTime(parts,eEnd),redirectTab:null};
     }
     // Inactive: redirect.
     // Daytime interval defined as 10:00 ≤ now < 19:00 (or :59 of 18 with buffer).
@@ -1434,68 +1522,6 @@ function currentTransitionWindow(now){
     if(h===mEnd-1 && m>=60-buf) return{active:false,period:null,label:null,windowEnd:null,redirectTab:'day'};
     if(h===eEnd-1 && m>=60-buf) return{active:false,period:null,label:null,windowEnd:null,redirectTab:'night'};
     return{active:false,period:null,label:null,windowEnd:null,redirectTab:'night'};
-}
-
-function buildCurrentEnvelope(now,windowEnd){
-    const lat=forecast.fetched&&forecast._lat!=null?forecast._lat:null;
-    const lon=forecast.fetched&&forecast._lon!=null?forecast._lon:null;
-    // Fall back to manual inputs if no NWS data.
-    if(!forecast.fetched||!forecast.tempVals){
-        return{points:[{time:new Date(now),tOut:state.temp,rh:state.rh,timeStr:'Now'}],singlePoint:true,
-            cloud:state.cloud,wind:state.wind,precip:state.precip,lat,lon};
-    }
-    // Build sorted hourly arrays of NWS temp/RH for interpolation.
-    const tempPairs=[],rhPairs=[];
-    for(const v of forecast.tempVals){
-        if(v.value==null)continue;
-        const t=new Date(v.validTime.split('/')[0]).getTime();
-        tempPairs.push({t,val:v.value*9/5+32}); // °F
-    }
-    if(forecast.humVals){
-        for(const h of forecast.humVals){
-            if(h.value==null)continue;
-            const t=new Date(h.validTime.split('/')[0]).getTime();
-            rhPairs.push({t,val:h.value});
-        }
-    }
-    tempPairs.sort((a,b)=>a.t-b.t);
-    rhPairs.sort((a,b)=>a.t-b.t);
-    // Linear interpolation helper.
-    const interp=(pairs,t,fallback)=>{
-        if(!pairs.length)return fallback;
-        if(t<=pairs[0].t)return pairs[0].val;
-        if(t>=pairs[pairs.length-1].t)return pairs[pairs.length-1].val;
-        for(let i=0;i<pairs.length-1;i++){
-            if(t>=pairs[i].t && t<=pairs[i+1].t){
-                const frac=(t-pairs[i].t)/(pairs[i+1].t-pairs[i].t);
-                return pairs[i].val+frac*(pairs[i+1].val-pairs[i].val);
-            }
-        }
-        return fallback;
-    };
-    // Sample at 15-min granularity from now through windowEnd.
-    const stepMs=C.currentStepMin*60*1000;
-    const points=[];
-    // Cloud/wind/precip fall back to current state inputs (slow-changing or already user-set).
-    let cloud=state.cloud,wind=state.wind,precip=state.precip;
-    // Use day forecast as fallback for cloud/wind/precip if available and we're in a daytime-adjacent window.
-    if(forecast.day){
-        cloud=forecast.day.cloud!=null?forecast.day.cloud:cloud;
-        wind=forecast.day.wind!=null?forecast.day.wind:wind;
-        precip=forecast.day.precip!=null?forecast.day.precip:precip;
-    }
-    for(let t=now.getTime();t<=windowEnd.getTime();t+=stepMs){
-        const tOut=Math.round(interp(tempPairs,t,state.temp));
-        const rh=Math.round(interp(rhPairs,t,state.rh));
-        const dt=new Date(t);
-        const timeStr=dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-        points.push({time:dt,tOut,rh,timeStr});
-    }
-    if(points.length===0){
-        return{points:[{time:new Date(now),tOut:state.temp,rh:state.rh,timeStr:'Now'}],singlePoint:true,
-            cloud,wind,precip,lat,lon};
-    }
-    return{points,singlePoint:false,cloud,wind,precip,lat,lon};
 }
 
 // v4.0 — τ-damped transient indoor temp predictor for Current tab.
@@ -1575,38 +1601,19 @@ function predictIndoorTransient(mode,tOut,wind,cf,isDay,meta,setpoints,solarCtx,
 
 // v4.0 — Look up outdoor conditions at a specific simulation time by interpolating
 // into the envelope.points array. Returns {tOut, rh, timeStr}.
-function lookupEnvelopeAt(envelope, simTime){
-    if(!envelope.points || envelope.points.length === 0){
-        return{tOut:state.temp,rh:state.rh,timeStr:'?'};
-    }
-    if(envelope.singlePoint || envelope.points.length === 1){
-        const pt = envelope.points[0];
-        const timeStr = simTime.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-        return{tOut:pt.tOut, rh:pt.rh, timeStr};
-    }
-    const t = simTime.getTime();
-    const pts = envelope.points;
-    if(t <= pts[0].time.getTime()) return{tOut:pts[0].tOut, rh:pts[0].rh,
-        timeStr:simTime.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})};
-    if(t >= pts[pts.length-1].time.getTime()) return{tOut:pts[pts.length-1].tOut, rh:pts[pts.length-1].rh,
-        timeStr:simTime.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})};
-    for(let i=0; i<pts.length-1; i++){
-        const t0 = pts[i].time.getTime(), t1 = pts[i+1].time.getTime();
-        if(t >= t0 && t <= t1){
-            const frac = (t - t0) / (t1 - t0);
-            const tOut = Math.round(pts[i].tOut + frac * (pts[i+1].tOut - pts[i].tOut));
-            const rh   = Math.round(pts[i].rh   + frac * (pts[i+1].rh   - pts[i].rh));
-            const timeStr = simTime.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-            return{tOut, rh, timeStr};
-        }
-    }
-    return{tOut:pts[0].tOut, rh:pts[0].rh, timeStr:'?'};
+function lookupEnvelopeAt(envelope,simTime){
+    const points=envelope.points;
+    if(!points?.length)throw new Error('Analysis weather is missing.');
+    // Values apply throughout their interval, including compressed NWS intervals.
+    let pt=points[0];
+    for(const candidate of points){if(candidate.time>simTime)break;pt=candidate;}
+    return{...pt,timeStr:formatTime(simTime)};
 }
 
 function simulateCurrentMode(mode,envelope,startIndoor,target,direction,setpoints,now,windowEnd){
     // v4.0 fix: simulation timeline is 15-min steps from now → windowEnd,
     // independent of envelope.points.length. At each step, look up outdoor conditions
-    // by interpolating into the envelope (handles single-point and multi-point cases uniformly).
+    // using interval values from the envelope (manual inputs stay constant).
     //
     // Per step:
     //   1. equipmentSafeAt() for safety check (using existing snap-to-setpoint predictor)
@@ -1616,8 +1623,6 @@ function simulateCurrentMode(mode,envelope,startIndoor,target,direction,setpoint
     const stepMs  = C.currentStepMin * 60 * 1000;
     const meta    = C.metaAwake;          // attended (Current tab is daytime-attended)
     const isOvernight = false;
-    const cf      = envelope.cloud;
-    const wind    = envelope.wind;
     let tIn = startIndoor;
     let timeToTargetMin = null;
     let overshoot = false;
@@ -1645,9 +1650,10 @@ function simulateCurrentMode(mode,envelope,startIndoor,target,direction,setpoint
     for(let tMs = startMs; tMs <= endMs; tMs += stepMs, stepIdx++){
         const simTime = new Date(tMs);
         const env = lookupEnvelopeAt(envelope, simTime);
+        const cf=env.cloud??envelope.cloud,wind=env.wind??envelope.wind;
         // isDay heuristic: solar position when lat/lon known (solarHourFactor handles sunset),
         // else clock-based fallback. Conservative: solar credited only between 06:00 and 19:00.
-        const hr = simTime.getHours();
+        const hr = localParts(simTime).hour;
         const isDay = (envelope.lat!=null && envelope.lon!=null) ? true : (hr >= 6 && hr < 19);
         const solarCtx = envelope.lat!=null && envelope.lon!=null
             ? {date:simTime, lat:envelope.lat, lon:envelope.lon} : null;
@@ -1851,7 +1857,7 @@ function renderCurrentCard(result){
     }
     if(result.stableInBand){
         const win=result.window;
-        const endStr=win.windowEnd.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+        const endStr=formatTime(win.windowEnd);
         const traj=result.bandTrajectory||{};
         const trajStr = (traj.minIndoor!=null && traj.maxIndoor!=null)
             ? 'Predicted '+traj.minIndoor.toFixed(1)+'°F – '+traj.maxIndoor.toFixed(1)+'°F across window (final '+traj.finalIndoor+'°F at '+endStr+')'
@@ -1871,8 +1877,8 @@ function renderCurrentCard(result){
     }
     const w=result.winner;
     const win=result.window;
-    const nowStr=new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-    const endStr=win.windowEnd.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+    const nowStr=formatTime(new Date());
+    const endStr=formatTime(win.windowEnd);
     const targetStr=result.target+'°F';
     const dirVerb=result.direction==='heat'?'warm':'cool';
     const noWinner = !w || w.status!=='ok';
@@ -2008,39 +2014,26 @@ function renderCurrentCard(result){
 function analyzeCurrent(){
     const container=document.getElementById('results');
     const now=new Date();
-    const result=runCurrentAnalysis(now);
+    let result;
+    try{result=runCurrentAnalysis(now);}catch(error){showAnalysisError(error);return;}
     container.innerHTML=renderCurrentCard(result);
+    resultRecorded(result.envelope);
     container.classList.add('visible');
     container.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 function setPeriod(p){
-    state.period=p;
+    state.period=p;invalidateResults();
     document.querySelectorAll('.period-btn').forEach(b=>b.classList.toggle('active',b.dataset.period===p));
-    const analyzeBtn=document.getElementById('analyzeBtn');
-    if(p==='current'){
-        // Current tab: button label changes; no setpoint display preview.
-        document.getElementById('setpointDisplay').innerHTML='Current tab targets cool 72°F / heat 70°F (transition window)';
-        if(analyzeBtn)analyzeBtn.textContent='Calculate Current Recommendation';
-        // Clear results pending Calculate press
-        const container=document.getElementById('results');
-        if(container){container.innerHTML='';container.classList.remove('visible');}
-        updatePeriodSublabels();
-        return;
-    }
-    if(analyzeBtn)analyzeBtn.textContent='Analyze HVAC Requirements';
-    document.getElementById('tempLabel').textContent=p==='day'?'Forecast High':'Forecast Low';
-    document.getElementById('cloudLabel').textContent=p==='day'?'Cloud Cover':'Today\'s Cloud Cover';
-    document.getElementById('cloudHint').style.display=p==='night'?'block':'none';
-    
-    document.getElementById('setpointDisplay').innerHTML='Evaluating Recommended Setpoints...';
-    
-    updatePeriodSublabels();
-    if(forecast.fetched){applyForecast(p);analyze();}
-    else{if(p==='night'&&state.temp>75){state.temp-=15;document.getElementById('tempValue').textContent=state.temp;}if(p==='day'&&state.temp<55){state.temp+=15;document.getElementById('tempValue').textContent=state.temp;}}
+    document.getElementById('analyzeBtn').textContent=p==='current'?'Calculate Current Recommendation':'Analyze HVAC Requirements';
+    document.getElementById('tempLabel').textContent=state.weatherMode==='manual'?'Outdoor Temperature':p==='day'?'Forecast High':p==='night'?'Forecast Low':'Forecast Temperature';
+    document.getElementById('setpointDisplay').textContent=p==='current'?'Current tab targets cool 72°F / heat 70°F':'Analyze to calculate recommended setpoints';
+    updatePeriodSublabels();updateWeatherContext();
+    if(state.weatherMode==='forecast'&&forecast.fetched){applyForecast(p);analyze();}
 }
 
 function step(f,d){
+    if(['temp','rh','wind'].includes(f))manualWeatherEdited();else invalidateResults();
     if(f==='temp'){state.temp=Math.max(20,Math.min(110,state.temp+d));document.getElementById('tempValue').textContent=state.temp;}
     else if(f==='rh'){state.rh=Math.max(10,Math.min(100,state.rh+d));document.getElementById('rhValue').textContent=state.rh;}
     else if(f==='wind'){state.wind=Math.max(0,Math.min(50,state.wind+d));document.getElementById('windValue').textContent=state.wind;}
@@ -2048,13 +2041,26 @@ function step(f,d){
     else if(f==='currentIndoor'){state.indoorCurrent=Math.max(40,Math.min(110,state.indoorCurrent+d));document.getElementById('currentIndoorValue').textContent=state.indoorCurrent;}
 }
 
-function selectChip(g,v,el){el.parentElement.querySelectorAll('.selector-chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');if(g==='cloud')state.cloud=parseFloat(v);if(g==='precip')state.precip=v;}
+function selectChip(g,v,el){manualWeatherEdited();el.parentElement.querySelectorAll('.selector-chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');if(g==='cloud')state.cloud=parseFloat(v);if(g==='precip')state.precip=v;}
 
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBanner').style.display='block';});
 document.getElementById('installBtn').addEventListener('click',async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;document.getElementById('installBanner').style.display='none';}});
-if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
-updatePeriodSublabels();
+if('serviceWorker'in navigator){
+    const wasControlled=Boolean(navigator.serviceWorker.controller);
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+        // An old installation must load the new document after the new worker takes over.
+        if(wasControlled)window.location.reload();
+    });
+    navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{
+        document.getElementById('offlineStatus').textContent='Offline app installation is unavailable. Online and manual analysis still work.';
+    });
+}
+window.addEventListener('pageshow',checkResultValidity);
+window.addEventListener('focus',checkResultValidity);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkResultValidity();});
+setInterval(checkResultValidity,30000);
+updatePeriodSublabels();updateWeatherContext();
 </script>
 </body>
 </html>
