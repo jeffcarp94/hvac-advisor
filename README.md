@@ -2,6 +2,13 @@
 
 Phone-focused single-file HVAC advisor for the Coach House Platinum III 250 DT. Hosted as a static PWA; `index.html`, `sw.js`, the manifest, and the icons are the deployment files.
 
+## v4.5.1 — plain-language explanations
+
+- Daytime, Overnight and Current share a **Heating and Cooling Options Compared** section. Each option describes what it would do, why it does not work when rejected, its own selected setpoint/fan, and expected indoor temperatures when the equipment can be used.
+- Numeric discomfort scores remain internal to selection. The comparison no longer displays weighted degree-hours or technical policy terminology. **Heating and cooling OFF** replaces the misleading **No system needed** label.
+- Explanations cover heating/cooling capacity, recovery time, cold starts and later cold dips, AUTO temperature swings, heat-pump outdoor limits, cold/humid/hot outdoor air for ventilation, required High fan, and potential AC icing. Icing warnings and recovery instructions remain visible. No temperature-range disclaimer is added.
+- The existing temperature simulation, equipment thresholds and selection order are unchanged.
+
 ## v4.5.0 — operating policies and comfort eligibility
 
 - Heat-pump rules now distinguish monitored Daytime/Current operation from unattended Overnight operation. The app minimum remains 41°F; overnight minimums remain dew-point-dependent at 41/45/50°F. Minimum equality is inclusive. These are app policies, not newly asserted manufacturer limits. AUTO does not invent furnace backup below the app's heat-pump minimum.
