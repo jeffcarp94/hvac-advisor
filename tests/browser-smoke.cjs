@@ -66,6 +66,8 @@ function weather(url){
   await page.clock.setFixedTime(new Date('2026-10-21T14:00Z'));
   await page.evaluate(()=>{state.indoorCurrent=85;state.temp=80;state.rh=30;state.cloud=0;setPeriod('current');analyze();});
   assert.match(await page.locator('#results').innerText(),/Current/i);
+  assert.match(await page.locator('#results').innerText(),/Heating and Cooling Options Compared/i);
+  assert.doesNotMatch(await page.locator('#results').innerText(),/Meets criteria|weighted/);
   const recovery=await page.evaluate(()=>{
     const now=new Date(),end=new Date(now.getTime()+67*60000),envelope=buildCurrentEnvelope(now,end);
     return simulateCurrentMode('ac',envelope,85,72,'cool',{cool:72,heat:70,auto:71},now,end);
@@ -77,6 +79,14 @@ function weather(url){
   await page.evaluate(()=>{setPeriod('night');analyze();});
   assert.match(await page.locator('#results').innerText(),/Overnight Recommendation/i);
   await page.evaluate(()=>{setPeriod('day');analyze();});
+  await page.evaluate(()=>{state.temp=55;state.wind=10;state.cloud=0;state.rh=40;state.indoor=72;setPeriod('night');analyze();});
+  assert.equal(await page.locator('.comparison-row').count(),6);
+  const comparison=await page.locator('.diag-panel').last().innerText();
+  assert.match(comparison,/Heating and Cooling Options Compared/i);
+  assert.match(comparison,/Heating and cooling OFF/);
+  assert.match(comparison,/Expected indoor temperature/);
+  assert.doesNotMatch(comparison,/Discomfort|weighted|full-period|No system needed|Ranges include/);
+  if(screenshotDir){await page.locator('.diag-panel').last().screenshot({path:path.join(screenshotDir,'v451-comparisons.png')});}
   // Capacity failures remain readable and distinct from equipment-risk warnings.
   await page.evaluate(()=>{state.temp=-10;state.wind=50;state.cloud=0;state.indoor=66;setPeriod('night');analyze();});
   assert.match(await page.locator('#results').innerText(),/The furnace cannot maintain your minimum set point of 65°F/);
@@ -106,9 +116,9 @@ function weather(url){
     if(navigator.serviceWorker.controller===previous)await changed;
   });
   await oldPage.waitForFunction(async()=>!(await caches.keys()).includes('hvac-advisor-v1'));
-  await oldPage.reload();assert.match(await oldPage.title(),/v4.5.0/);
+  await oldPage.reload();assert.match(await oldPage.title(),/v4.5.1/);
   assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
-  results.upgrade={legacyTo45:true,unrelatedCachePreserved:true};await oldContext.close();
+  results.upgrade={legacyTo451:true,unrelatedCachePreserved:true};await oldContext.close();
   console.log(JSON.stringify(results,null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
