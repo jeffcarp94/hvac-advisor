@@ -40,9 +40,18 @@ function weather(url){
   await page.waitForFunction(()=>forecast.fetched&&!weatherLoading);
   assert.match(await page.locator('#weatherContext').innerText(),/America\/Chicago/);
   await page.locator('#results.visible').waitFor();
-  if(screenshotDir){await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.join(screenshotDir,'v44-forecast-light.png'),fullPage:true});}
+  if(screenshotDir){await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.join(screenshotDir,'v45-forecast-light.png'),fullPage:true});}
   const hits=requests;await page.locator('#retrieveBtn').click();await page.waitForFunction(()=>forecast.fetched&&!weatherLoading);
   assert.ok(requests>=hits+4,'second retrieve reaches services');
+  await page.locator('#indoorRH').fill('80');
+  assert.equal(await page.locator('#weatherMode').inputValue(),'forecast');
+  assert.equal(await page.locator('#results').innerText(),'');
+  await page.locator('#dehumidifierMode').selectOption('off');
+  assert.equal(await page.evaluate(()=>state.dehumidifierEnabled),false);
+  await page.locator('#analyzeBtn').click();
+  assert.match(await page.locator('#results').innerText(),/80% starting indoor RH/);
+  await page.locator('#indoorRH').fill('');await page.locator('#dehumidifierMode').selectOption('enabled');
+  assert.equal(await page.evaluate(()=>state.indoorRH),null);
   await page.locator('button[onclick="step(\'temp\',1)"]').click();
   assert.equal(await page.locator('#weatherMode').inputValue(),'manual');assert.equal(await page.locator('#results').innerText(),'');
   await page.locator('#analyzeBtn').click();assert.match(await page.locator('#resultStatus').innerText(),/Manual weather/);
@@ -64,13 +73,14 @@ function weather(url){
   assert.ok(recovery.timeToTargetMin>0&&recovery.timeToTargetMin<67);
   assert.equal(recovery.trace[0].indoor,85);
   assert.equal(recovery.trace.at(-1).elapsedMin,67);
+  if(screenshotDir){await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screenshotDir,'v45-current.png'),fullPage:true});}
   await page.evaluate(()=>{setPeriod('night');analyze();});
   assert.match(await page.locator('#results').innerText(),/Overnight Recommendation/i);
   await page.evaluate(()=>{setPeriod('day');analyze();});
   const widths=[];
   for(const width of [390,448,480]){await page.setViewportSize({width,height:950});widths.push(await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})));}
   assert.ok(widths.every(x=>x.width===x.scroll),JSON.stringify(widths));
-  await page.emulateMedia({colorScheme:'dark'});await page.setViewportSize({width:390,height:900});if(screenshotDir){await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.join(screenshotDir,'v44-manual-dark.png'),fullPage:true});}
+  await page.emulateMedia({colorScheme:'dark'});await page.setViewportSize({width:390,height:900});if(screenshotDir){await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.join(screenshotDir,'v45-manual-dark.png'),fullPage:true});}
   assert.deepEqual(errors,[]);results.app={weatherRequests:requests,offlineManual:true,currentRecoveryMin:recovery.timeToTargetMin,widths,errors};await context.close();
   // Reproduce an active legacy cache-first worker and verify upgrade under a project path.
   legacy=true;
@@ -86,9 +96,9 @@ function weather(url){
     if(navigator.serviceWorker.controller===previous)await changed;
   });
   await oldPage.waitForFunction(async()=>!(await caches.keys()).includes('hvac-advisor-v1'));
-  await oldPage.reload();assert.match(await oldPage.title(),/v4.4.0/);
+  await oldPage.reload();assert.match(await oldPage.title(),/v4.5.0/);
   assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
-  results.upgrade={legacyTo44:true,unrelatedCachePreserved:true};await oldContext.close();
+  results.upgrade={legacyTo45:true,unrelatedCachePreserved:true};await oldContext.close();
   console.log(JSON.stringify(results,null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
