@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v4.5.1 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v4.5.2 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -30,6 +30,7 @@
         .setpoint-display span{color:var(--text-secondary);font-weight:600;}
         .input-section{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
         .input-section-title{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:12px;}
+        .input-row[hidden]{display:none;}
         .input-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);}
         .input-row:last-child{border-bottom:none;}
         .input-label{font-size:14px;font-weight:600;color:var(--text-primary);}
@@ -96,7 +97,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v4.5.1</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v4.5.2</span></div>
         <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -127,9 +128,9 @@
 
     <div class="input-section">
         <div class="input-section-title">Conditions</div>
-        <div class="input-row"><div><div class="input-label">Interval Starting Temperature</div><div class="input-unit">°F</div></div>
+        <div class="input-row" id="predictedIndoorRow"><div><div class="input-label">Predicted Internal Temperature</div><div class="input-unit" id="indoorStartTime">at —</div><div class="input-unit">°F</div></div>
             <div class="input-control"><button class="stepper-btn" onclick="step('indoor',-1)">−</button><div class="stepper-value" id="indoorValue">72</div><button class="stepper-btn" onclick="step('indoor',1)">+</button></div></div>
-        <div class="input-row"><div><div class="input-label">Current Indoor Temperature</div><div class="input-unit">°F</div></div>
+        <div class="input-row" id="currentIndoorRow" hidden><div><div class="input-label">Current Indoor Temperature</div><div class="input-unit">°F</div></div>
             <div class="input-control"><button class="stepper-btn" onclick="step('currentIndoor',-1)">−</button><div class="stepper-value" id="currentIndoorValue">72</div><button class="stepper-btn" onclick="step('currentIndoor',1)">+</button></div></div>
         <div class="input-row"><div><div class="input-label" id="tempLabel">Outdoor Temperature</div><div class="input-unit">°F</div></div>
             <div class="input-control"><button class="stepper-btn" onclick="step('temp',-1)">−</button><div class="stepper-value" id="tempValue">78</div><button class="stepper-btn" onclick="step('temp',1)">+</button></div></div>
@@ -1014,6 +1015,9 @@ function renderRecommendation(id,title,result,isOvernight){
 function updatePeriodSublabels(){
     const dayWin=computeWindow(false);
     const nightWin=computeWindow(true);
+    document.getElementById('predictedIndoorRow').hidden=state.period==='current';
+    document.getElementById('currentIndoorRow').hidden=state.period!=='current';
+    document.getElementById('indoorStartTime').textContent='at '+formatTime((state.period==='night'?nightWin:dayWin).start);
     const dayEl=document.getElementById('daySublabel');
     const nightEl=document.getElementById('nightSublabel');
     if(dayEl) dayEl.textContent='('+dayWin.label+')';

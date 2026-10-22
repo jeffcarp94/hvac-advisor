@@ -2,6 +2,11 @@
 
 Phone-focused single-file HVAC advisor for the Coach House Platinum III 250 DT. Hosted as a static PWA; `index.html`, `sw.js`, the manifest, and the icons are the deployment files.
 
+## v4.5.2 — starting temperature label
+
+- Rename the Daytime/Overnight input to **Predicted Internal Temperature**, followed by **at [analysis start time]**. The time follows the actual simulation start, including periods already in progress, in the selected weather location's time zone.
+- Show the applicable temperature input for each tab: predicted starting temperature for Daytime/Overnight, current indoor temperature for Current. Switching tabs preserves both values.
+
 ## v4.5.1 — plain-language explanations
 
 - Daytime, Overnight and Current share a **Heating and Cooling Options Compared** section. Each option describes what it would do, why it does not work when rejected, its own selected setpoint/fan, and expected indoor temperatures when the equipment can be used.
