@@ -40,7 +40,7 @@ function weather(url){
   await page.waitForFunction(()=>forecast.fetched&&!weatherLoading);
   assert.match(await page.locator('#weatherContext').innerText(),/America\/Chicago/);
   await page.locator('#results.visible').waitFor();
-  if(screenshotDir){await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.join(screenshotDir,'v43-forecast-light.png'),fullPage:true});}
+  if(screenshotDir){await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.join(screenshotDir,'v44-forecast-light.png'),fullPage:true});}
   const hits=requests;await page.locator('#retrieveBtn').click();await page.waitForFunction(()=>forecast.fetched&&!weatherLoading);
   assert.ok(requests>=hits+4,'second retrieve reaches services');
   await page.locator('button[onclick="step(\'temp\',1)"]').click();
@@ -53,11 +53,25 @@ function weather(url){
   await context.setOffline(true);await page.reload();await page.locator('#analyzeBtn').click();
   assert.match(await page.locator('#results').innerText(),/Daytime Recommendation/i);
   await context.setOffline(false);
+  // Exercise real Current rendering and a finite hot-start recovery, then Overnight.
+  await page.clock.setFixedTime(new Date('2026-10-21T14:00Z'));
+  await page.evaluate(()=>{state.indoorCurrent=85;state.temp=80;state.rh=30;state.cloud=0;setPeriod('current');analyze();});
+  assert.match(await page.locator('#results').innerText(),/Current/i);
+  const recovery=await page.evaluate(()=>{
+    const now=new Date(),end=new Date(now.getTime()+67*60000),envelope=buildCurrentEnvelope(now,end);
+    return simulateCurrentMode('ac',envelope,85,72,'cool',{cool:72,heat:70,auto:71},now,end);
+  });
+  assert.ok(recovery.timeToTargetMin>0&&recovery.timeToTargetMin<67);
+  assert.equal(recovery.trace[0].indoor,85);
+  assert.equal(recovery.trace.at(-1).elapsedMin,67);
+  await page.evaluate(()=>{setPeriod('night');analyze();});
+  assert.match(await page.locator('#results').innerText(),/Overnight Recommendation/i);
+  await page.evaluate(()=>{setPeriod('day');analyze();});
   const widths=[];
   for(const width of [390,448,480]){await page.setViewportSize({width,height:950});widths.push(await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})));}
   assert.ok(widths.every(x=>x.width===x.scroll),JSON.stringify(widths));
-  await page.emulateMedia({colorScheme:'dark'});await page.setViewportSize({width:390,height:900});if(screenshotDir){await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.join(screenshotDir,'v43-manual-dark.png'),fullPage:true});}
-  assert.deepEqual(errors,[]);results.app={weatherRequests:requests,offlineManual:true,widths,errors};await context.close();
+  await page.emulateMedia({colorScheme:'dark'});await page.setViewportSize({width:390,height:900});if(screenshotDir){await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.join(screenshotDir,'v44-manual-dark.png'),fullPage:true});}
+  assert.deepEqual(errors,[]);results.app={weatherRequests:requests,offlineManual:true,currentRecoveryMin:recovery.timeToTargetMin,widths,errors};await context.close();
   // Reproduce an active legacy cache-first worker and verify upgrade under a project path.
   legacy=true;
   const oldContext=await browser.newContext();await oldContext.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css'}));
@@ -72,9 +86,9 @@ function weather(url){
     if(navigator.serviceWorker.controller===previous)await changed;
   });
   await oldPage.waitForFunction(async()=>!(await caches.keys()).includes('hvac-advisor-v1'));
-  await oldPage.reload();assert.match(await oldPage.title(),/v4.3.0/);
+  await oldPage.reload();assert.match(await oldPage.title(),/v4.4.0/);
   assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
-  results.upgrade={legacyTo43:true,unrelatedCachePreserved:true};await oldContext.close();
+  results.upgrade={legacyTo44:true,unrelatedCachePreserved:true};await oldContext.close();
   console.log(JSON.stringify(results,null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});

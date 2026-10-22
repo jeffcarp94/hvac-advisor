@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v4.3.0 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v4.4.0 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -91,7 +91,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v4.3.0</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v4.4.0</span></div>
         <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -160,7 +160,7 @@
     <div id="resultStatus" role="status" aria-live="polite" style="font-size:12px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px;"></div>
     <div class="results" id="results"></div>
 
-    <div class="footer-note">HVAC engineering estimates for Coach House Platinum III 250 DT; actual cabin temperatures and recovery times may differ. Dometic 15,000 BTU rooftop AC w/ heat pump. UA=136.6 BTU/hr/°F · Thermal Mass τ=2.0 hrs.</div>
+    <div class="footer-note">HVAC engineering estimates for Coach House Platinum III 250 DT; actual cabin temperatures and recovery times may differ. Dometic 15,000 BTU rooftop AC w/ heat pump. UA=136.6 BTU/hr/°F · Still-air τ=2.0 hrs; sensible AC estimate 11,250 BTU/hr. Assumes cab MagneShades installed and MCD day screens down during solar exposure; night shades down after solar gain ends.</div>
 </div>
 
 <script>
@@ -169,13 +169,13 @@ let forecast={day:null,night:null,location:null,fetched:false,tempVals:null,humV
 
 const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,
     shellSHGC:0.035,
-    // glassSHGC: 0.25 reflects Magne Shade exterior magnetic sunshades (permanently installed on Ford Transit cab glazing).
-    // Baseline single-pane Transit cab glass SHGC ~0.70; exterior shades block solar before it enters the glass
-    // (per Magne Shade product literature) reducing effective whole-window SHGC to ~0.25.
-    // Value is conservative; published data on insulating window coverings supports 0.15-0.25 range.
-    // Source tier: manufacturer literature + general SHGC reference data.
-    glassSHGC:0.25,shellSunFrac:0.50,glassSunFrac:0.50,
-    tau: 2.0, 
+    // Engineering estimates for glass + deployed shade, not certified product ratings.
+    // Cab share uses dimensioned Transit accessories/photo inventory within the
+    // existing total glass area. MCD day screen down whenever solar gain is present;
+    // night blackout down after solar gain ends. See model-assumptions.md.
+    cabGlassFraction:0.60,cabGlassSHGC:0.20,coachDayGlassSHGC:0.50,
+    shellSunFrac:0.50,glassSunFrac:0.50,
+    tau: 2.0, // Still-air baseline; C_eff = UA_BASE * tau stays fixed as UA changes.
     dayCoolDefault:72,nightCoolDefault:68,dayHeatDefault:70,nightHeatDefault:66,comfortFloor:65,
     nightBandLow:66,nightBandHigh:70,
     dayHeatBandLow:68,dayHeatBandHigh:72,
@@ -206,11 +206,9 @@ const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:3
     currentEveningStartH:19,     // Evening transition window: 19:00 (inclusive)
     currentEveningEndH:22,       // Evening transition window: 22:00 (exclusive, with 1-min buffer)
     currentBufferMin:1,          // 1-minute buffer before considering time inside next interval
-    currentStepMin:15,           // 15-minute simulation step granularity
-    // v4.0 Current tab transient model constants
-    // AC sensible capacity = 75% of nameplate 15,000 BTU/hr total capacity.
-    // Per ASHRAE residential SHR convention; manufacturer (Dometic) publishes total only.
-    // Source tier: HVAC engineering reference, Medium confidence.
+    // Shared sensible-cooling estimate: 75% of 15,000 BTU/hr total. The supplied
+    // Dometic manual does not publish a sensible map. This is a working assumption,
+    // not an ASHRAE requirement or a manufacturer-verified capacity at all conditions.
     acSensibleCapacity:11250,
     hpCapacityWarm:15000,        // Heat pump output above frost threshold (50°F)
     hpCapacityCold:13000,        // Heat pump derated output at 41–50°F outdoor
@@ -449,7 +447,7 @@ function makeEnvelope(start,end,windowLabel,stepMs){
     return{...common,points,singlePoint:false,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
 }
 function buildEnvelope(isOvernight){const win=computeWindow(isOvernight);return makeEnvelope(win.start,win.end,win.label,3600000);}
-function buildCurrentEnvelope(now,end){return makeEnvelope(now,end,'Current',C.currentStepMin*60000);}
+function buildCurrentEnvelope(now,end){return makeEnvelope(now,end,'Current',THERMAL_STEP_MIN*60000);}
 function resultRecorded(envelope){
     resultContext={period:state.period,mode:state.weatherMode,windowEnd:envelope?.windowEnd?.getTime()||null,currentActive:state.period==='current'?currentTransitionWindow(new Date()).active:null};
     document.getElementById('resultStatus').textContent='Calculated '+formatStamp(new Date())+' · '+(state.weatherMode==='forecast'?'NWS forecast':'Manual weather')+' · '+analysisTimeZone();
@@ -473,7 +471,7 @@ function solarHourFactor(date,lat,lon){
     if(lat==null||lon==null)return 1;
     try{
         const rad=Math.PI/180,deg=1/rad;
-        const Y=date.getFullYear(),Mo=date.getMonth()+1,D=date.getDate();
+        const Y=date.getUTCFullYear(),Mo=date.getUTCMonth()+1,D=date.getUTCDate();
         let a=Math.floor((14-Mo)/12),y=Y+4800-a,m=Mo+12*a-3;
         const JDN=D+Math.floor((153*m+2)/5)+365*y+Math.floor(y/4)-Math.floor(y/100)+Math.floor(y/400)-32045;
         const utHour=date.getUTCHours()+date.getUTCMinutes()/60+date.getUTCSeconds()/3600;
@@ -503,9 +501,10 @@ function solarHourFactor(date,lat,lon){
     }catch(e){return 1;}
 }
 
+function effectiveGlassSHGC(){return C.cabGlassFraction*C.cabGlassSHGC+(1-C.cabGlassFraction)*C.coachDayGlassSHGC;}
 function solarLoad(cf,isDay,dateForSolar,lat,lon){
     if(!isDay) return 0;
-    const peakLoad=C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac+C.glassSHGC*C.solarPeak*C.glassArea*C.glassSunFrac;
+    const peakLoad=C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac+effectiveGlassSHGC()*C.solarPeak*C.glassArea*C.glassSunFrac;
     const hourFactor=(dateForSolar&&lat!=null&&lon!=null)?solarHourFactor(dateForSolar,lat,lon):1;
     return Math.round(peakLoad*cf*hourFactor);
 }
@@ -595,100 +594,196 @@ function passiveEqAt(tOut,wind,cf,isDay,meta,solarCtx){
     return tOut+qInt/ua;
 }
 
-// v3.2 doctrine: tEq vs tMass separation.
-//   tEq = passive equilibrium = tOut + qInt/UA. Drives equipment load (steady-state).
-//   tMass = damped air temp = tEq + (tInPrev - tEq)·exp(-Δt/τ). What occupants feel.
-//   Equipment load must be UA·(tEq - setpoint), NOT UA·(tMass - setpoint). The latter
-//   conflates transient cabin response with sustained load and contains a spurious
-//   exp(-Δt/τ) term proportional to (tInPrev - tEq). Engagement triggers also key off
-//   tEq because the AC engages based on where the cabin is going (steady state), not
-//   on its momentary value. tMass is still returned as the predicted indoor temp.
-function predictIndoor(candidateType,tOut,wind,cf,isDay,meta,setpoints,solarCtx, tInPrev, dtHours){
-    const dt = (dtHours && dtHours > 0) ? dtHours : 1; // default 1hr if not provided
-    const tEq=passiveEqAt(tOut,wind,cf,isDay,meta,solarCtx);
-    const tMass = tEq + (tInPrev - tEq) * Math.exp(-dt / C.tau);
-    const ua = UA_BASE*(1+0.02*wind);
-
-    if(candidateType==='passive') return tMass;
-    if(candidateType==='auto'){
-        const coolTrigger = setpoints.auto + 2;
-        const heatTrigger = setpoints.auto - 2;
-        // v3.2: engagement and load reference tEq (steady state), not tMass (transient).
-        if (tEq > coolTrigger) {
-            // AC fires. Load referenced to setpoint, not trigger.
-            const coolingLoad = (tEq - setpoints.auto) * ua;
-            if(coolingLoad > C.acCapacity){
-                return setpoints.auto + (coolingLoad - C.acCapacity) / ua;
+// One-zone sensible heat balance. Effective mass is fixed, not wind-dependent.
+// C_eff = UA_BASE * tau_calm, BTU/°F; tau_effective = C_eff / UA_total, hours.
+const THERMAL_STEP_MIN=5;
+const THERMAL_EPS=1e-8;
+function thermalEnvironment(tOut,wind,cloud,isDay,meta,solarCtx){
+    const ua=UA_BASE*(1+0.02*wind);
+    const gains=meta+C.dehumWaste+solarLoad(cloud,isDay,solarCtx?.date,solarCtx?.lat,solarCtx?.lon);
+    return{tOut,ua,gains,mass:UA_BASE*C.tau};
+}
+function thermalAdvance(tIn,eq,tau,hours){return eq+(tIn-eq)*Math.exp(-hours/tau);}
+function thermalCrossing(tIn,eq,tau,target){
+    const ratio=(target-eq)/(tIn-eq);
+    return ratio>0&&ratio<1?-tau*Math.log(ratio):Infinity;
+}
+function thermalDemand(mode,tIn,env,setpoints,control){
+    const qAt=t=>env.ua*(env.tOut-t)+env.gains;
+    if(mode==='auto'){
+        const sp=setpoints.auto;
+        if(control.phase==='ac'&&tIn<=sp+THERMAL_EPS)control.phase='off';
+        if(control.phase==='hp'&&tIn>=sp-THERMAL_EPS)control.phase='off';
+        if(control.phase==='off'){
+            if(tIn>sp+2+THERMAL_EPS||(tIn>=sp+2-THERMAL_EPS&&qAt(tIn)>0))control.phase='ac';
+            else if(tIn<sp-2-THERMAL_EPS||(tIn<=sp-2+THERMAL_EPS&&qAt(tIn)<0))control.phase='hp';
+        }
+        return control.phase;
+    }
+    if(mode==='ac')return tIn>setpoints.cool+THERMAL_EPS||(tIn>=setpoints.cool-THERMAL_EPS&&qAt(tIn)>0)?'ac':'off';
+    if(mode==='hp'||mode==='furnace')return tIn<setpoints.heat-THERMAL_EPS||(tIn<=setpoints.heat+THERMAL_EPS&&qAt(tIn)<0)?mode:'off';
+    if(mode==='maxxfan'){
+        const sp=setpoints.fan;
+        return tIn>sp+THERMAL_EPS||(tIn>=sp-THERMAL_EPS&&qAt(tIn)>0)?'maxxfan':'off';
+    }
+    return 'off';
+}
+function thermalStep(mode,tIn,env,setpoints,hours,control={phase:'off'},guard=null){
+    if(!Number.isFinite(tIn)||!Number.isFinite(hours)||hours<0)throw new Error('Invalid thermal state or timestep.');
+    const segments=[];control={...control};
+    let remaining=hours,elapsed=0,temperature=tIn;
+    for(let count=0;remaining>1e-10;count++){
+        if(count>2048)throw new Error('Thermostat simulation did not converge.');
+        const operation=thermalDemand(mode,temperature,env,setpoints,control);
+        let ua=env.ua,q=0,target=null,duty=operation==='off'?0:1,capacityLimited=false;
+        if(operation==='ac'){
+            target=mode==='auto'?setpoints.auto:setpoints.cool;
+            const need=env.ua*(env.tOut-target)+env.gains;
+            q=-C.acSensibleCapacity;
+            capacityLimited=need>C.acSensibleCapacity+THERMAL_EPS;
+            // Ideal averaged cycling at the setpoint; full output while recovering.
+            if(mode!=='auto'&&Math.abs(temperature-target)<THERMAL_EPS&&need>=0&&need<=C.acSensibleCapacity){q=-need;duty=need/C.acSensibleCapacity;}
+        }else if(operation==='hp'||operation==='furnace'){
+            target=mode==='auto'?setpoints.auto:setpoints.heat;
+            const capacity=operation==='furnace'?C.furnaceOutput:(env.tOut>C.heatPumpFrostThresh?C.hpCapacityWarm:C.hpCapacityCold);
+            const need=env.ua*(target-env.tOut)-env.gains;
+            q=capacity;capacityLimited=need>capacity+THERMAL_EPS;
+            if(mode!=='auto'&&Math.abs(temperature-target)<THERMAL_EPS&&need>=0&&need<=capacity){q=need;duty=need/capacity;}
+        }else if(operation==='maxxfan'){
+            target=setpoints.fan;
+            const ventUA=1.08*C.maxxFanCFM;
+            const need=env.ua*(env.tOut-target)+env.gains;
+            const available=ventUA*(target-env.tOut);
+            if(Math.abs(temperature-target)<THERMAL_EPS&&available>0&&need>=0&&need<=available)duty=need/available;
+            ua+=ventUA*duty;
+        }else{
+            const passiveEq=env.tOut+env.gains/env.ua;
+            if(mode==='auto')target=passiveEq>temperature?setpoints.auto+2:setpoints.auto-2;
+            else if(mode==='ac')target=setpoints.cool;
+            else if(mode==='hp'||mode==='furnace')target=setpoints.heat;
+            else if(mode==='maxxfan')target=setpoints.fan;
+        }
+        const tau=env.mass/ua,eq=env.tOut+(env.gains+q)/ua;
+        const crossing=target===null?Infinity:thermalCrossing(temperature,eq,tau,target);
+        const dt=Math.min(remaining,crossing);
+        const next=crossing<=remaining?target:thermalAdvance(temperature,eq,tau,dt);
+        const segment={t0:temperature,t1:next,eq,tau,hours:dt,offset:elapsed,operation,duty,capacityLimited};
+        if(guard){
+            const failure=guard(segment);
+            if(failure)return{temperature:tIn,control:{phase:'off'},segments:[],failure};
+        }
+        segments.push(segment);temperature=next;elapsed+=dt;remaining-=dt;
+        if(crossing<=dt+1e-10&&mode==='auto')control.phase=operation==='off'?(target>setpoints.auto?'ac':'hp'):'off';
+    }
+    return{temperature,control,segments,failure:null};
+}
+function predictIndoor(candidateType,tOut,wind,cf,isDay,meta,setpoints,solarCtx,tInPrev,dtHours){
+    const env=thermalEnvironment(tOut,wind,cf,isDay,meta,solarCtx);
+    const points={...setpoints,fan:isDay?C.maxxFanSetDay:C.maxxFanSetNight};
+    return thermalStep(candidateType,tInPrev,env,points,dtHours??1).temperature;
+}
+function predictIndoorTransient(mode,tOut,wind,cf,isDay,meta,setpoints,solarCtx,tInPrev,dtHours){
+    return predictIndoor(mode,tOut,wind,cf,isDay,meta,setpoints,solarCtx,tInPrev,dtHours??.25);
+}
+function comfortBand(mode,isOvernight,env){
+    if(isOvernight)return{low:C.nightBandLow,high:C.nightBandHigh};
+    if(mode==='ac'||(mode==='maxxfan'&&env.tOut+env.gains/env.ua>C.maxxFanSetDay))return{low:C.dayCoolBandLow,high:C.dayCoolBandHigh};
+    return{low:C.dayHeatBandLow,high:C.dayCoolBandHigh};
+}
+function segmentComfort(segment,band){
+    const cuts=[0,segment.hours];
+    for(const threshold of [band.low,band.high]){
+        const time=thermalCrossing(segment.t0,segment.eq,segment.tau,threshold);
+        if(time>0&&time<segment.hours)cuts.push(time);
+    }
+    cuts.sort((a,b)=>a-b);
+    let score=0,hoursOut=0;
+    for(let i=1;i<cuts.length;i++){
+        const a=cuts[i-1],b=cuts[i],dt=b-a;
+        const middle=thermalAdvance(segment.t0,segment.eq,segment.tau,(a+b)/2);
+        const integral=segment.eq*dt+(segment.t0-segment.eq)*segment.tau*(Math.exp(-a/segment.tau)-Math.exp(-b/segment.tau));
+        if(middle>band.high){score+=C.warmPenalty*(integral-band.high*dt);hoursOut+=dt;}
+        else if(middle<band.low){score+=C.coldPenalty*(band.low*dt-integral);hoursOut+=dt;}
+    }
+    return{score:Math.max(0,score),hoursOut};
+}
+function simulationBounds(envelope){
+    const start=envelope.windowStart||envelope.points[0]?.time;
+    const end=envelope.windowEnd||new Date((envelope.points.at(-1)?.time?.getTime()||start.getTime())+3600000);
+    if(!start||!Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||end<=start)throw new Error('Invalid simulation window.');
+    return{start,end};
+}
+function simulationTimeline(envelope,start,end,maxStepMin=THERMAL_STEP_MIN){
+    if(!Number.isFinite(maxStepMin)||maxStepMin<=0)throw new Error('Invalid simulation resolution.');
+    const times=new Set([start.getTime(),end.getTime()]);
+    for(let t=start.getTime()+maxStepMin*60000;t<end.getTime();t+=maxStepMin*60000)times.add(t);
+    for(const pt of envelope.points)if(pt.time>start&&pt.time<end)times.add(pt.time.getTime());
+    return [...times].sort((a,b)=>a-b);
+}
+function simulateThermalProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,options={}){
+    const {start,end}=simulationBounds(envelope),timeline=simulationTimeline(envelope,start,end,options.maxStepMin);
+    const points={...setpoints,fan:isOvernight?C.maxxFanSetNight:C.maxxFanSetDay};
+    const trace=[{time:start,timeStr:formatTime(start),indoor:startIndoor,elapsedMin:0}];
+    const unsafe=[],allSegments=[];
+    let tIn=startIndoor,control={phase:'off'},score=0,hoursOut=0,maxFan=isOvernight?'Low':'Auto',freezeRisk=null;
+    let didCool=false,didHeat=false,capacityCool=false,capacityHeat=false;
+    for(let i=1;i<timeline.length;i++){
+        const from=timeline[i-1],to=timeline[i],dt=(to-from)/3600000;
+        const weather=lookupEnvelopeAt(envelope,new Date(from));
+        const wind=weather.wind??envelope.wind,cloud=weather.cloud??envelope.cloud;
+        const date=new Date((from+to)/2),hr=localParts(date).hour;
+        // Location-based sun position handles dawn/dusk on every tab, including
+        // sunlight inside an Overnight window. Without a location use 06:00–19:00.
+        const isDay=envelope.lat!=null&&envelope.lon!=null||hr>=6&&hr<19;
+        const solarCtx=envelope.lat!=null&&envelope.lon!=null?{date,lat:envelope.lat,lon:envelope.lon}:null;
+        const env=thermalEnvironment(weather.tOut,wind,cloud,isDay,meta,solarCtx);
+        const checks=[];
+        const guard=options.checkEquipment===false?null:segment=>{
+            // Preserve existing equipment thresholds; evaluate actual operation/return air.
+            for(const temperature of [segment.t0,segment.t1]){
+                const check=equipmentSafeAt(mode,weather.tOut,weather.rh,wind,cloud,isDay,meta,points,isOvernight,solarCtx,temperature,segment.hours,!!options.currentContext,{operation:segment.operation,dutyCycle:segment.duty});
+                if(!check.safe)return check;
+                checks.push(check);
             }
-            return setpoints.auto + 1;
-        }
-        if (tEq < heatTrigger) {
-            // Heat fires. Auto mode prioritizes heat pump.
-            // Capacity check: HP typically delivers ~12,000-15,000 BTU/hr at moderate outdoor temps,
-            // furnace delivers 19,000 BTU/hr input (~15,000 BTU/hr output at ~80% efficiency).
-            const heatCap = (tOut >= C.heatPumpMinTemp) ? 13000 : 15000; // HP derates at cold; furnace 15K output
-            const heatLoad = (setpoints.auto - tEq) * ua;
-            if(heatLoad > heatCap){
-                return setpoints.auto - (heatLoad - heatCap) / ua;
+            return null;
+        };
+        let step=thermalStep(mode,tIn,env,points,dt,control,guard);
+        if(step.failure){
+            const failure=step.failure;
+            unsafe.push({...failure,time:new Date(from),timeStr:formatTime(new Date(from))});
+            // Diagnostics only: rejected equipment is treated as off, never as an approved schedule.
+            step=thermalStep('passive',tIn,env,points,dt,{phase:'off'});
+            control={phase:'off'};
+        }else{
+            control=step.control;
+            for(const check of checks){
+                if(check.requiredFan&&fanLevels[check.requiredFan]>fanLevels[maxFan])maxFan=check.requiredFan;
+                if(check.freezeRisk?.type&&check.freezeRisk.type!=='none'){
+                    const rank={low:1,moderate:2,high:3};
+                    if(!freezeRisk||rank[check.freezeRisk.severity]>rank[freezeRisk.severity])freezeRisk={...check.freezeRisk,atTime:formatTime(new Date(from)),tOut:weather.tOut};
+                }
             }
-            return setpoints.auto - 1;
         }
-        return tMass; // deadband: passive damping prevails
-    }
-    if(candidateType==='maxxfan'){
-        const mfSet=isDay?C.maxxFanSetDay:C.maxxFanSetNight;
-        // v3.2: engagement decision keyed off tEq. If passive equilibrium stays at/below the
-        // MaxxFan setpoint, the cabin won't need active ventilation; return the damped tMass.
-        if(tEq<=mfSet) return tMass;
-        const uaPassive=UA_BASE*(1+0.02*wind);
-        const ventUA=1.08*C.maxxFanCFM;
-        const qInt=(tEq-tOut)*uaPassive;
-        const tEqMaxxfan=tOut+qInt/(uaPassive+ventUA);
-        const tMassMaxxfan = tEqMaxxfan + (tInPrev - tEqMaxxfan) * Math.exp(-dt / C.tau);
-        if(tMassMaxxfan<=mfSet) return mfSet;
-        return tMassMaxxfan;
-    }
-    if(candidateType==='ac'){
-        // v3.2: engagement and load reference tEq (steady state). If tEq is at or below setpoint,
-        // the cabin will not sustain above setpoint and AC won't carry meaningful load.
-        if(tEq <= setpoints.cool) return tMass;
-        const coolingLoad = (tEq - setpoints.cool) * ua;
-        if(coolingLoad > C.acCapacity){
-            return setpoints.cool + (coolingLoad - C.acCapacity) / ua;
+        const band=comfortBand(mode,isOvernight,env);
+        for(const segment of step.segments){
+            const segmentStart=from+segment.offset*3600000,segmentEnd=segmentStart+segment.hours*3600000;
+            allSegments.push({...segment,startMs:segmentStart,endMs:segmentEnd});
+            trace.push({time:new Date(segmentEnd),timeStr:formatTime(new Date(segmentEnd)),indoor:segment.t1,elapsedMin:(segmentEnd-start.getTime())/60000});
+            const comfort=segmentComfort(segment,band);score+=comfort.score;hoursOut+=comfort.hoursOut;
+            didCool ||= segment.operation==='ac';didHeat ||= segment.operation==='hp'||segment.operation==='furnace';
+            capacityCool ||= segment.operation==='ac'&&segment.capacityLimited;
+            capacityHeat ||= (segment.operation==='hp'||segment.operation==='furnace')&&segment.capacityLimited;
         }
-        return setpoints.cool;
+        tIn=step.temperature;
     }
-    if(candidateType==='hp'){
-        // v3.2: engagement and load reference tEq (steady state).
-        // Heat pump capacity derates with cold. Conservative estimate: 13,000 BTU/hr at 41-50F,
-        // 15,000 nominal above 50F.
-        if(tEq >= setpoints.heat) return tMass;
-        const heatCap = tOut > C.heatPumpFrostThresh ? 15000 : 13000;
-        const heatLoad = (setpoints.heat - tEq) * ua;
-        if(heatLoad > heatCap){
-            return setpoints.heat - (heatLoad - heatCap) / ua;
-        }
-        return setpoints.heat;
-    }
-    if(candidateType==='furnace'){
-        // v3.2: engagement and load reference tEq (steady state).
-        // Furnace 19,000 BTU/hr input × ~80% efficiency ≈ 15,000 BTU/hr output (Suburban NT-20SQ).
-        if(tEq >= setpoints.heat) return tMass;
-        const heatCap = 15000;
-        const heatLoad = (setpoints.heat - tEq) * ua;
-        if(heatLoad > heatCap){
-            return setpoints.heat - (heatLoad - heatCap) / ua;
-        }
-        return setpoints.heat;
-    }
-    return tMass;
+    return{start,end,trace,segments:allSegments,unsafe,score,hoursOut,maxFan,freezeRisk,didCool,didHeat,capacityCool,capacityHeat,finalIndoor:tIn};
 }
 
-function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOvernight,solarCtx, tInPrev, dtHours, currentTabContext){
+function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOvernight,solarCtx, tInPrev, dtHours, currentTabContext, operating=null){
     if(candidateType==='passive') return{safe:true,reason:'', requiredFan:null, freezeRisk:null};
     const dt = (dtHours && dtHours > 0) ? dtHours : 1;
     const tEq=passiveEqAt(tOut,wind,cf,isDay,meta,solarCtx);
-    const tMass = tEq + (tInPrev - tEq) * Math.exp(-dt / C.tau);
+    const tMass=thermalAdvance(tInPrev,tEq,C.tau/(1+.02*wind),dt);
 
     if(candidateType==='auto'){
         const coolTrigger = setpoints.auto + 2;
@@ -696,11 +791,11 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
         let reqFan = isOvernight ? 'Low' : 'Auto';
         let freezeRisk = null;
         
-        if (tEq > coolTrigger) {
+        if (operating?operating.operation==='ac':tEq>coolTrigger) {
             const uaPassive = UA_BASE*(1+0.02*wind);
             // v3.2: steady-state load referenced to setpoint, not trigger.
             const coolingLoad = (tEq - setpoints.auto) * uaPassive;
-            const dutyCycle = Math.min(1, coolingLoad / C.acCapacity);
+            const dutyCycle=operating?operating.dutyCycle:Math.max(0,Math.min(1,coolingLoad/C.acSensibleCapacity));
 
             // v3.4 Fix B: moisture-aware freeze-buffer guard.
             // The buffer rule only fires when coil freeze is mechanically possible,
@@ -720,7 +815,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
             }
             // v3.4 Fix B: tRet uses actual return air (tInPrev) as upper bound, not tOut.
             // Return air comes from the cabin, not from outside.
-            let tRet = Math.max(coolTrigger, Math.min(tInPrev, coolTrigger + (coolingLoad>C.acCapacity?6:0)));
+            let tRet=tInPrev;
             if(dutyCycle < 0.15) tRet += (0.15 - dutyCycle) / 0.15 * 2.0;
 
             let chosenFanDep;
@@ -742,7 +837,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
                 // Severe — even with highest safe fan, coil too cold
                 return {safe: false, category:'freeze', categoryLabel:'Coil freeze risk', reason: 'Air conditioner coil could freeze in these conditions', detail:'Auto-AC '+freezeRisk.note, requiredFan:null, freezeRisk};
             }
-        } else if (tEq < heatTrigger) {
+        } else if (operating?operating.operation==='hp':tEq<heatTrigger) {
             // Heat fires in AUTO. Heat pump is the only path AUTO will take per Dometic CCC2 priority.
             if (tOut < C.heatPumpMinTemp) {
                 return {safe: false, category:'range', categoryLabel:'Heat pump below minimum', reason:'Too cold for heat pump — auto mode would fail to heat. Use Furnace mode directly.', detail:'Outdoor '+tOut+'°F is below the '+C.heatPumpMinTemp+'°F heat pump minimum', requiredFan:null, freezeRisk:null};
@@ -808,11 +903,11 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
     if(candidateType==='ac'){
         let reqFan = isOvernight ? 'Low' : 'Auto';
         let freezeRisk = null;
-        if(tEq<=setpoints.cool) return{safe:true,reason:'', requiredFan:reqFan, freezeRisk:null}; 
+        if(operating?operating.operation!=='ac':tEq<=setpoints.cool) return{safe:true,reason:'', requiredFan:reqFan, freezeRisk:null};
         const uaPassive=UA_BASE*(1+0.02*wind);
         // v3.2: steady-state load drives duty cycle and downstream coil temp.
         const coolingLoad=(tEq-setpoints.cool)*uaPassive;
-        const dutyCycle=Math.min(1,coolingLoad/C.acCapacity);
+        const dutyCycle=operating?operating.dutyCycle:Math.max(0,Math.min(1,coolingLoad/C.acSensibleCapacity));
 
         // v3.4 Fix B: moisture-aware freeze-buffer guard.
         // The buffer rule only fires when coil freeze is mechanically possible,
@@ -832,7 +927,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
         }
         // v3.4 Fix B: tRet uses actual return air (tInPrev) as upper bound, not tOut.
         // Return air comes from the cabin, not from outside.
-        let tRet=Math.max(setpoints.cool,Math.min(tInPrev,setpoints.cool+(coolingLoad>C.acCapacity?6:0)));
+        let tRet=tInPrev;
         if(dutyCycle<0.15) tRet+=(0.15-dutyCycle)/0.15*2.0;
 
         let chosenFanDep;
@@ -859,7 +954,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
     if(candidateType==='hp'){
         // v3.2: engagement keyed off tEq (steady state). If passive equilibrium is at/above
         // setpoint, HP will idle and the unattended dew-point check is moot.
-        if(tEq>=setpoints.heat) return{safe:true,reason:'', requiredFan:null, freezeRisk:null}; 
+        if(operating?operating.operation!=='hp':tEq>=setpoints.heat) return{safe:true,reason:'', requiredFan:null, freezeRisk:null};
         const hs=overnightHeatSystem(tOut,rh);
         if(hs.sys!=='Heat Pump') return{safe:false,category:'range',categoryLabel:'Heat pump unreliable overnight',reason:'Heat pump not reliable here — use Furnace instead',detail:hs.reason, requiredFan:null, freezeRisk:null};
         return{safe:true,reason:'', requiredFan:null, freezeRisk:null};
@@ -872,170 +967,25 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
 }
 
 function evaluateCandidate(candidateType,envelope,isOvernight,setpoints,meta){
-    let indoorMin=Infinity,indoorMax=-Infinity;
-    let minTime=null,maxTime=null;
-    let totalScore=0,hoursOut=0;
-    let maxFan = isOvernight ? 'Low' : 'Auto';
-    let autoDidCool=false, autoDidHeat=false;
-    let worstFreezeRisk = null; // accumulated worst-case freeze risk across the envelope
-
-    // v3.4 Fix A: track per-hour safety instead of breaking on first unsafe hour.
-    // A candidate is overall-safe only when every evaluated hour is safe (strict).
-    // Unsafe hours are still evaluated (equipment treated as off → passive fallback)
-    // so the candidate can be scored and the user can see the trajectory.
-    // v3.5: capture category (freeze | range | comfort) for layman-readable status rendering.
-    const unsafeHours = []; // [{timeStr, time, reason, category, categoryLabel, detail}]
-    let firstUnsafeReason = '';
-    let firstUnsafeCategory = '';
-    let firstUnsafeCategoryLabel = '';
-    let firstUnsafeDetail = '';
-    let firstUnsafeTimeStr = '';
-
-    const indoorVals=[];
-    const hourly=[]; // v3.8: {timeStr, indoor} pairs for outdoor-anchored display lookup
-    let currentIn = state.indoor;
-    let prevTime = null; // for Δt computation
-
-    for(let i=0;i<envelope.points.length;i++){
-        const pt = envelope.points[i];
-        const pointWind=pt.wind??envelope.wind,pointCloud=pt.cloud??envelope.cloud;
-        const solarCtx=envelope.lat!=null&&envelope.lon!=null?{date:pt.time,lat:envelope.lat,lon:envelope.lon}:null;
-        // Δt in hours since previous point. First iteration uses 1hr default.
-        let dtHours = 1;
-        if(prevTime){
-            dtHours = (pt.time.getTime() - prevTime.getTime()) / 3600000;
-            if(dtHours <= 0 || dtHours > 12) dtHours = 1; // sanity clamp
+    const sim=simulateThermalProfile(candidateType,envelope,isOvernight,setpoints,meta,state.indoor);
+    const min=sim.trace.reduce((a,b)=>b.indoor<a.indoor?b:a),max=sim.trace.reduce((a,b)=>b.indoor>a.indoor?b:a);
+    const values=sim.trace.map(p=>p.indoor).sort((a,b)=>a-b);
+    const first=sim.unsafe[0],safe=sim.unsafe.length===0;
+    let firstSafeTimeStr=null;
+    if(first?.time.getTime()===sim.start.getTime()){
+        let until=sim.start.getTime();
+        for(let i=0;i<sim.unsafe.length;i++){
+            if(sim.unsafe[i].time.getTime()>until)break;
+            const segment=sim.segments.find(s=>s.startMs===sim.unsafe[i].time.getTime());
+            until=segment?.endMs??until;
         }
-
-        const eq=equipmentSafeAt(candidateType,pt.tOut,pt.rh,pointWind,pointCloud,!isOvernight,meta,setpoints,isOvernight,solarCtx,currentIn,dtHours);
-
-        // v3.4 Fix A: on unsafe hour, log it and fall back to passive trajectory for this hour.
-        // Do NOT break — continue evaluating remaining hours so the candidate's full-day
-        // behavior can be scored and reported.
-        let effectiveType = candidateType;
-        if(!eq.safe){
-            unsafeHours.push({timeStr: pt.timeStr, time: pt.time, reason: eq.reason, category: eq.category||'comfort', categoryLabel: eq.categoryLabel||'', detail: eq.detail||''});
-            if(!firstUnsafeReason){
-                firstUnsafeReason = eq.reason;
-                firstUnsafeCategory = eq.category || 'comfort';
-                firstUnsafeCategoryLabel = eq.categoryLabel || '';
-                firstUnsafeDetail = eq.detail || '';
-                firstUnsafeTimeStr = pt.timeStr;
-            }
-            effectiveType = 'passive'; // equipment off this hour
-        } else {
-            if (eq.requiredFan && fanLevels[eq.requiredFan] > fanLevels[maxFan]) {
-                maxFan = eq.requiredFan;
-            }
-            // Track worst freeze risk across envelope (safe hours only)
-            if(eq.freezeRisk && eq.freezeRisk.type !== 'none'){
-                const sevRank = {low:1, moderate:2, high:3};
-                if(!worstFreezeRisk || sevRank[eq.freezeRisk.severity] > sevRank[worstFreezeRisk.severity]){
-                    worstFreezeRisk = Object.assign({}, eq.freezeRisk, {atTime: pt.timeStr, tOut: pt.tOut});
-                }
-            }
-        }
-
-        const indoor=predictIndoor(effectiveType,pt.tOut,pointWind,pointCloud,!isOvernight,meta,setpoints,solarCtx,currentIn,dtHours);
-
-        if (candidateType === 'auto' && eq.safe) {
-            // v3.2: engagement flags key off tEq for consistency with predictIndoor.
-            const tEqPt = passiveEqAt(pt.tOut,pointWind,pointCloud,!isOvernight,meta,solarCtx);
-            if (tEqPt > setpoints.auto + 2) autoDidCool = true;
-            if (tEqPt < setpoints.auto - 2) autoDidHeat = true;
-        } else if (candidateType === 'ac' && eq.safe) {
-            // v3.2: AC engaged if steady-state would exceed setpoint.
-            const tEqPt = passiveEqAt(pt.tOut,pointWind,pointCloud,!isOvernight,meta,solarCtx);
-            if (tEqPt > setpoints.cool) autoDidCool = true;
-        }
-
-        indoorVals.push(indoor);
-        hourly.push({timeStr: pt.timeStr, indoor}); // v3.8: capture for outdoor-anchored display
-        if(indoor<indoorMin){indoorMin=indoor;minTime=pt.timeStr;}
-        if(indoor>indoorMax){indoorMax=indoor;maxTime=pt.timeStr;}
-        currentIn = indoor;
-        prevTime = pt.time;
-
-        let bandLo,bandHi;
-        if(isOvernight){
-            bandLo=C.nightBandLow;bandHi=C.nightBandHigh;
-        }else if(candidateType==='hp'||candidateType==='furnace'||candidateType==='auto'){
-            bandLo=C.dayHeatBandLow;bandHi=C.dayHeatBandHigh; 
-        }else if(candidateType==='ac'){
-            bandLo=C.dayCoolBandLow;bandHi=C.dayCoolBandHigh;
-        }else if(candidateType==='maxxfan'){
-            // v3.2: regime classification keys off tEq (steady-state tendency), not damped tMass.
-            const tEqPt=passiveEqAt(pt.tOut,pointWind,pointCloud,!isOvernight,meta,solarCtx);
-            const mfSet=!isOvernight?C.maxxFanSetDay:C.maxxFanSetNight;
-            if(tEqPt>mfSet){bandLo=C.dayCoolBandLow;bandHi=C.dayCoolBandHigh;}
-            else {bandLo=C.dayHeatBandLow;bandHi=C.dayCoolBandHigh;} 
-        }else {
-            bandLo=C.dayHeatBandLow;bandHi=C.dayCoolBandHigh; 
-        }
-        if(indoor>bandHi){totalScore+=C.warmPenalty*(indoor-bandHi);hoursOut++;}
-        else if(indoor<bandLo){totalScore+=C.coldPenalty*(bandLo-indoor);hoursOut++;}
+        if(until<sim.end.getTime()&&sim.unsafe.every(p=>p.time.getTime()<until))firstSafeTimeStr=formatTime(new Date(until));
     }
-    indoorVals.sort((a,b)=>a-b);
-    const indoorMedian=indoorVals.length?indoorVals[Math.floor(indoorVals.length/2)]:NaN;
-
-    // v3.4 Fix A: overall safety requires every hour to be safe (strict).
-    const allHoursSafe = unsafeHours.length === 0;
-    // v4.1: firstSafeTimeStr drives "until HH:MM" rendering. That phrasing is only
-    // semantically valid when the unsafe hours form a *contiguous block at the start
-    // of the envelope* — i.e., the candidate starts unsafe and becomes safe partway
-    // through. Previous implementation walked forward from index 0 and returned the
-    // first non-unsafe hour, which could return a timestamp BEFORE a later unsafe
-    // block (e.g., MaxxFan safe at 10 PM, unsafe 11 PM–4 AM → returned "10 PM" and
-    // rendered as "Disqualified until 10 PM", which is nonsense).
-    //
-    // Correct semantics: walk forward from index 0 until we find the first safe hour,
-    // then verify every preceding hour was unsafe. If yes, that hour is the genuine
-    // "until" time. If the first envelope hour is already safe (i.e., unsafe block
-    // does NOT start at index 0), leave firstSafeTimeStr null so the renderer falls
-    // through to the non-time-bounded path.
-    let firstSafeTimeStr = null;
-    if(unsafeHours.length > 0 && unsafeHours.length < envelope.points.length){
-        const unsafeSet = new Set(unsafeHours.map(u => u.time.getTime()));
-        // Walk forward; the unsafe block must start at index 0 and be contiguous.
-        let blockEndIdx = -1;
-        for(let i = 0; i < envelope.points.length; i++){
-            if(unsafeSet.has(envelope.points[i].time.getTime())){
-                blockEndIdx = i; // still inside the leading unsafe block
-            } else {
-                break; // first safe hour reached
-            }
-        }
-        // Valid iff: the block starts at index 0 (blockEndIdx >= 0), the block didn't
-        // consume the whole envelope (already excluded by outer condition), and every
-        // remaining unsafe hour is inside the leading block (no scattered unsafe hours
-        // after the first safe hour).
-        if(blockEndIdx >= 0 && unsafeHours.length === blockEndIdx + 1){
-            firstSafeTimeStr = envelope.points[blockEndIdx + 1].timeStr;
-        }
-    }
-
-    return{
-        type:candidateType,
-        indoorMin:Math.round(indoorMin*10)/10,
-        indoorMax:Math.round(indoorMax*10)/10,
-        indoorMedian:Math.round(indoorMedian*10)/10,
-        minTime,maxTime,
-        score: allHoursSafe ? Math.round(totalScore*10)/10 : Infinity,
-        safe: allHoursSafe,
-        equipmentReason: firstUnsafeReason,
-        equipmentCategory: firstUnsafeCategory,
-        equipmentCategoryLabel: firstUnsafeCategoryLabel,
-        equipmentDetail: firstUnsafeDetail,
-        equipmentFirstUnsafeTimeStr: firstUnsafeTimeStr,
-        hoursOutOfBand:hoursOut,
-        fanSpeed: maxFan,
-        autoDidCool, autoDidHeat,
-        freezeRisk: worstFreezeRisk,
-        unsafeHourCount: unsafeHours.length,
-        firstSafeTimeStr,
-        partialUnsafeScore: Math.round(totalScore*10)/10,  // raw score regardless of safety (for diagnostic display)
-        hourly  // v3.8: per-hour {timeStr, indoor} for outdoor-anchored display lookup
-    };
+    return{type:candidateType,indoorMin:Math.round(min.indoor*10)/10,indoorMax:Math.round(max.indoor*10)/10,
+        indoorMedian:Math.round(values[Math.floor(values.length/2)]*10)/10,finalIndoor:Math.round(sim.finalIndoor*10)/10,minTime:min.timeStr,maxTime:max.timeStr,
+        score:safe?Math.round(sim.score*1000)/1000:Infinity,safe,equipmentReason:first?.reason||'',equipmentCategory:first?.category||'',equipmentCategoryLabel:first?.categoryLabel||'',equipmentDetail:first?.detail||'',equipmentFirstUnsafeTimeStr:first?.timeStr||'',
+        hoursOutOfBand:sim.hoursOut,fanSpeed:sim.maxFan,autoDidCool:sim.didCool,autoDidHeat:sim.didHeat,freezeRisk:sim.freezeRisk,unsafeHourCount:sim.unsafe.length,firstSafeTimeStr,partialUnsafeScore:Math.round(sim.score*1000)/1000,
+        capacityCool:sim.capacityCool,capacityHeat:sim.capacityHeat,hourly:sim.trace,simulationStart:sim.start,simulationEnd:sim.end};
 }
 
 function optimizeCandidate(candidateType, envelope, isOvernight, meta) {
@@ -1206,28 +1156,28 @@ function renderRecommendation(id,title,result,isOvernight){
     const sd = document.getElementById('setpointDisplay');
     sd.innerHTML = `Cool <span>${result.setpoints.cool}°F</span> · Heat <span>${result.setpoints.heat}°F</span> · Auto <span>${result.setpoints.auto}°F</span>`;
 
-    const riskBadge=w.safe?'<div class="risk-badge safe"><div class="risk-dot safe"></div><span>Safe</span></div>':'<div class="risk-badge high"><div class="risk-dot high"></div><span>No Safe Option</span></div>';
+    const riskBadge=w.safe?'<div class="risk-badge safe"><div class="risk-dot safe"></div><span>Eligible</span></div>':'<div class="risk-badge high"><div class="risk-dot high"></div><span>No Safe Option</span></div>';
 
     // v3.8: Chronological display of outdoor/indoor pair, anchored to outdoor extremes.
-    // v4.3.0 Fix 2: anchor displayed "Outdoor Range" to window endpoints (first → last
+    // v4.4.0 Fix 2: anchor displayed "Outdoor Range" to window endpoints (first → last
     // evaluated hour) instead of min/max temperature times. After Fix 3 expanded each
     // NWS entry to hourly points, envelope.points[0] is the first evaluated hour and
     // envelope.points[last] is the last, matching the user's mental model of the
     // evaluation window. Min/max are preserved as a secondary annotation.
     const firstPt = envelope.points && envelope.points.length>0 ? envelope.points[0] : null;
-    const lastPt = envelope.points && envelope.points.length>0 ? envelope.points[envelope.points.length-1] : null;
+    const lastPt=envelope.points?.length?{...envelope.points.at(-1),time:w.simulationEnd,timeStr:formatTime(w.simulationEnd)}:null;
     let firstTOut,firstTOutTime,secondTOut,secondTOutTime,firstIndoor,secondIndoor;
     if(firstPt && lastPt && firstPt !== lastPt){
         firstTOut = firstPt.tOut; firstTOutTime = firstPt.timeStr;
         secondTOut = lastPt.tOut; secondTOutTime = lastPt.timeStr;
         // Look up indoor at each window endpoint from the winner's hourly trace.
-        const lookupIndoor = (ts) => {
+        const lookupIndoor = (pt) => {
             if(!w.hourly) return null;
-            const hit = w.hourly.find(h => h.timeStr === ts);
+            const hit = w.hourly.find(h => Math.abs(h.time.getTime()-pt.time.getTime())<1);
             return hit ? Math.round(hit.indoor*10)/10 : null;
         };
-        firstIndoor = lookupIndoor(firstTOutTime);
-        secondIndoor = lookupIndoor(secondTOutTime);
+        firstIndoor = lookupIndoor(firstPt);
+        secondIndoor = lookupIndoor(lastPt);
     }
 
     // Secondary annotation: low/high if the range is non-trivial AND at least one
@@ -1254,9 +1204,9 @@ function renderRecommendation(id,title,result,isOvernight){
     const bandHi=isOvernight?C.nightBandHigh:C.dayCoolBandHigh;
     const bandLabel=isOvernight?'Sleep Band ['+C.nightBandLow+'°F – '+C.nightBandHigh+'°F]':'Comfort Band ['+C.dayHeatBandLow+'°F – '+C.dayCoolBandHigh+'°F]';
     let bandStatus,bandColor;
-    if(w.score===0){bandStatus='In band the whole '+(isOvernight?'night':'session');bandColor='var(--accent-green)';}
+    if(w.hoursOutOfBand<1e-8){bandStatus='In band the whole '+(isOvernight?'night':'session');bandColor='var(--accent-green)';}
     else if(w.indoorMax>bandHi){bandStatus='Drifts '+(w.indoorMax-bandHi).toFixed(1)+'°F above band at '+w.maxTime;bandColor='var(--accent-amber)';}
-    else if(w.indoorMin<bandLo){bandStatus='Drifts '+(bandLo-w.indoorMin).toFixed(1)+'°F below band at '+w.minTime+' — bring an extra blanket';bandColor='var(--accent-amber)';}
+    else if(w.indoorMin<bandLo){bandStatus='Reaches '+w.indoorMin+'°F below band at '+w.minTime+'; minimum comfort floor '+C.comfortFloor+'°F';bandColor='var(--accent-amber)';}
     else {bandStatus='In band';bandColor='var(--accent-green)';}
 
     let envelopeStr;
@@ -1283,8 +1233,8 @@ function renderRecommendation(id,title,result,isOvernight){
     }else if(w.type==='auto'){
         setupInstructions='Thermostat in AUTO mode, set to '+result.setpoints.auto+'°F. ';
         if (w.autoDidCool) {
-            if (isOvernight) setupInstructions += 'Fan set to ' + w.fanSpeed.toUpperCase() + ' (Lowest continuous speed to safely prevent coil freezing and provide noise).';
-            else setupInstructions += 'Fan set to ' + w.fanSpeed.toUpperCase() + (w.fanSpeed==='Auto' ? ' (Best for dehumidification).' : ' (Required for safe coil protection).');
+            if (isOvernight) setupInstructions += 'Fan set to ' + w.fanSpeed.toUpperCase() + ' (Continuous overnight airflow; passes estimated coil-risk checks).';
+            else setupInstructions += 'Fan set to ' + w.fanSpeed.toUpperCase() + (w.fanSpeed==='Auto' ? ' (Best for dehumidification).' : ' (Selected by estimated coil-risk checks).');
         } else {
             setupInstructions += 'Fan set to AUTO.'; 
         }
@@ -1294,8 +1244,8 @@ function renderRecommendation(id,title,result,isOvernight){
             setupInstructions += '(Pre-cooling: setting a lower target to build a thermal buffer). ';
         }
         if (w.autoDidCool) {
-             if (isOvernight) setupInstructions += 'Fan set to ' + w.fanSpeed.toUpperCase() + ' (Lowest continuous speed to safely prevent coil freezing and provide noise).';
-             else setupInstructions += 'Fan set to ' + w.fanSpeed.toUpperCase() + (w.fanSpeed==='Auto' ? ' (Best for dehumidification).' : ' (Required to prevent freeze at this deeper cooling target).');
+             if (isOvernight) setupInstructions += 'Fan set to ' + w.fanSpeed.toUpperCase() + ' (Continuous overnight airflow; passes estimated coil-risk checks).';
+             else setupInstructions += 'Fan set to ' + w.fanSpeed.toUpperCase() + (w.fanSpeed==='Auto' ? ' (Best for dehumidification).' : ' (Selected by estimated coil-risk checks).');
         } else setupInstructions += 'Fan set to AUTO.';
         setupInstructions += ' Windows and MaxxFan closed.';
     }else if(w.type==='hp'){
@@ -1314,9 +1264,9 @@ function renderRecommendation(id,title,result,isOvernight){
 
     let equipNote='';
     if(w.type==='auto'){
-        equipNote='Auto Change-Over dynamically switches between AC and Heating to hold a strict ±2°F deadband. The optimized setpoint calculated to fit your Comfort Band perfectly is '+result.setpoints.auto+'°F.';
+        equipNote='Auto Change-Over starts cooling 2°F above setpoint or heating 2°F below, then returns toward setpoint. Initial recovery and equipment capacity can allow temperatures outside that range. Modeled setpoint: '+result.setpoints.auto+'°F.';
         if (w.autoDidHeat && result.tOutMin <= C.heatPumpFrostThresh) {
-            equipNote += ' Note: Auto mode strictly prioritizes Heat Pump above 41°F. The app has verified this will not cause frost build-up based on tonight\'s dew point.';
+            equipNote += ' Heat-pump operation passes the app\'s existing temperature/dew-point checks. This is an estimated operating assessment; it does not establish frost-free operation.';
         }
     }else if(w.type==='hp'){
         const minTout=result.tOutMin;
@@ -1328,26 +1278,10 @@ function renderRecommendation(id,title,result,isOvernight){
         equipNote=hs.reason;
     }
 
-    // Capacity-overrun annotation: warn when modeled indoor drifts beyond the equipment's effective control band.
-    // For AC/HP/Furnace: any drift past setpoint = capacity limit (equipment should hold setpoint).
-    // For AUTO: drift INSIDE the ±2°F deadband is normal/expected; only flag drift PAST the deadband edges.
     let capacityNote='';
-    if(w.type==='ac' && w.indoorMax > result.setpoints.cool + 0.5){
-        const overrun = (w.indoorMax - result.setpoints.cool).toFixed(1);
-        capacityNote='AC capacity limit: cabin overruns setpoint by '+overrun+'°F at '+w.maxTime+' (load exceeds 15,000 BTU/hr). Consider more aggressive pre-cooling or accept the warmer drift.';
-    }else if(w.type==='auto' && w.indoorMax > result.setpoints.auto + 2 + 0.5){
-        // AUTO deadband upper edge is setpoint+2; only flag drift above that
-        const overrun = (w.indoorMax - (result.setpoints.auto + 2)).toFixed(1);
-        capacityNote='AC capacity limit (Auto mode): cabin overruns the cool trip point ('+(result.setpoints.auto+2)+'°F) by '+overrun+'°F at '+w.maxTime+' (load exceeds 15,000 BTU/hr). Consider switching to AC mode with aggressive pre-cooling.';
-    }else if((w.type==='hp'||w.type==='furnace') && w.indoorMin < result.setpoints.heat - 0.5){
-        const overrun = (result.setpoints.heat - w.indoorMin).toFixed(1);
-        const cap = w.type==='hp' ? 'Heat pump' : 'Furnace';
-        capacityNote=cap+' capacity limit: cabin drops '+overrun+'°F below setpoint at '+w.minTime+' (load exceeds heater output). Add supplemental heat or accept the cooler drift.';
-    }else if(w.type==='auto' && w.indoorMin < result.setpoints.auto - 2 - 0.5){
-        // AUTO deadband lower edge is setpoint-2; only flag drift below that
-        const overrun = ((result.setpoints.auto - 2) - w.indoorMin).toFixed(1);
-        capacityNote='Heating capacity limit (Auto mode): cabin drops '+overrun+'°F below the heat trip point ('+(result.setpoints.auto-2)+'°F) at '+w.minTime+' (load exceeds heater output). Switch to Furnace mode directly.';
-    }
+    if(w.capacityCool)capacityNote='Cooling load exceeds the modeled '+C.acSensibleCapacity.toLocaleString()+' BTU/hr sensible capacity during part of the window. Cabin may remain above target despite continuous cooling.';
+    if(w.capacityHeat)capacityNote+=(capacityNote?' ':'')+'Heating load exceeds modeled output during part of the window. Cabin may remain below target despite continuous heating.';
+    if(!capacityNote&&((w.type==='ac'&&state.indoor>result.setpoints.cool+.5)||((w.type==='hp'||w.type==='furnace')&&state.indoor<result.setpoints.heat-.5)))capacityNote='Initial cabin temperature is outside target. The forecast includes finite recovery time; an initial temperature miss alone does not mean insufficient equipment capacity.';
 
     // Dual freeze-risk banner (v3.1 restored from v1.4 doctrine)
     let freezeRiskBanner='';
@@ -1425,7 +1359,7 @@ function renderRecommendation(id,title,result,isOvernight){
                 status='<span style="color:'+color+';">'+label+'</span> · <span style="color:var(--text-muted);">indoor '+c.indoorMin+'–'+c.indoorMax+'°F</span>';
             }
         }else{
-            status='Score '+c.score+' · indoor '+c.indoorMin+'–'+c.indoorMax+'°F';
+            status='Discomfort '+c.score.toFixed(2)+' weighted °F·h · indoor '+c.indoorMin+'–'+c.indoorMax+'°F';
         }
         return'<div class="diag-row"><span class="diag-key">'+name+setStr+'</span><span class="diag-val" style="font-size:11px;text-align:right;">'+status+'</span></div>';
     }).join('');
@@ -1524,83 +1458,6 @@ function currentTransitionWindow(now){
     return{active:false,period:null,label:null,windowEnd:null,redirectTab:'night'};
 }
 
-// v4.0 — τ-damped transient indoor temp predictor for Current tab.
-// Standard first-order lumped thermal mass response to a step input:
-//   t(Δt) = tEqForced + (tInPrev - tEqForced) · exp(-Δt/τ)
-// where tEqForced is the asymptotic equilibrium with equipment running.
-//
-// Per-mode qEquip (signed, +heating / -cooling), clamped to capacity:
-//   passive : qEquip = 0
-//   ac      : qEquip = -min(acSensibleCapacity, (tEq - coolSet)·UA), if tEq > coolSet
-//   hp      : qEquip = +min(hpCapacity(tOut), (heatSet - tEq)·UA),   if tEq < heatSet
-//   furnace : qEquip = +min(furnaceOutput,    (heatSet - tEq)·UA),   if tEq < heatSet
-//   maxxfan : modeled as τ adjustment (τ' = τ · UA/(UA+ventUA)) and tEq shift
-//
-// Equilibrium clamp: equipment can't drive past its setpoint (thermostat cycles).
-//   Cooling: tEqForced = max(coolSet, tEq + qEquip/UA)
-//   Heating: tEqForced = min(heatSet, tEq + qEquip/UA)
-function predictIndoorTransient(mode,tOut,wind,cf,isDay,meta,setpoints,solarCtx,tInPrev,dtHours){
-    const dt = (dtHours && dtHours > 0) ? dtHours : 0.25;
-    const ua = UA_BASE * (1 + 0.02 * wind);
-    const tEq = passiveEqAt(tOut, wind, cf, isDay, meta, solarCtx);
-
-    if(mode === 'passive'){
-        return tEq + (tInPrev - tEq) * Math.exp(-dt / C.tau);
-    }
-
-    if(mode === 'maxxfan'){
-        const mfSet = isDay ? C.maxxFanSetDay : C.maxxFanSetNight;
-        // MaxxFan only helps if tEq is above the setpoint AND outdoor < indoor (otherwise it pulls in hotter air).
-        // If passive equilibrium is already cool enough, no benefit from running it.
-        if(tEq <= mfSet) return tEq + (tInPrev - tEq) * Math.exp(-dt / C.tau);
-        // Effective UA with ventilation. ventUA = 1.08 · CFM (sensible heat ratio for air).
-        const ventUA = 1.08 * C.maxxFanCFM;
-        // With ventilation: tEqMaxxfan = tOut + qInt/(UA + ventUA)
-        const qInt = (tEq - tOut) * ua;  // back out qInt from passive equilibrium
-        const tEqMaxxfan = tOut + qInt / (ua + ventUA);
-        // Effective τ shrinks because the total UA grew.
-        const tauMaxxfan = C.tau * ua / (ua + ventUA);
-        const tMass = tEqMaxxfan + (tInPrev - tEqMaxxfan) * Math.exp(-dt / tauMaxxfan);
-        // MaxxFan can't pull cabin below setpoint (no thermostat cycling — just clamp at setpoint floor for comfort).
-        return Math.max(tMass, mfSet);
-    }
-
-    if(mode === 'ac'){
-        if(tEq <= setpoints.cool) return tEq + (tInPrev - tEq) * Math.exp(-dt / C.tau);
-        const coolingLoad = (tEq - setpoints.cool) * ua;          // BTU/hr required to hold setpoint
-        const qEquip = -Math.min(C.acSensibleCapacity, coolingLoad);
-        const tEqForcedRaw = tEq + qEquip / ua;
-        // Cooling clamp: AC can't drive below setpoint (thermostat cycles).
-        const tEqForced = Math.max(setpoints.cool, tEqForcedRaw);
-        return tEqForced + (tInPrev - tEqForced) * Math.exp(-dt / C.tau);
-    }
-
-    if(mode === 'hp'){
-        if(tEq >= setpoints.heat) return tEq + (tInPrev - tEq) * Math.exp(-dt / C.tau);
-        const heatCap = tOut > C.heatPumpFrostThresh ? C.hpCapacityWarm : C.hpCapacityCold;
-        const heatingLoad = (setpoints.heat - tEq) * ua;
-        const qEquip = +Math.min(heatCap, heatingLoad);
-        const tEqForcedRaw = tEq + qEquip / ua;
-        // Heating clamp: HP can't drive above setpoint.
-        const tEqForced = Math.min(setpoints.heat, tEqForcedRaw);
-        return tEqForced + (tInPrev - tEqForced) * Math.exp(-dt / C.tau);
-    }
-
-    if(mode === 'furnace'){
-        if(tEq >= setpoints.heat) return tEq + (tInPrev - tEq) * Math.exp(-dt / C.tau);
-        const heatingLoad = (setpoints.heat - tEq) * ua;
-        const qEquip = +Math.min(C.furnaceOutput, heatingLoad);
-        const tEqForcedRaw = tEq + qEquip / ua;
-        const tEqForced = Math.min(setpoints.heat, tEqForcedRaw);
-        return tEqForced + (tInPrev - tEqForced) * Math.exp(-dt / C.tau);
-    }
-
-    // Fallback
-    return tEq + (tInPrev - tEq) * Math.exp(-dt / C.tau);
-}
-
-// v4.0 — Look up outdoor conditions at a specific simulation time by interpolating
-// into the envelope.points array. Returns {tOut, rh, timeStr}.
 function lookupEnvelopeAt(envelope,simTime){
     const points=envelope.points;
     if(!points?.length)throw new Error('Analysis weather is missing.');
@@ -1610,109 +1467,25 @@ function lookupEnvelopeAt(envelope,simTime){
     return{...pt,timeStr:formatTime(simTime)};
 }
 
+function targetTimeMinutes(sim,target,direction){
+    if(direction==='heat'&&sim.trace[0].indoor>=target-.5||direction==='cool'&&sim.trace[0].indoor<=target+.5)return 0;
+    const threshold=direction==='heat'?target-.5:target+.5;
+    for(const segment of sim.segments){
+        if(direction==='heat'&&segment.t1>=threshold||direction==='cool'&&segment.t1<=threshold){
+            const within=thermalCrossing(segment.t0,segment.eq,segment.tau,threshold);
+            if(Number.isFinite(within))return Math.ceil((segment.startMs-sim.start.getTime())/60000+within*60);
+        }
+    }
+    return null;
+}
 function simulateCurrentMode(mode,envelope,startIndoor,target,direction,setpoints,now,windowEnd){
-    // v4.0 fix: simulation timeline is 15-min steps from now → windowEnd,
-    // independent of envelope.points.length. At each step, look up outdoor conditions
-    // using interval values from the envelope (manual inputs stay constant).
-    //
-    // Per step:
-    //   1. equipmentSafeAt() for safety check (using existing snap-to-setpoint predictor)
-    //   2. predictIndoorTransient() to advance indoor temp via τ-damped first-order response
-    //   3. Track time-to-target and overshoot vs. opposite comfort target
-    const dtHours = C.currentStepMin / 60;
-    const stepMs  = C.currentStepMin * 60 * 1000;
-    const meta    = C.metaAwake;          // attended (Current tab is daytime-attended)
-    const isOvernight = false;
-    let tIn = startIndoor;
-    let timeToTargetMin = null;
-    let overshoot = false;
-    let unsafeAt=null, unsafeReason=null, unsafeDetail=null, unsafeCategory=null, unsafeCategoryLabel=null;
-    let worstFreezeRisk = null;
-    let maxFan = null;
-    const trace = [];
-    const startMs = now.getTime();
-    const endMs   = windowEnd.getTime();
-    // v4.0 MaxxFan pre-disqualification: ventilation only helps cool when outdoor < indoor.
-    // Check the starting outdoor conditions; if outdoor ≥ indoor, MaxxFan would import heat.
-    if(mode === 'maxxfan'){
-        const startEnv = lookupEnvelopeAt(envelope, now);
-        if(startEnv.tOut >= startIndoor - 0.5){
-            return{
-                mode, status:'unsafe', timeToTargetMin:null, finalIndoor:startIndoor,
-                overshoot:false,
-                category:'range', categoryLabel:'Would import heat',
-                disqualReason:'Outdoor '+startEnv.tOut+'°F ≥ indoor '+startIndoor+'°F — MaxxFan would import heat, not cool',
-                worstFreezeRisk:null, maxFan:null, trace:[]
-            };
-        }
-    }
-    let stepIdx = 0;
-    for(let tMs = startMs; tMs <= endMs; tMs += stepMs, stepIdx++){
-        const simTime = new Date(tMs);
-        const env = lookupEnvelopeAt(envelope, simTime);
-        const cf=env.cloud??envelope.cloud,wind=env.wind??envelope.wind;
-        // isDay heuristic: solar position when lat/lon known (solarHourFactor handles sunset),
-        // else clock-based fallback. Conservative: solar credited only between 06:00 and 19:00.
-        const hr = localParts(simTime).hour;
-        const isDay = (envelope.lat!=null && envelope.lon!=null) ? true : (hr >= 6 && hr < 19);
-        const solarCtx = envelope.lat!=null && envelope.lon!=null
-            ? {date:simTime, lat:envelope.lat, lon:envelope.lon} : null;
-        // SAFETY: re-use existing equipmentSafeAt for unchanged safety doctrine.
-        // Pass stepDt=dtHours so freeze-buffer logic sees realistic dt for tMass computation.
-        if(mode !== 'passive'){
-            const eq = equipmentSafeAt(mode, env.tOut, env.rh, wind, cf, isDay, meta,
-                setpoints, isOvernight, solarCtx, tIn, dtHours, true);  // v4.0: currentTabContext=true
-            if(!eq.safe){
-                unsafeAt = env.timeStr;
-                unsafeReason = eq.reason;
-                unsafeDetail = eq.detail || '';
-                unsafeCategory = eq.category || 'comfort';
-                unsafeCategoryLabel = eq.categoryLabel || '';
-                break;
-            }
-            if(eq.requiredFan){
-                const fanLevels = {'Low':1,'Medium':2,'High':3,'Auto':0};
-                if(!maxFan || fanLevels[eq.requiredFan] > fanLevels[maxFan]) maxFan = eq.requiredFan;
-            }
-            if(eq.freezeRisk && eq.freezeRisk.type !== 'none'){
-                const sevRank = {low:1, moderate:2, high:3};
-                if(!worstFreezeRisk || sevRank[eq.freezeRisk.severity] > sevRank[worstFreezeRisk.severity]){
-                    worstFreezeRisk = Object.assign({}, eq.freezeRisk, {atTime:env.timeStr, tOut:env.tOut});
-                }
-            }
-        }
-        // PREDICT: advance indoor temp via τ-damped transient.
-        // First step (stepIdx===0) records the starting state; advancement begins at step 1.
-        if(stepIdx > 0){
-            tIn = predictIndoorTransient(mode, env.tOut, wind, cf, isDay, meta,
-                setpoints, solarCtx, tIn, dtHours);
-        }
-        const elapsedMin = stepIdx * C.currentStepMin;
-        trace.push({timeStr:env.timeStr, tOut:env.tOut, indoor:Math.round(tIn*10)/10, elapsedMin});
-        // TARGET CHECK
-        if(timeToTargetMin === null){
-            if(direction === 'heat' && tIn >= target - 0.5) timeToTargetMin = elapsedMin;
-            else if(direction === 'cool' && tIn <= target + 0.5) timeToTargetMin = elapsedMin;
-        }
-        // OVERSHOOT CHECK against opposite comfort target.
-        if(direction === 'heat' && tIn > C.currentCoolTarget + 0.5) overshoot = true;
-        if(direction === 'cool' && tIn < C.currentHeatTarget - 0.5) overshoot = true;
-    }
-    const finalIndoor = Math.round(tIn * 10) / 10;
-    let status = 'ok', disqualReason = null, category = null, categoryLabel = null;
-    if(unsafeAt){
-        status = 'unsafe';
-        // v4.1: neutral framing — severity (color + label) is conveyed by the
-        // renderer via category/categoryLabel. disqualReason carries the
-        // verbose physics without re-using the word "unsafe".
-        disqualReason = 'At ' + unsafeAt + ': ' + unsafeReason + (unsafeDetail ? ' — ' + unsafeDetail : '');
-        category = unsafeCategory;
-        categoryLabel = unsafeCategoryLabel;
-    }else if(overshoot){
-        status = 'overshoot';
-        disqualReason = 'Would overshoot past opposite comfort target';
-    }
-    return{mode, status, timeToTargetMin, finalIndoor, overshoot, disqualReason, category, categoryLabel, worstFreezeRisk, maxFan, trace};
+    const bounded={...envelope,windowStart:now,windowEnd};
+    const sim=simulateThermalProfile(mode,bounded,false,setpoints,C.metaAwake,startIndoor,{currentContext:true});
+    const unsafe=sim.unsafe[0],overshoot=sim.trace.some(p=>direction==='heat'?p.indoor>C.currentCoolTarget+.5:direction==='cool'?p.indoor<C.currentHeatTarget-.5:false);
+    const timeToTargetMin=target===null?null:targetTimeMinutes(sim,target,direction);
+    return{mode,status:unsafe?'unsafe':overshoot?'overshoot':'ok',timeToTargetMin,finalIndoor:Math.round(sim.finalIndoor*10)/10,overshoot,
+        disqualReason:unsafe?'At '+unsafe.timeStr+': '+unsafe.reason+(unsafe.detail?' — '+unsafe.detail:''):overshoot?'Would overshoot past opposite comfort target':null,
+        category:unsafe?.category||null,categoryLabel:unsafe?.categoryLabel||null,worstFreezeRisk:sim.freezeRisk,maxFan:sim.didCool?sim.maxFan:null,trace:sim.trace,capacityCool:sim.capacityCool,capacityHeat:sim.capacityHeat};
 }
 
 function runCurrentAnalysis(now){
@@ -1864,7 +1637,7 @@ function renderCurrentCard(result){
             : '';
         return '<div class="result-card" id="currentCard">'
              + '<div class="result-card-header"><div class="result-card-title">Current Recommendation</div>'
-             + '<div class="risk-badge safe"><div class="risk-dot safe"></div><span>Safe</span></div></div>'
+             + '<div class="risk-badge safe"><div class="risk-dot safe"></div><span>Eligible</span></div></div>'
              + '<div class="result-primary">No HVAC Needed</div>'
              + '<div class="result-detail"><div class="result-detail-label">Reason</div>'
              + '<div class="result-detail-value" style="font-size:13px;line-height:1.4;">'
@@ -1887,7 +1660,7 @@ function renderCurrentCard(result){
         ? (allOvershootBadge
             ? '<div class="risk-badge moderate"><div class="risk-dot moderate"></div><span>Drift</span></div>'
             : '<div class="risk-badge high"><div class="risk-dot high"></div><span>No Safe Option</span></div>')
-        : '<div class="risk-badge safe"><div class="risk-dot safe"></div><span>Safe</span></div>';
+        : '<div class="risk-badge safe"><div class="risk-dot safe"></div><span>Eligible</span></div>';
     let html='<div class="result-card" id="currentCard">';
     html+='<div class="result-card-header"><div class="result-card-title">Current — '+win.label+' Transition</div>'+riskBadge+'</div>';
     if(noWinner){
@@ -1978,7 +1751,7 @@ function renderCurrentCard(result){
         }
         let statusLabel,statusColor;
         if(r===w){statusLabel='Recommended';statusColor='var(--severity-green-text)';}
-        else if(r.status==='ok' && r.timeToTargetMin!=null){statusLabel='Safe';statusColor='var(--text-secondary)';}
+        else if(r.status==='ok' && r.timeToTargetMin!=null){statusLabel='Eligible';statusColor='var(--text-secondary)';}
         else if(r.status==='ok'){statusLabel='Target not reached';statusColor='var(--text-secondary)';}
         else if(r.status==='unsafe'){
             // v4.1: "unsafe" terminology reserved for coil freeze risk. Other
