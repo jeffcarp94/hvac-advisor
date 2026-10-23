@@ -9,19 +9,10 @@ function setup({temp=65,rh=40,indoor=72,indoorRH=40,hours=2,wind=5}={}){
         points:[{time:new Date('2026-10-24T03:00Z'),tOut:${temp},rh:${rh},wind:${wind},cloud:0}]};sp=confirmedSetpoints(true);`);
     return a;
 }
-test('confirmed setpoints and exact 9 PM transition use location time, including expiry',()=>{
+test('confirmed daytime and sleep thermostat settings are fixed',()=>{
     const a=setup();
-    for(const [date,heat,cool,end] of [
-        ['2026-10-23T12:00Z',70,72,'2026-10-23T15:00Z'],
-        ['2026-10-24T00:00Z',70,72,'2026-10-24T02:00Z'],
-        ['2026-10-24T01:59:59Z',70,72,'2026-10-24T02:00Z'],
-        ['2026-10-24T02:00Z',66,68,'2026-10-24T03:00Z']]){
-        assert.equal(a.run(`currentTargets(new Date('${date}')).heat`),heat);
-        assert.equal(a.run(`currentTargets(new Date('${date}')).cool`),cool);
-        assert.equal(a.run(`currentTransitionWindow(new Date('${date}')).windowEnd.toISOString()`),new Date(end).toISOString());
-    }
-    a.setNow('2026-10-24T01:30Z');a.run(`state.period='current';resultRecorded({windowEnd:currentTransitionWindow(new Date()).windowEnd})`);
-    a.setNow('2026-10-24T02:00Z');a.run('checkResultValidity()');assert.equal(a.run('resultContext'),null);
+    assert.equal(a.run('confirmedSetpoints(false).heat'),70);assert.equal(a.run('confirmedSetpoints(false).cool'),72);
+    assert.equal(a.run('confirmedSetpoints(true).heat'),66);assert.equal(a.run('confirmedSetpoints(true).cool'),68);
 });
 test('window geometry uses measured sections and exactly closed/half/full positions',()=>{
     const a=setup();

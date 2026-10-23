@@ -93,12 +93,13 @@ test('dehumidifier on/off changes heat on all predictor paths and invalidates fo
     assert.equal(a.run('passiveEqAt(80,0,0,false,1400)'),a.run('80+1400/UA_BASE'));
     fixture(a);a.element('results').innerHTML='old';a.element('indoorRH').value='55';a.element('dehumidifierMode').value='enabled';
     a.run('equipmentInputsChanged()');assert.equal(a.run('state.weatherMode'),'forecast');
-    assert.equal(a.element('results').innerHTML,'');assert.equal(a.run('state.indoorRH'),55);
+    assert.equal(a.element('results').innerHTML,'');assert.equal(a.run('state.indoorRH'),null);
     assert.equal(a.run('state.dehumidifierEnabled'),true);
 });
 
-test('invalid indoor RH blocks analysis rather than silently becoming an estimate',()=>{
-    const a=app();a.element('indoorRH').value='101';a.element('dehumidifierMode').value='enabled';a.run('equipmentInputsChanged();analyze()');
+test('invalid indoor RH blocks the new measured-state analysis',async()=>{
+    const a=app();for(const id of ['bedTemp','frontTemp'])a.element(id).value='72';
+    a.element('bedRH').value='101';a.element('frontRH').value='50';await a.run('analyze()');
     assert.match(a.element('resultStatus').textContent,/1–100/);assert.equal(a.element('results').innerHTML,'');
 });
 
