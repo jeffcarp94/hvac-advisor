@@ -90,7 +90,7 @@ test('editing ZIP clears the previous forecast, location, recommendation and set
     const a=app();fixture(a);a.run('analyze()');a.element('weatherLocation').textContent='Old city';
     a.run('locationEdited()');assert.equal(a.run('forecast.fetched'),false);
     assert.equal(a.element('weatherLocation').textContent,'');assert.equal(a.element('results').innerHTML,'');
-    assert.match(a.element('setpointDisplay').textContent,/Analyze to calculate/);
+    assert.match(a.element('setpointDisplay').textContent,/Day: heat 70/);
     assert.throws(()=>a.run('buildEnvelope(false)'),/Retrieve a forecast/);
 });
 
@@ -101,21 +101,14 @@ test('forecast expires at two hours; stale or missing issue time blocks analysis
     fixture(a);a.run('forecast.issuedAt=NaN');assert.throws(()=>a.run('buildEnvelope(false)'),/issue time/);
 });
 
-test('a visible result is cleared on expiry, interval ending, or Current becoming active',()=>{
+test('a visible plan is cleared when weather expires or its next action arrives',()=>{
     const a=app();fixture(a);a.run('resultRecorded(buildEnvelope(false))');a.element('results').innerHTML='old';
     a.setNow('2026-10-21T19:00Z');a.run('checkResultValidity()');assert.equal(a.element('results').innerHTML,'');
-    a.run("state.weatherMode='manual';state.period='current'");a.setNow('2026-10-21T11:59Z');a.run('resultRecorded()');a.element('results').innerHTML='inactive';
-    a.setNow('2026-10-21T12:00Z');a.run('checkResultValidity()');assert.equal(a.element('results').innerHTML,'');
 });
 
-test('manual and forecast analyses render without runtime errors and show provenance',()=>{
-    const a=app();a.run('analyze()');assert.match(a.element('results').innerHTML,/Daytime Recommendation/);
-    assert.match(a.element('resultStatus').textContent,/Manual weather/);
-    fixture(a);a.run('analyze()');assert.match(a.element('results').innerHTML,/Daytime Recommendation/);
-    assert.match(a.element('resultStatus').textContent,/NWS forecast/);
-    a.run("setPeriod('night')");assert.match(a.element('results').innerHTML,/Overnight Recommendation/);
-    a.setNow('2026-10-21T12:00Z');a.run('forecast.fetchedAt=Date.now();forecast.issuedAt=Date.now();state.indoorCurrent=80;setPeriod(\'current\')');
-    assert.match(a.element('results').innerHTML,/Current/);
+test('the unified planner rejects missing measured inputs without a runtime error',async()=>{
+    const a=app();await a.run('analyze()');assert.match(a.element('resultStatus').textContent,/both indoor temperatures/);
+    fixture(a);await a.run('analyze()');assert.match(a.element('resultStatus').textContent,/both indoor temperatures/);
 });
 
 test('API failure clears previous location/forecast and late completion cannot overwrite edits',async()=>{
@@ -161,7 +154,7 @@ test('complete ZIP retrieval uses discovered grid endpoint and records location/
     await a.run('retrieveWeather()');
     assert.equal(a.run('forecast.location'),'Winterset, IA');assert.equal(a.run('forecast.fetched'),true);
     assert.equal(a.run('forecast.timeZone'),'America/Chicago');assert.equal(calls.length,4);
-    assert.ok(calls.every(c=>c.cache==='no-store'));assert.match(a.element('results').innerHTML,/Daytime Recommendation/);
+    assert.ok(calls.every(c=>c.cache==='no-store'));assert.match(a.element('weatherStatus').textContent,/Forecast retrieved/);
 });
 
 test('a late successful request cannot restore forecast after a manual edit',async()=>{
@@ -173,3 +166,4 @@ test('a late successful request cannot restore forecast after a manual edit',asy
     await pending;assert.equal(a.run('state.weatherMode'),'manual');assert.equal(a.run('forecast.fetched'),false);
     assert.equal(a.run('state.temp'),79);
 });
+

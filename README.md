@@ -2,6 +2,22 @@
 
 Phone-focused single-file HVAC advisor for the Coach House Platinum III 250 DT. Hosted as a static PWA; `index.html`, `sw.js`, the manifest, and the icons are the deployment files.
 
+## v6.0.0 — one connected HVAC plan
+
+- One screen replaces Daytime / Overnight / Current. Enter measured bedroom and front/thermostat temperature and RH, then build a plan from now through the relevant overnight period ending at 7 AM. Future planning accepts explicitly projected starting conditions.
+- Fixed thermostat settings stay day heat/cool 70/72°F and sleep 66/68°F. The front sensor approximates the control sensor; bedroom conditions determine sleeping comfort. No thermostat offset is invented to force bedroom readiness.
+- Daytime remains the default until 10 PM. Bedtime preparation is calculated from changing weather and continuous two-zone heat/moisture trajectories, replacing the fixed 9 PM switch. Missed bedtime readiness is separate from a failed overnight comfort/protection assessment.
+- Natural morning recovery within 30 minutes takes precedence over a small active-heating score advantage when the complete plan passes all requirements. The result names the expected minutes and local arrival time.
+- Staying / Leaving / Currently away: both occupants' heat and moisture stop at departure and resume at return. No away setbacks or energy optimization. Unattended heat-pump screening applies during absence and sleep, not merely by the tab name.
+- Departure plans may use a fixed MaxxFan/window arrangement, including rain-compatible openings. A plan cannot require a physical intervention while absent. Normal AUTO fan-speed/lid operation continues; windows remain open after the fan stops.
+- Currently away is unavailable until remote thermostat capability is explicitly enabled. Existing physical conditions must then be confirmed. Only executable thermostat changes are proposed; no YoLink, Micro-Air, or equipment-control integration is included.
+- Sensor timestamps and departure/return times use the selected location timezone, preserving their actual instants when the location changes. Sensor readings older than 30 minutes must be refreshed. Results expire at the next scheduled action, the forecast limit, or after 30 minutes.
+- Main results: what to do now, next/later actions, bedtime readiness, overnight setup and bedroom/front temperature/RH ranges. Alternatives and calculation details are collapsed. Failed complete plans never receive operating prescriptions.
+- Candidate searches run in a local Web Worker on supported browsers, keeping the phone interface responsive. No data is sent by the planner. Manual weather and calculation remain available offline.
+- The pre-rewrite version remains at [`checkpoint/v5.0.0-before-unified-plan-2026-10-23`](https://github.com/jeffcarp94/hvac-advisor/tree/checkpoint/v5.0.0-before-unified-plan-2026-10-23), commit `450f8b6`.
+
+Release history below describes previous interfaces and is superseded by v6 where applicable.
+
 ## v5.0.0 — comfort, moisture protection and window-specific ventilation
 
 - Confirmed fixed targets: day heat/cool 70/72°F; sleep 66/68°F. Current keeps daytime targets until 9 PM, then prepares for sleep through 10 PM. Results expire at the target change.

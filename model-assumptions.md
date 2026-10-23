@@ -1,3 +1,45 @@
+# v6 connected-plan methodology
+
+This section supersedes the v5 schedule, sensor initialization, monitored-context and ranking behavior below. Existing envelope, equipment capacities, solar coefficients, coil screening and occupant/dehumidifier constants are retained. Owner reconfirmed fixed thermostat settings during the rewrite: day heat/cool 70/72°F, sleep 66/68°F. Bedroom targets are not implemented as automatic thermostat offsets.
+
+## State, control and schedules
+
+Bedroom and front-zone temperature and humidity ratio are initialized separately from paired sensor readings at a stated time. The front sensor adjacent to the CCC2 approximates its sensed temperature; this assumes no separately installed remote control sensor. CCC2 operating instructions, printed p.8, explicitly distinguish the thermostat sensor from an optional remote sensor. The sleeping-area reading is an observation, not a replacement thermostat. The prior two-zone distribution/mixing estimates are retained; their predicted gradients require calibration with actual observations.
+
+The thermal/moisture balances run continuously from the analysis start through the relevant overnight period ending at 7 AM. The default starts now; a future start explicitly requires projected input conditions. Daytime targets apply 7 AM–10 PM. A calculated preparation stage may intentionally use sleep settings before 10 PM. There is no fixed 9 PM target change. At 10 PM the sleep comfort policy applies even if the physical arrangement and thermostat cannot be changed while absent.
+
+Occupancy is exactly two people when present and zero between the entered departure and approximate return. Metabolic and respiration sources change at those boundaries; sleeping sources apply 10 PM–7 AM. Dehumidifier heat/removal, solar gains and outdoor exchange remain active while absent. No separate numerical LED-lighting load is added. MCD day shades are always down; existing cab shade assumptions and coefficients remain unchanged. Existing nighttime shade assumptions remain in the underlying envelope model.
+
+Daytime monitored HP minimum remains 41°F. During absence or sleep the existing dew-point-adjusted unattended policy applies (41/45/50°F; equality inclusive). No operating envelope is widened. AC/heat/AUTO have closed windows and closed/off roof vents. Ventilation uses exactly one AUTO exhaust fan and fixed closed/half/full window sections. Rain does not independently prohibit rain-shielded fan/jalousie ventilation; the weather moisture balance and rain RH floor still apply. AUTO lid/speed operation is permitted while absent, but no manual fan, lid, or window change is scheduled there. Future remote thermostat access permits only thermostat operations compatible with the confirmed, unchanged physical arrangement.
+
+## Plan selection and timing
+
+Each plan is evaluated under the three retained sensitivity scenarios. All must pass equipment, moisture and temperature/duration criteria. Comfort bands remain day 68–73°F and sleep 65–69°F, including the owner's 65°F fallback. Initial recovery is limited to 30 minutes; cold/warm excursion and dampness runs carry across all setup changes. A better comfort score never offsets a failed protection requirement. Humidity ranking uses the agreed broad bands: <=55% no penalty, >55–60% .4 points/hour, >60–65% 1.9, >65% 3.4. Within-band single-percentage-point differences do not create a ranking advantage; the retained >65% duration rejection remains separate.
+
+Morning (7–10 AM) passive or cooling-only standby plans get priority over an active-heating score advantage when both zones naturally reach 68–73°F within 30 minutes and the whole plan is viable. The displayed recovery time is the slowest of the three scenarios, rounded up to a minute. A zone already in band needs zero recovery time. A morning benefit cannot override condensation, sustained dampness or a later comfort/equipment failure.
+
+Bedtime readiness is separately assessed at precisely 10 PM. The bedroom cooling target has a 0.5°F numerical readiness tolerance (<=68.5°F); the 65°F fallback is preserved. A heating plan must reach at least 65.5°F for the 66°F target. These timing tolerances do not alter thermostat settings or the overnight comfort band. Passing this instantaneous deadline is insufficient: the rest of the night must also pass comfort/moisture/equipment checks. A viable but late plan gets a specific missed-target message; an unsuitable complete plan gets no operating prescription.
+
+The planner first screens single daytime setups with an overnight handoff. If none forms a viable complete plan, it also tests an explicit daytime handoff before a predicted failure (e.g. furnace followed by COOL), only where an occupant or the declared remote controls can execute it. Setup changes at the departure instant mean actions immediately before leaving. Return allows manual changes again. During absence, thermostat cycling and the already configured AUTO MaxxFan continue automatically; unsupported physical changes are rejected.
+
+Preparation search explores available times in 30-minute intervals and at departure/return boundaries, then refines the latest successful bracket in 5-minute steps. This is an approximate latest validated start, not a proof of a global continuous-time optimum. No arbitrary extra lead-time buffer or calibrated probability is invented. The fallback daytime-handoff search uses candidates 15/30 minutes before the first predicted failure and available departure/return times. Its returned schedules receive the same full simulation.
+
+All practical window configurations are screened at 3-minute resolution. Exact geometric symmetries between the two equal Jeff panes and two equal dinette panes share one representative; the six physical sections remain in the instructions and flow network. Nominal candidates are ranked, then additional sensitivity scenarios are evaluated until four viable coarse candidates are found, or the candidate list is exhausted. Up to four finalists receive full 30-second plan verification. This is a bounded candidate search, not an exhaustive global optimum over every possible multi-stage arrangement.
+
+The full verification timestep is 30 seconds, with exact weather, occupancy, 10 PM and setup boundaries. AUTO threshold crossings are additionally resolved by subdivision. Cached preparation trials reuse complete temperature/water state, accumulated comfort and moisture durations, scores and equipment history from identical earlier trajectory prefixes. No stage resets indoor RH, air temperature, recovery allowance, condensation history or damp-surface exposure. Direct and cached trajectories are regression-tested for equality.
+
+AUTO benefits require meaningful sustained dual use and a counterfactual failure of the available single-function alternatives. Unnecessary overnight heating is penalized using overnight heat runtime only; useful daytime furnace heat is not counted as needless overnight reheating. Sensitivity scenarios are qualitative assumption tests, not calibrated forecast probabilities.
+
+## Interaction and validation
+
+A future remote capability toggle defaults off and does not connect to equipment. Currently-away mode also requires paired readings and a confirmed existing setup. Without remote capability, a departure plan can still select any fixed arrangement that passes for the entire absence. The app does not assume windows close themselves.
+
+Sensor readings older than 30 minutes are rejected as a usability/data-freshness policy. A plan expires at the next scheduled action, after 30 minutes, or when weather/horizon coverage expires. Datetime fields use the forecast location IANA timezone and preserve instants when the selected zone changes. Future projected readings are explicitly distinguished from current measured values. Recalculating is manual; automatic equipment control and sensor import are separate projects.
+
+Tests include actual sensor differences, control-sensor location, occupancy heat/moisture sources, unattended HP screening, executable transitions, rain-compatible ventilation, natural recovery priority, continuous-state conservation, sustained moisture history, exact deadlines, timezone/DST conversion, failure presentation and offline/cache upgrades. Browser CI captures 390/448/480-pixel layouts in light/dark mode and verifies the actual Web Worker and disabled-currently-away controls.
+
+---
+
 # HVAC methodology v5.0.0
 
 This document describes the current implementation. Earlier behavior in the README changelog is historical. Values described as assumptions are not measured properties or calibrated probabilities. No field-measurement project is required to use the app.

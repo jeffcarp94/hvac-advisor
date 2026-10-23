@@ -27,3 +27,12 @@ jobs:
       - run: npm install --no-save --package-lock=false playwright@1.64.1
       - run: npx playwright install --with-deps chromium
       - run: node tests/browser-smoke.cjs
+        env:
+          QC_SCREENSHOT_DIR: test-output
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: phone-browser-review
+          path: test-output/
+          retention-days: 7
+
