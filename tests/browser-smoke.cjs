@@ -99,11 +99,12 @@ function weather(url){
     const html=comparisonSections(result,true);
     return (html.match(new RegExp('<div class="comparison-name">'+systemDisplayName(result.winner),'g'))||[]).length;
   }),0);
+  // Manual/offline reload cleared NWS zone; device zone is Los Angeles.
   // Exact local 9 PM target switch and expiry of a pre-switch result.
-  await page.clock.setFixedTime(new Date('2026-10-22T01:30Z'));
+  await page.clock.setFixedTime(new Date('2026-10-22T03:30Z'));
   await page.evaluate(()=>{setPeriod('current');analyze();});
   assert.match(await page.locator('#setpointDisplay').innerText(),/Cool 72°F.*Heat 70°F/);
-  await page.clock.setFixedTime(new Date('2026-10-22T02:00Z'));
+  await page.clock.setFixedTime(new Date('2026-10-22T04:00Z'));
   await page.evaluate(()=>checkResultValidity());assert.equal(await page.locator('#results').innerText(),'');
   await page.locator('#analyzeBtn').click();
   assert.match(await page.locator('#setpointDisplay').innerText(),/Cool 68°F.*Heat 66°F/);
