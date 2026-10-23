@@ -96,6 +96,25 @@ function weather(url){
   assert.match(comparison,/Expected indoor temperature/);
   assert.doesNotMatch(comparison,/Discomfort|weighted|full-period|No system needed|Ranges include/);
   if(screenshotDir){await page.locator('.diag-panel').last().screenshot({path:path.join(screenshotDir,'v451-comparisons.png')});}
+  // Both modes can work; explain the actual preference in either direction.
+  for(const [first,last,expected,loser] of [[62,55.6,'auto','ac'],[80,80,'ac','auto']]){
+    const decision=await page.evaluate(({first,last})=>{
+      state.indoor=72;
+      const start=new Date('2026-10-22T22:00Z'),end=new Date('2026-10-23T07:00Z');
+      const envelope={windowStart:start,windowEnd:end,wind:10,cloud:0,points:[
+        {time:start,tOut:first,rh:30,wind:10,cloud:0},
+        {time:new Date(+start+3*3600000),tOut:last,rh:30,wind:10,cloud:0}]};
+      const result=selectOvernightSetup(envelope,true);
+      document.getElementById('results').innerHTML=renderRecommendation('choiceTest','Overnight Recommendation',result,true);
+      return {winner:result.winner.type,alternatives:result.allCandidates.filter(c=>c.suitable&&c!==result.winner).map(c=>c.selectionReason)};
+    },{first,last});
+    assert.equal(decision.winner,expected);
+    assert.ok(decision.alternatives.length>0&&decision.alternatives.every(Boolean));
+    const row=await page.locator('.comparison-row').filter({hasText:loser==='auto'?'Auto Change-Over Mode':'Air Conditioner'}).innerText();
+    assert.match(row,/Not chosen: both options give similar comfort/);
+    assert.match(row,expected==='auto'?/both cooling and heating.*COOL cannot add heat/s:/cooling alone can do the job.*AUTO’s ability to add heat is not needed/s);
+  }
+  results.selectionReasons={autoPreferred:true,coolPreferred:true};
   // Capacity failures remain readable and distinct from equipment-risk warnings.
   await page.evaluate(()=>{state.temp=-10;state.wind=50;state.cloud=0;state.indoor=66;setPeriod('night');analyze();});
   assert.match(await page.locator('#results').innerText(),/The furnace cannot maintain your minimum set point of 65°F/);
@@ -130,9 +149,9 @@ function weather(url){
     if(navigator.serviceWorker.controller===previous)await changed;
   });
   await oldPage.waitForFunction(async()=>!(await caches.keys()).includes('hvac-advisor-v1'));
-  await oldPage.reload();assert.match(await oldPage.title(),/v4.5.2/);
+  await oldPage.reload();assert.match(await oldPage.title(),/v4.5.3/);
   assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
-  results.upgrade={legacyTo452:true,unrelatedCachePreserved:true};await oldContext.close();
+  results.upgrade={legacyTo453:true,unrelatedCachePreserved:true};await oldContext.close();
   console.log(JSON.stringify(results,null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});

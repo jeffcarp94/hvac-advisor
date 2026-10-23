@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v4.5.2 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v4.5.3 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -97,7 +97,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v4.5.2</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v4.5.3</span></div>
         <div class="header-sub">MPC Pre-Cooling & Smart Auto-Changeover</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -832,15 +832,17 @@ function optimizeCandidate(type,envelope,isOvernight,meta){
     }
     return best;
 }
+function periodPreference(c){return c.type==='passive'?1:c.type==='maxxfan'?2:c.type==='auto'&&c.autoDidCool&&c.autoDidHeat?3:c.type==='hp'?4:c.type==='furnace'?5:c.type==='auto'&&c.autoDidHeat?5.5:c.type==='ac'?6:7;}
 function selectOvernightSetup(envelope,isOvernight){
     const meta=isOvernight?C.metaSleep:C.metaAwake;
     const results=['passive','maxxfan','auto','ac','hp','furnace'].map(c=>optimizeCandidate(c,envelope,isOvernight,meta));
     results.sort((a,b)=>candidateRank(a)-candidateRank(b)||a.score-b.score);
     const suitable=results.filter(r=>r.suitable),best=suitable[0];
     const inRange=best?suitable.filter(r=>r.score<=best.score+C.tiebreakRange):[];
-    const priority=c=>c.type==='passive'?1:c.type==='maxxfan'?2:c.type==='auto'&&c.autoDidCool&&c.autoDidHeat?3:c.type==='hp'?4:c.type==='furnace'?5:c.type==='auto'&&c.autoDidHeat?5.5:c.type==='ac'?6:7;
-    inRange.sort((a,b)=>priority(a)-priority(b));
+    inRange.sort((a,b)=>periodPreference(a)-periodPreference(b));
     const winner=inRange[0]||results[0];
+    winner.selectionBasis=inRange.length>1?'preference':'comfort';
+    for(const c of suitable)if(c!==winner)c.selectionReason=inRange.includes(c)?'preference':'comfort';
     if(winner.type==='maxxfan')winner.variant=winner.indoorMedian>(isOvernight?68:70)?'Bedroom MaxxFan':'Dining MaxxFan';
     const temps=envelope.points.map(p=>p.tOut),tOutMin=Math.min(...temps),tOutMax=Math.max(...temps);
     const tOutMinPt=envelope.points.find(p=>p.tOut===tOutMin),tOutMaxPt=envelope.points.find(p=>p.tOut===tOutMax);
@@ -948,6 +950,43 @@ function temperatureIssue(c,setpoints,end){
     const warm=c.finalIndoor>c.comfortHigh,limit=warm?c.comfortHigh:c.floorCompliant?c.comfortLow:C.comfortFloor;
     return issue(warm?'The RV will get too warm':'The RV will get too cold','With heating and cooling off, '+final.charAt(0).toLowerCase()+final.slice(1)+' '+(warm?'Cooling':'Heat')+' is needed to stay '+(warm?'at or below ':'at or above ')+'your preferred '+(warm?'maximum':'minimum')+' of '+limit+'°F.');
 }
+function selectionModeName(c){
+    const mode=c.type||c.mode;
+    return mode==='auto'?'AUTO mode':mode==='ac'?'COOL mode':mode==='hp'?'the heat pump':mode==='furnace'?'the furnace':mode==='maxxfan'?'MaxxFan cooling':'heating and cooling OFF';
+}
+function preferenceExplanation(winner,current=false,other=null){
+    const mode=winner.type||winner.mode,name=selectionModeName(winner);
+    if(mode==='passive')return 'The RV can reach your preferred temperature with heating and cooling OFF, so running equipment is not needed.';
+    if(mode==='maxxfan')return 'Cooler outdoor air can do the job, so the app prefers MaxxFan cooling over running the AC.';
+    if(mode==='auto'&&winner.autoDidCool&&winner.autoDidHeat){
+        const otherMode=other?.type||other?.mode;
+        return 'AUTO was chosen because this period calls for both cooling and heating.'+(otherMode==='ac'?' COOL cannot add heat when the RV gets too cool.':otherMode==='hp'||otherMode==='furnace'?' '+selectionModeName(other).replace(/^the /,'The ')+' can heat but cannot cool the RV.':'');
+    }
+    if(mode==='auto'&&winner.autoDidHeat)return 'AUTO was chosen because heating is needed; COOL cannot provide heat.';
+    if(mode==='ac')return 'COOL was chosen because cooling alone can do the job; AUTO’s ability to add heat is not needed.';
+    if(mode==='hp'&&other&&(other.type||other.mode)==='furnace')return 'The app prefers the heat pump over propane heat when either can do the job.';
+    return name.charAt(0).toUpperCase()+name.slice(1)+' comes first in the app’s preference order when '+(current?'recovery times':'comfort results')+' are similar.';
+}
+function selectionExplanation(c,winner,current=false,target=null){
+    if(!winner||!c.suitable)return '';
+    if(c===winner){
+        if(c.selectionBasis==='preference')return 'Several options give similar comfort. '+preferenceExplanation(winner);
+        if(c.selectionBasis==='no-equipment')return preferenceExplanation(winner,true);
+        if(c.selectionBasis==='equal-recovery')return 'Several options reach your target in about the same time. '+preferenceExplanation(winner,true);
+        if(c.selectionBasis==='faster-recovery')return 'This option reaches your target sooner than the other options that can work.';
+        if(c.selectionBasis==='closer-target')return 'This option finishes closer to your target temperature than the other options that can work.';
+        return '';
+    }
+    const name=selectionModeName(winner);
+    if(c.selectionReason==='preference')return 'Not chosen: both options give similar comfort. '+preferenceExplanation(winner,false,c);
+    if(c.selectionReason==='comfort')return 'Not chosen: '+name+' better matches your preferred '+c.comfortLow+'–'+c.comfortHigh+'°F temperature range over the whole period.';
+    if(c.selectionReason==='no-equipment')return 'Not chosen: '+preferenceExplanation(winner,true,c);
+    if(c.selectionReason==='faster-recovery')return 'Not chosen: '+name+' reaches about '+target+'°F in '+winner.timeToTargetMin+' minutes, compared with '+c.timeToTargetMin+' minutes for this option.';
+    if(c.selectionReason==='equal-recovery')return 'Not chosen: both options reach your target in about the same time. '+preferenceExplanation(winner,true,c);
+    if(c.selectionReason==='reaches-target')return 'Not chosen: '+name+' reaches your target during this period, while this option does not.';
+    if(c.selectionReason==='closer-target')return 'Not chosen: '+name+' finishes closer to your target of '+target+'°F.';
+    return '';
+}
 function comparisonExplanation(c,winner,setpoints,end,isOvernight,current=false,target=null){
     const mode=c.type||c.mode,trace=c.hourly||c.trace,initial=trace[0].indoor,set=candidateSetpoint(c,setpoints);
     const didHeat=c.autoDidHeat??c.didHeat,didCool=c.autoDidCool??c.didCool;
@@ -966,10 +1005,11 @@ function comparisonExplanation(c,winner,setpoints,end,isOvernight,current=false,
     }else if(mode==='ac')text=didCool?'Uses the AC to cool the RV '+(Math.abs(c.finalIndoor-set)<=.5?'to about '+set+'°F, then runs as needed.':'toward '+set+'°F.'):'Cooling is not needed during this period at a set point of '+set+'°F.';
     else if(mode==='maxxfan')text='Uses one MaxxFan to bring in cooler outdoor air as needed. Keep nearby intake windows open and the other windows and vent closed.';
     else text='The RV can '+((c.hoursOutOfBand??0)>0?'reach your preferred temperature':'stay comfortable')+' with heating and cooling off. Keep windows and vents closed.';
+    const selection=selectionExplanation(c,winner,current,target);
     if(c===winner){
-        if(c.suitable)text='Recommended. '+(current?'':('Best match for your preferred '+(isOvernight?'overnight':'daytime')+' temperature. '))+text;
+        if(c.suitable)text='Recommended. '+(selection?selection+' ':current?'':('Best match for your preferred '+(isOvernight?'overnight':'daytime')+' temperature. '))+text;
         else if(c.equipmentEligible)text='Closest option. '+text;
-    }
+    }else if(selection)text+=' '+selection;
     if(current&&c.suitable){
         if(c.timeToTargetMin>0)text+=' Reaches about '+target+'°F in '+c.timeToTargetMin+' minutes.';
         text+=' About '+c.finalIndoor+'°F by '+formatTime(end)+'.';
@@ -1211,6 +1251,16 @@ function runCurrentAnalysis(now){
         winner = passive;
     } else if(passiveAny){
         winner = passiveAny;
+    }
+    if(winner?.suitable){
+        const alternatives=modeResults.filter(c=>c!==winner&&c.suitable);
+        if(winner.mode==='passive')winner.selectionBasis='no-equipment';
+        else if(alternatives.length)winner.selectionBasis=winner.timeToTargetMin==null?'closer-target':alternatives.some(c=>c.timeToTargetMin===winner.timeToTargetMin)?'equal-recovery':'faster-recovery';
+        for(const c of alternatives){
+            c.selectionReason=winner.mode==='passive'?'no-equipment'
+                :winner.timeToTargetMin!=null&&c.timeToTargetMin!=null?(winner.timeToTargetMin<c.timeToTargetMin?'faster-recovery':'equal-recovery')
+                :winner.timeToTargetMin!=null?'reaches-target':'closer-target';
+        }
     }
     return{
         inactive:false,stableInBand:false,indoor,direction,target,window:win,

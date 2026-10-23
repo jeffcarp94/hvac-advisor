@@ -2,6 +2,12 @@
 
 Phone-focused single-file HVAC advisor for the Coach House Platinum III 250 DT. Hosted as a static PWA; `index.html`, `sw.js`, the manifest, and the icons are the deployment files.
 
+## v4.5.3 — explain why an option was not chosen
+
+- Every usable alternative now names the reason another option was preferred: a better match to the temperature range, the preference order when comfort is similar, faster Current recovery, a recovery-time tie, or no need to run equipment.
+- AUTO versus COOL explanations distinguish a period calling for both heating and cooling from one that cooling alone can handle. Selected options no longer claim uniquely better comfort when the preference order decided a close result.
+- The choice reason is recorded when selection happens. Temperature calculations, suitability thresholds, comfort scores, the near-best pool and preference order are unchanged.
+
 ## v4.5.2 — starting temperature label
 
 - Rename the Daytime/Overnight input to **Predicted Internal Temperature**, followed by **at [analysis start time]**. The time follows the actual simulation start, including periods already in progress, in the selected weather location's time zone.
