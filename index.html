@@ -259,7 +259,7 @@ const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
 // Data freshness policies are independent of thermodynamic model constants.
 const WEATHER_POLICY={maxFetchAgeMs:2*3600000,maxIssueAgeMs:24*3600000,timeoutMs:15000};
 const NWS_H={Accept:'application/geo+json'};
-let weatherRequestId=0,weatherAbort=null,weatherLoading=false,resultContext=null;
+let weatherRequestId=0,weatherAbort=null,weatherLoading=false,resultContext=null,gpsRequestActive=false;
 function analysisTimeZone(){return forecast.timeZone||Intl.DateTimeFormat().resolvedOptions().timeZone||'America/Chicago';}
 function localParts(date){
     const parts=new Intl.DateTimeFormat('en-US',{timeZone:analysisTimeZone(),year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'}).formatToParts(date);
@@ -333,7 +333,7 @@ async function fetchJSON(url,signal){
 }
 function finishWeatherRequest(request,error){
     if(request.id!==weatherRequestId)return;
-    weatherLoading=false;setBtnLoad('retrieveBtn',false);
+    weatherLoading=false;gpsRequestActive=false;setBtnLoad('retrieveBtn',false);
     const gps=document.getElementById('gpsBtn');gps.textContent='◎ Use My Location';gps.disabled=false;
     if(error){forecast=emptyForecast();invalidateResults('Weather unavailable. Retry or select Manual.');showStatus(error.message,true);}
     updateWeatherContext();
@@ -349,8 +349,9 @@ async function retrieveWeather(){
     }catch(error){finishWeatherRequest(request,error);}
 }
 async function useMyLocation(){
+    if(document.getElementById('occupancyMode').value==='away'){showStatus('Use the RV’s ZIP code while away; your phone location may be different.',true);return;}
     if(!navigator.geolocation){showStatus('Geolocation is unavailable. Use ZIP code or Manual.',true);return;}
-    const request=beginWeatherRequest(),gps=document.getElementById('gpsBtn');gps.textContent='◎ Locating…';gps.disabled=true;
+    const request=beginWeatherRequest(),gps=document.getElementById('gpsBtn');gpsRequestActive=true;gps.textContent='◎ Locating…';gps.disabled=true;
     try{
         const pos=await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:false,timeout:10000,maximumAge:300000}));
         if(request.id!==weatherRequestId)return;
@@ -1743,6 +1744,9 @@ function updatePlanUI(){
     get('awayOption').disabled=!remote;
     if(occupancy==='away'&&!remote)get('occupancyMode').value='staying';
     const mode=get('occupancyMode').value||'staying';
+    if(mode==='away'&&gpsRequestActive){weatherRequestId++;weatherAbort?.abort();weatherLoading=false;gpsRequestActive=false;setBtnLoad('retrieveBtn',false);}
+    get('gpsBtn').disabled=mode==='away'||weatherLoading;
+    get('gpsBtn').textContent=mode==='away'?'Use the RV’s ZIP code while away':gpsRequestActive?'◎ Locating…':'◎ Use My Location';
     get('departureFields').hidden=mode!=='leaving';get('returnFields').hidden=mode==='staying';get('actualSetup').hidden=mode!=='away';
     get('futureFields').hidden=get('planningMode').value!=='future';
     get('setpointDisplay').textContent='Day: heat 70°F / cool 72°F · Sleep: heat 66°F / cool 68°F · Ready by 10 PM';

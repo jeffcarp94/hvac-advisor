@@ -125,3 +125,20 @@ test('a validated plan compares measured-state continuation with complete evapor
  ph=[{time:+r.start,setup:planSetup('passive',false)},{time:+r.start+5*60000,setup:planSetup('ac',true)}];rows=planRows(e,r);direct=evaluatePlan(ph,e,r,rows);e.planCache=new Map();cached=evaluatePlan(ph,e,r,rows)`);
  assert.equal(a.run('cached.reason'),a.run('direct.reason'));assert.equal(a.run('cached.trials[0].moisture.surfaceMax'),a.run('direct.trials[0].moisture.surfaceMax'));
 });
+test('two successive handoffs preserve the full temperature and moisture trajectory',()=>{
+ const a=scenario();a.run(`ph=[{time:+r.start,setup:planSetup('furnace',false)},{time:+r.start+2*60000,setup:planSetup('passive',false)},{time:+r.start+5*60000,setup:planSetup('furnace',true)}];rows=planRows(e,r);
+ direct=evaluatePlan(ph,e,r,rows);e.planCache=new Map();cached=evaluatePlan(ph,e,r,rows)`);
+ for(let i=0;i<3;i++)assert.equal(a.run('JSON.stringify(direct.trials['+i+'].trace)'),a.run('JSON.stringify(cached.trials['+i+'].trace)'));
+});
+test('currently away uses the coach location and cancels a pending phone-location lookup',async()=>{
+ const a=scenario();a.element('remoteAccess').checked=true;a.element('occupancyMode').value='away';
+ a.run('gpsRequestActive=true;weatherLoading=true;updatePlanUI()');assert.equal(a.run('gpsRequestActive'),false);assert.equal(a.element('gpsBtn').disabled,true);
+ await a.run('useMyLocation()');assert.match(a.element('weatherStatus').textContent,/RV’s ZIP code/);
+});
+test('full-night search finds a robust ventilation arrangement and verifies bedtime plus the entire night',()=>{
+ const a=scenario('2026-10-24T02:30Z');a.run(`state.temp=60;state.rh=20;r.initial={temperature:[70,70],rh:[35,35]};e=makeEnvelope(r.start,planBounds(r.start).end,'Full night',300000);result=runUnifiedPlan(r,e)`);
+ assert.equal(a.run('result.winner.suitable'),true);assert.equal(a.run('result.winner.ready'),true);
+ assert.equal(a.run('result.winner.trials.every(t=>t.suitable&&t.ready&&+t.trace.at(-1).time===+result.bounds.end)'),true);
+ assert.equal(a.run('result.winner.nightSetup.setpoints.cool'),68);assert.equal(a.run('result.winner.nightSetup.setpoints.heat'),66);
+ assert.match(a.run('renderPlan(result)'),/Bedroom at 10 PM/);
+});

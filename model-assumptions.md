@@ -32,7 +32,7 @@ AUTO benefits require meaningful sustained dual use and a counterfactual failure
 
 ## Interaction and validation
 
-A future remote capability toggle defaults off and does not connect to equipment. Currently-away mode also requires paired readings and a confirmed existing setup. Without remote capability, a departure plan can still select any fixed arrangement that passes for the entire absence. The app does not assume windows close themselves.
+A future remote capability toggle defaults off and does not connect to equipment. Currently-away mode also requires paired readings and a confirmed existing setup. Away mode uses the coach ZIP and disables/cancels phone GPS, preventing a traveling phone from silently replacing the coach weather location. Without remote capability, a departure plan can still select any fixed arrangement that passes for the entire absence. The app does not assume windows close themselves.
 
 Sensor readings older than 30 minutes are rejected as a usability/data-freshness policy. A plan expires at the next scheduled action, after 30 minutes, or when weather/horizon coverage expires. Datetime fields use the forecast location IANA timezone and preserve instants when the selected zone changes. Future projected readings are explicitly distinguished from current measured values. Recalculating is manual; automatic equipment control and sensor import are separate projects.
 
