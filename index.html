@@ -482,7 +482,7 @@ function makeEnvelope(start,end,windowLabel,stepMs){
 }
 function buildEnvelope(isOvernight){const win=computeWindow(isOvernight);return makeEnvelope(win.start,win.end,win.label,3600000);}
 function buildCurrentEnvelope(now,end){return makeEnvelope(now,end,'Current',THERMAL_STEP_MIN*60000);}
-function showAnalysisError(error){invalidateResults(error.message);showStatus(error.message,true);}
+function showAnalysisError(error){invalidateResults(error.message);}
 function weatherRange(envelope,key,multiplier=1){
     const values=envelope.points.map(p=>(p[key]??envelope[key])*multiplier);
     const low=Math.round(Math.min(...values)*10)/10,high=Math.round(Math.max(...values)*10)/10;

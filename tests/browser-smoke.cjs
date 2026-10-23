@@ -27,14 +27,14 @@ function weather(url){
   await context.route(/https:\/\/(api.weather.gov|api.zippopotam.us)\//,r=>{requests++;return r.fulfill({json:weather(r.request().url()),headers:{'Access-Control-Allow-Origin':'*'}});});
   const page=await context.newPage(),errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error('PAGE ERROR:',e.message);});
   await page.clock.install({time:new Date('2026-10-21T13:45Z')});await page.goto(base);await page.evaluate(()=>navigator.serviceWorker.ready);await page.reload();
-  await page.screenshot({path:path.join(screens,'v6-initial.png'),fullPage:true});console.log('INITIAL',await page.evaluate(()=>({remote:document.getElementById('remoteAccess')?.checked,away:document.getElementById('awayOption')?.disabled,heading:document.getElementById('indoorHeading')?.textContent,loaded:typeof initializePlan})));assert.deepEqual(errors,[]);
+  await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-initial.png'),fullPage:true});console.log('INITIAL',await page.evaluate(()=>({remote:document.getElementById('remoteAccess')?.checked,away:document.getElementById('awayOption')?.disabled,heading:document.getElementById('indoorHeading')?.textContent,loaded:typeof initializePlan})));assert.deepEqual(errors,[]);
   assert.equal(await page.locator('.period-toggle').count(),0);assert.equal(await page.locator('#awayOption').evaluate(e=>e.disabled),true);
   assert.equal(await page.locator('#departureFields').isVisible(),false);
   await page.locator('#analyzeBtn').click();assert.match(await page.locator('#resultStatus').innerText(),/both indoor temperatures/);
   for(const id of ['bedTemp','frontTemp'])await page.locator('#'+id).fill('68');for(const id of ['bedRH','frontRH'])await page.locator('#'+id).fill('35');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:180000});
   assert.match(await page.locator('#results').innerText(),/Your HVAC plan/i);assert.match(await page.locator('#resultStatus').innerText(),/Manual weather/);
-  await page.screenshot({path:path.join(screens,'v6-manual-light.png'),fullPage:true});
+  await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-manual-light.png'),fullPage:true});
   const before=await page.locator('#readingTime').inputValue();
   await page.locator('#zipInput').fill('50273');await page.locator('#retrieveBtn').click();await page.waitForFunction(()=>forecast.fetched&&!weatherLoading);
   assert.match(await page.locator('#weatherContext').innerText(),/America\/Chicago/);
@@ -48,7 +48,7 @@ function weather(url){
   assert.match(await page.locator('#indoorHeading').innerText(),/Projected/i);
   assert.match(await page.locator('#results').innerText(),/Other Viable HVAC Options/i);
   assert.equal(await page.locator('#results details').first().getAttribute('open'),null);
-  await page.screenshot({path:path.join(screens,'v6-forecast-plan.png'),fullPage:true});
+  await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-forecast-plan.png'),fullPage:true});
   await page.locator('#occupancyMode').selectOption('leaving');assert.equal(await page.locator('#departureFields').isVisible(),true);assert.equal(await page.locator('#returnFields').isVisible(),true);
   await page.locator('#departureTime').fill('2026-10-22T06:50');await page.locator('#returnTime').fill('2026-10-22T08:30');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:180000});
@@ -67,14 +67,15 @@ function weather(url){
   // Real evening calculation: no 9 PM target switch, fixed thermostat settings,
   // a computed preparation time or an explicit complete-plan failure.
   await page.clock.setFixedTime(new Date('2026-10-22T04:30Z'));
-  await page.evaluate(()=>{state.temp=60;state.rh=20;state.wind=2;state.cloud=0;freshReadings();});
+  await page.evaluate(()=>{step('temp',-18);step('rh',-45);step('wind',-3);state.cloud=0;freshReadings();});
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:180000});
   assert.match(await page.locator('#setpointDisplay').innerText(),/Day: heat 70°F \/ cool 72°F/);
+  assert.equal(await page.evaluate(()=>!lastPlan.winner.suitable||lastPlan.winner.trials.every(t=>t.trace.every(p=>Math.min(p.bedroom,p.midCoach)>=65-1e-6))),true,'accepted plans enforce the temperature floor at every point');
   const text=await page.locator('#results').innerText();assert.match(text,/Next action|No suitable complete plan/i);assert.doesNotMatch(text,/Preparing for Sleep from 9|Not chosen|weighted/);
-  await page.screenshot({path:path.join(screens,'v6-evening-plan.png'),fullPage:true});
+  await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-evening-plan.png'),fullPage:true});
   const widths=[];for(const width of [390,448,480]){await page.setViewportSize({width,height:950});widths.push(await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})));}
   assert.ok(widths.every(x=>x.width===x.scroll),JSON.stringify(widths));
-  await page.emulateMedia({colorScheme:'dark'});await page.screenshot({path:path.join(screens,'v6-dark.png'),fullPage:true});
+  await page.emulateMedia({colorScheme:'dark'});await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-dark.png'),fullPage:true});
   await page.evaluate(()=>{resultContext.expires=Date.now();checkResultValidity();});assert.equal(await page.locator('#results').innerText(),'');
   assert.deepEqual(errors,[]);await context.close();
   // Upgrade an actual v5.0 cache under the GitHub Pages project scope.
