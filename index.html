@@ -1236,7 +1236,9 @@ function ventilationNetwork(config,temperatures,tOut,wind,speed,scenario=AIR_SCE
     const incoming=[...background],outgoing=[...background];
     flows.forEach((q,i)=>{const z=WINDOW_SECTIONS[i].zone;q>0?incoming[z]+=q:outgoing[z]-=q;});
     // Bidirectional turbulence persists through a single window at zero net flow.
-    areas.forEach((area,i)=>{const z=WINDOW_SECTIONS[i].zone,exchange=area*wind*.44704*.025*2118.88;incoming[z]+=exchange;outgoing[z]+=exchange;});
+    areas.forEach((area,i)=>{const section=WINDOW_SECTIONS[i],z=section.zone;
+        const buoyancy=.2*Math.sqrt(9.81*section.height*.0254*Math.abs(temperatures[z]-tOut)*5/9/293);
+        const exchange=area*(wind*.44704*.025+buoyancy)*2118.88;incoming[z]+=exchange;outgoing[z]+=exchange;});
     const exhaust=fan(pressure);outgoing[config.fanZone]+=exhaust;
     const bulk=incoming[0]-outgoing[0];
     return{incoming,outgoing,bulk,flows,exhaust,background,residual:incoming[0]+incoming[1]-outgoing[0]-outgoing[1]};

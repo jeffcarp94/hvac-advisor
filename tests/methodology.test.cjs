@@ -47,6 +47,8 @@ test('open windows retain natural exchange after the fan stops and the roof lid 
     const a=setup();a.run(`c={fanZone:0,gaps:[0,0,0,4,4,0]};
         open=ventilationNetwork(c,[68,68],55,12,0,AIR_SCENARIOS[1]);closed=ventilationNetwork(null,[68,68],55,12,0);`);
     assert.equal(a.run('open.exhaust'),0);
+    a.run('calm=ventilationNetwork(c,[68,68],55,0,0)');
+    assert.ok(a.run('calm.incoming.reduce((a,b)=>a+b)')>a.run('closed.incoming.reduce((a,b)=>a+b)')); // single-sided buoyancy
     assert.ok(a.run('open.incoming.reduce((a,b)=>a+b)')>a.run('closed.incoming.reduce((a,b)=>a+b)'));
     assert.equal(a.run('autoVentSpeed(68,68)'),0);
     assert.ok(a.run('autoVentSpeed(69,68)')<a.run('autoVentSpeed(73,68)'));
