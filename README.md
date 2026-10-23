@@ -2,6 +2,16 @@
 
 Phone-focused single-file HVAC advisor for the Coach House Platinum III 250 DT. Hosted as a static PWA; `index.html`, `sw.js`, the manifest, and the icons are the deployment files.
 
+## v5.0.0 — comfort, moisture protection and window-specific ventilation
+
+- Confirmed fixed targets: day heat/cool 70/72°F; sleep 66/68°F. Current keeps daytime targets until 9 PM, then prepares for sleep through 10 PM. Results expire at the target change.
+- Two connected bedroom/mid-coach heat and moisture balances. Condensation margin, sustained surface dampness, and indoor humidity are independent suitability checks. No rejected setup is prescribed and no score can override a failed requirement.
+- Measured six window sections, closed/half/full openings; thermostatically varying airflow from exactly one of the two MaxxFans; residual exchange with windows open after the fan stops. Draft scoring favors indirect intake when comfort is similar. Ventilation is assessed by its trajectory, not a blanket 65°F outdoor cutoff.
+- AUTO compares sustained useful heating/cooling against single-mode alternatives across sensitivity scenarios. Brief unnecessary reheating does not earn preference. Likelihood is qualitative, not an invented calibrated probability.
+- Highest-ranked acceptable setup appears once. Remaining modes appear under **Other Viable HVAC Options** and **Unsuitable HVAC Modes**.
+- New volume/mixing, airflow resistance, fan curve, surface, and moisture-removal assumptions are explicit in [model-assumptions.md](model-assumptions.md). Passing modeled screens cannot certify every unmeasured surface or hidden cavity.
+- Historical release notes below describe previous versions; their one-zone, static-humidity and preference-pool behavior is superseded.
+
 ## v4.5.3 — explain why an option was not chosen
 
 - Every usable alternative now names the reason another option was preferred: a better match to the temperature range, the preference order when comfort is similar, faster Current recovery, a recovery-time tie, or no need to run equipment.
@@ -53,12 +63,6 @@ See [model-assumptions.md](model-assumptions.md) for equations, source evidence,
 - Input/source/tab changes invalidate old results. Results include calculation time/source/time zone and are invalidated when a window ends or the forecast expires, including on app resume.
 - The legacy `hvac-advisor-v1` cache is removed during activation. Cache deletion preserves unrelated apps and other scopes. Old installations receive new HTML on navigation after the new worker activates; v4.3.0 pages also reload when their controller changes.
 
-## Review scope and remaining limitations
-
-The shared model and policy reconciliation repair the earlier recovery, fan-arbitration, attended/unattended, comfort-eligibility, and unsupported-claim findings. The remaining coil screen, humidity proxy, heat-pump crossover, average dehumidifier heat, and equipment capacities are engineering assumptions, not validated performance curves. Equipment eligibility is not proof of hardware safety, and a suitable setup can include a visible, scored recovery/transient comfort miss. Recovery estimates remain sensitive to thermal mass, capacity, solar/shade assumptions, and effective ventilation flow; no prediction-error bound is established. Compressor startup delays, defrost dynamics, and fan-dependent sensible capacity are not explicitly simulated.
-
-Indoor temperature and recovery time remain engineering estimates; this release is not measured coach calibration. No collection of field measurements is required for these repairs.
-
 ## Verification
 
 Node.js 24, no dependency installation needed:
@@ -81,3 +85,4 @@ node tests/browser-smoke.cjs
 An existing Chromium executable can be supplied using `CHROMIUM_EXECUTABLE`. Screenshots are optional via `QC_SCREENSHOT_DIR`. GitHub Actions runs the browser test in a separate job.
 
 For local manual checks, serve the repository under the deployment subpath, for example run `python3 -m http.server 8000` from its parent and open `http://localhost:8000/hvac-advisor/`. Do not open `index.html` through `file://` for weather or PWA tests.
+
