@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {app}=require('./helpers.cjs');
+const {app,fixture}=require('./helpers.cjs');
 function scenario(start='2026-10-24T02:55Z'){
  const a=app();a.run(`forecast.timeZone='America/Chicago';state.temp=58;state.rh=25;state.wind=2;state.cloud=0;
  r={start:new Date('${start}'),reading:new Date('${start}'),initial:{temperature:[68,68],rh:[30,30]},occupancy:'staying',remote:false};
@@ -134,6 +134,10 @@ test('currently away uses the coach location and cancels a pending phone-locatio
  const a=scenario();a.element('remoteAccess').checked=true;a.element('occupancyMode').value='away';
  a.run('gpsRequestActive=true;weatherLoading=true;updatePlanUI()');assert.equal(a.run('gpsRequestActive'),false);assert.equal(a.element('gpsBtn').disabled,true);
  await a.run('useMyLocation()');assert.match(a.element('weatherStatus').textContent,/RV’s ZIP code/);
+});
+test('future planning displays weather for the selected future start rather than the current hour',()=>{
+ const a=app();fixture(a);a.run(`forecast.intervals.temperature=[{start:Date.parse('2026-10-21T00:00Z'),end:Date.parse('2026-10-22T00:00Z'),value:50},{start:Date.parse('2026-10-22T00:00Z'),end:Date.parse('2026-10-24T00:00Z'),value:70}];updatePlanUI();document.getElementById('planningMode').value='future';document.getElementById('futureStart').value='2026-10-22T06:45';planInputsChanged()`);
+ assert.equal(a.run('state.temp'),70);assert.equal(a.run("makeEnvelope(parseLocalInput('2026-10-22T06:45','start'),parseLocalInput('2026-10-22T07:00','end'),'Test',300000).points[0].tOut"),70);
 });
 test('full-night search finds a robust ventilation arrangement and verifies bedtime plus the entire night',()=>{
  const a=scenario('2026-10-24T02:30Z');a.run(`state.temp=60;state.rh=20;r.initial={temperature:[70,70],rh:[35,35]};e=makeEnvelope(r.start,planBounds(r.start).end,'Full night',300000);result=runUnifiedPlan(r,e)`);

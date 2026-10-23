@@ -45,7 +45,7 @@ function weather(url){
   await page.locator('#planningMode').selectOption('future');await page.locator('#futureStart').fill('2026-10-22T06:45');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:180000});
   assert.match(await page.locator('#resultStatus').innerText(),/NWS forecast.*Projected/);
-  assert.match(await page.locator('#indoorHeading').innerText(),/Projected/);
+  assert.match(await page.locator('#indoorHeading').innerText(),/Projected/i);
   assert.match(await page.locator('#results').innerText(),/Other Viable HVAC Options/i);
   assert.equal(await page.locator('#results details').first().getAttribute('open'),null);
   await page.screenshot({path:path.join(screens,'v6-forecast-plan.png'),fullPage:true});

@@ -443,7 +443,8 @@ function forecastPeriodsFor(start,end){
 }
 function applyForecast(period){
     if(state.weatherMode!=='forecast'||!forecast.fetched)return;
-    const win=period==='plan'?{start:new Date(),end:planBounds(new Date()).end}:period==='current'?currentTransitionWindow(new Date()):computeWindow(period==='night');
+    let preview=new Date();if(period==='plan'&&document.getElementById('planningMode').value==='future'){try{preview=parseLocalInput(document.getElementById('futureStart').value,'planning start');}catch{}}
+    const win=period==='plan'?{start:preview,end:planBounds(preview).end}:period==='current'?currentTransitionWindow(new Date()):computeWindow(period==='night');
     const start=period==='current'?Date.now():win.start.getTime(),end=period==='current'?(win.windowEnd?.getTime()||start+1):win.end.getTime();
     const periods=forecast.periods.filter(p=>p.end>start&&p.start<end);
     const temps=forecast.intervals.temperature.filter(v=>v.end>start&&v.start<end&&v.value!==null),rhs=forecast.intervals.humidity.filter(v=>v.end>start&&v.start<end&&v.value!==null);
@@ -1734,6 +1735,7 @@ function renderPlan(result){
 }
 function planInputsChanged(){
     planRevision++;invalidateResults();updatePlanUI();
+    if(state.weatherMode==='forecast'&&forecast.fetched&&!forecastProblem())applyForecast('plan');
 }
 function freshReadings(){document.getElementById('readingTime').value=inputDate(new Date());planInputsChanged();}
 function updatePlanUI(){
