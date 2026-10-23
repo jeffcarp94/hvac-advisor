@@ -1,4 +1,4 @@
-const APP_VERSION = '4.5.3';
+const APP_VERSION = '5.0.0';
 const SCOPE_URL = self.registration.scope;
 const CACHE_PREFIX = 'hvac-advisor:' + new URL(SCOPE_URL).pathname + ':';
 const CACHE_NAME = CACHE_PREFIX + APP_VERSION;
@@ -45,3 +45,4 @@ self.addEventListener('fetch', event => {
         }
     })());
 });
+

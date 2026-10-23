@@ -53,7 +53,7 @@ function weather(url){
   await page.locator('#dehumidifierMode').selectOption('off');
   assert.equal(await page.evaluate(()=>state.dehumidifierEnabled),false);
   await page.locator('#analyzeBtn').click();
-  assert.match(await page.locator('#results').innerText(),/80% starting indoor RH/);
+  assert.match(await page.locator('#results').innerText(),/Starting indoor RH entered/);
   await page.locator('#indoorRH').fill('');await page.locator('#dehumidifierMode').selectOption('enabled');
   assert.equal(await page.evaluate(()=>state.indoorRH),null);
   await page.locator('button[onclick="step(\'temp\',1)"]').click();
@@ -72,7 +72,7 @@ function weather(url){
   assert.match(await page.locator('#results').innerText(),/Current/i);
   assert.equal(await page.locator('#predictedIndoorRow').isVisible(),false);
   assert.equal(await page.locator('#currentIndoorRow').isVisible(),true);
-  assert.match(await page.locator('#results').innerText(),/Heating and Cooling Options Compared/i);
+  assert.match(await page.locator('#results').innerText(),/Other Viable HVAC Options/i);
   assert.doesNotMatch(await page.locator('#results').innerText(),/Meets criteria|weighted/);
   const recovery=await page.evaluate(()=>{
     const now=new Date(),end=new Date(now.getTime()+67*60000),envelope=buildCurrentEnvelope(now,end);
@@ -89,46 +89,34 @@ function weather(url){
   assert.equal(await page.locator('#indoorStartTime').innerText(),'at 10:00 PM');
   await page.evaluate(()=>{setPeriod('day');analyze();});
   await page.evaluate(()=>{state.temp=55;state.wind=10;state.cloud=0;state.rh=40;state.indoor=72;setPeriod('night');analyze();});
-  assert.equal(await page.locator('.comparison-row').count(),6);
-  const comparison=await page.locator('.diag-panel').last().innerText();
-  assert.match(comparison,/Heating and Cooling Options Compared/i);
-  assert.match(comparison,/Heating and cooling OFF/);
-  assert.match(comparison,/Expected indoor temperature/);
-  assert.doesNotMatch(comparison,/Discomfort|weighted|full-period|No system needed|Ranges include/);
-  if(screenshotDir){await page.locator('.diag-panel').last().screenshot({path:path.join(screenshotDir,'v451-comparisons.png')});}
-  // Both modes can work; explain the actual preference in either direction.
-  for(const [first,last,expected,loser] of [[62,55.6,'auto','ac'],[80,80,'ac','auto']]){
-    const decision=await page.evaluate(({first,last})=>{
-      state.indoor=72;
-      const start=new Date('2026-10-22T22:00Z'),end=new Date('2026-10-23T07:00Z');
-      const envelope={windowStart:start,windowEnd:end,wind:10,cloud:0,points:[
-        {time:start,tOut:first,rh:30,wind:10,cloud:0},
-        {time:new Date(+start+3*3600000),tOut:last,rh:30,wind:10,cloud:0}]};
-      const result=selectOvernightSetup(envelope,true);
-      document.getElementById('results').innerHTML=renderRecommendation('choiceTest','Overnight Recommendation',result,true);
-      return {winner:result.winner.type,alternatives:result.allCandidates.filter(c=>c.suitable&&c!==result.winner).map(c=>c.selectionReason)};
-    },{first,last});
-    assert.equal(decision.winner,expected);
-    assert.ok(decision.alternatives.length>0&&decision.alternatives.every(Boolean));
-    const row=await page.locator('.comparison-row').filter({hasText:loser==='auto'?'Auto Change-Over Mode':'Air Conditioner'}).innerText();
-    assert.match(row,/Not chosen: both options give similar comfort/);
-    assert.match(row,expected==='auto'?/both cooling and heating.*COOL cannot add heat/s:/cooling alone can do the job.*AUTO’s ability to add heat is not needed/s);
-  }
-  results.selectionReasons={autoPreferred:true,coolPreferred:true};
-  // Capacity failures remain readable and distinct from equipment-risk warnings.
+  assert.equal(await page.locator('.comparison-row').count(),5);
+  const comparison=await page.locator('#results').innerText();
+  assert.match(comparison,/Other Viable HVAC Options/);assert.match(comparison,/Unsuitable HVAC Modes/);
+  assert.doesNotMatch(comparison,/Heating and Cooling Options Compared|weighted|constant dew point/);
+  // The recommendation is excluded from comparisons, whatever mode wins.
+  assert.equal(await page.evaluate(()=>{
+    const result=selectOvernightSetup(buildEnvelope(true),true);
+    const html=comparisonSections(result,true);
+    return (html.match(new RegExp('<div class="comparison-name">'+systemDisplayName(result.winner),'g'))||[]).length;
+  }),0);
+  // Exact local 9 PM target switch and expiry of a pre-switch result.
+  await page.clock.setFixedTime(new Date('2026-10-22T01:30Z'));
+  await page.evaluate(()=>{setPeriod('current');analyze();});
+  assert.match(await page.locator('#setpointDisplay').innerText(),/Cool 72°F.*Heat 70°F/);
+  await page.clock.setFixedTime(new Date('2026-10-22T02:00Z'));
+  await page.evaluate(()=>checkResultValidity());assert.equal(await page.locator('#results').innerText(),'');
+  await page.locator('#analyzeBtn').click();
+  assert.match(await page.locator('#setpointDisplay').innerText(),/Cool 68°F.*Heat 66°F/);
+  assert.match(await page.locator('#results').innerText(),/Preparing for Sleep/);
   await page.evaluate(()=>{state.temp=-10;state.wind=50;state.cloud=0;state.indoor=66;setPeriod('night');analyze();});
-  assert.match(await page.locator('#results').innerText(),/The furnace cannot maintain your minimum set point of 65°F/);
-  assert.doesNotMatch(await page.locator('#results').innerText(),/No Suitable Single Setup/);
-  if(screenshotDir){await page.locator('#results').screenshot({path:path.join(screenshotDir,'v45-cold-capacity.png')});}
-  await page.evaluate(()=>{state.temp=110;state.indoor=72;setPeriod('day');analyze();});
-  assert.match(await page.locator('#results').innerText(),/The AC(?: in AUTO mode)? cannot maintain your set point of \d+°F/);
-  assert.doesNotMatch(await page.locator('#results').innerText(),/No Suitable Single Setup/);
-  if(screenshotDir){await page.locator('#results').screenshot({path:path.join(screenshotDir,'v45-hot-capacity.png')});}
-  results.capacityMessages={furnace:true,ac:true};
+  assert.match(await page.locator('#results').innerText(),/No suitable HVAC setup/);
+  assert.doesNotMatch(await page.locator('#results').innerText(),/Select FURNACE at/);
+  results.methodology={separateAlternatives:true,winnerNotRepeated:true,nightPreparationAt9PM:true};
   const widths=[];
   for(const width of [390,448,480]){await page.setViewportSize({width,height:950});widths.push(await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})));}
   assert.ok(widths.every(x=>x.width===x.scroll),JSON.stringify(widths));
   await page.emulateMedia({colorScheme:'dark'});await page.setViewportSize({width:390,height:900});if(screenshotDir){await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.join(screenshotDir,'v45-manual-dark.png'),fullPage:true});}
+  await page.evaluate(()=>{state.indoor=72;});
   await page.clock.setFixedTime(new Date('2026-10-22T09:15Z'));
   await page.evaluate(()=>{setPeriod('night');updatePeriodSublabels();});
   assert.equal(await page.locator('#indoorStartTime').innerText(),'at 2:15 AM');
@@ -149,9 +137,10 @@ function weather(url){
     if(navigator.serviceWorker.controller===previous)await changed;
   });
   await oldPage.waitForFunction(async()=>!(await caches.keys()).includes('hvac-advisor-v1'));
-  await oldPage.reload();assert.match(await oldPage.title(),/v4.5.3/);
+  await oldPage.reload();assert.match(await oldPage.title(),/v5.0.0/);
   assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
-  results.upgrade={legacyTo453:true,unrelatedCachePreserved:true};await oldContext.close();
+  results.upgrade={legacyTo500:true,unrelatedCachePreserved:true};await oldContext.close();
   console.log(JSON.stringify(results,null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
+

@@ -1,113 +1,118 @@
-# Thermal model and operating policies — v4.5.0
+# HVAC methodology v5.0.0
 
-This is an engineering estimate for a Coach House Platinum III 250 DT, not a measured coach calibration. The owner does not need to collect recorded operating measurements. These assumptions make the calculation inspectable; they do not establish a prediction-error bound.
+This document describes the current implementation. Earlier behavior in the README changelog is historical. Values described as assumptions are not measured properties or calibrated probabilities. No field-measurement project is required to use the app.
 
-## Shared sensible heat balance
+## Owner decisions (October 23, 2026; factual prompt sources)
 
-All three tabs now integrate the same single-zone equation:
+- Daytime HEAT 70°F / COOL 72°F; overnight HEAT 66°F / COOL 68°F. Targets no longer move to win an optimizer comparison.
+- Current uses daytime targets 7–10 AM and 7–9 PM; at 9 PM it prepares for sleep using overnight targets through 10 PM. Pre-9 PM results expire at 9 PM. Existing end-of-transition one-minute buffer is retained.
+- Preferred allowance: 2°F below and 1°F above a desired setpoint. Common mode-independent comparison envelope is HEAT target minus 2 through COOL target plus 1, bounded by a 65°F minimum: daytime 68–73°F; overnight 65–69°F. Overnight 66–69°F is preferred around the cooling target; cooling-only drift to 65°F is allowed without creating a reason to reheat.
+- Temperature must recover into the envelope in 30 minutes; after that, over 30 consecutive minutes outside it is unsuitable. At least 15 consecutive minutes above the upper boundary plus 1°F is unsuitable. Any occupied-zone temperature below 65°F is unsuitable, including initial state. Initial recovery is included in scoring.
+- Occupied-zone comfort is bedroom overnight; daytime warm/cold checks use the warmer/colder zones respectively, and the daytime floor checks both zones. Both zones are always checked for moisture, irrespective of occupancy.
+- Condensation and sustained damp surfaces disqualify a setup independently of comfort or equipment score. No preference can override a failed screen.
+- Humidity comfort policy: 40–55% preferred, 55–60% modest penalty, above 60% increasing penalty; above 65% for more than 30 consecutive minutes after recovery is unsuitable. These are owner-approved preferences, not proven scientific sleep thresholds.
+- Exactly one MaxxFan operates, in exhaust AUTO. The other fan is closed/off. Window settings are fixed for the whole interval: closed / half open (2 inches at bottom) / full open (4 inches). Both fans modulate automatically with cabin temperature.
+- Bedside intakes have direct-draft potential; sink/dinette intakes have lower direct exposure. Window geometry, preferred cooling sheets, and occupancy do not establish measured airspeed at the body. No numerical bedding credit is applied.
 
-`C_eff × dT_in/dt = UA × (T_out − T_in) + Q_internal + Q_solar + Q_heat − Q_cool`.
+## Retained thermal constants
 
-Temperatures are °F; time is hours; UA is BTU/(hr·°F); heat flows are BTU/hr; effective heat capacity is BTU/°F. Each segment with constant weather, gains, and equipment output has the exact solution `T(t) = T_eq + (T_start − T_eq) × exp(−t / tau)`, where `tau = C_eff / UA_total`. Thermostat crossings split the segment analytically. Five-minute boundaries also sample changing solar elevation. Every weather boundary and the exact window end are included, including partial intervals. Weather applies from its interval start; future weather is not applied early. With known coordinates, solar elevation applies on every tab, including dawn within an Overnight window. Without coordinates the shared fallback credits solar between local 06:00 and 19:00 at the entered sky factor; it does not know actual sunrise/sunset or parking orientation.
+UA = 641/7 + 45/1 = 136.57 BTU/(hr·°F), wind multiplier 1 + .02 × mph, total effective storage UA × 2 = 273.14 BTU/°F. AC total capacity 15,000 BTU/hr, working sensible output 11,250 BTU/hr. HP output 15,000 above 50°F / 13,000 at or below 50°F. Furnace 19,000 fuel input / 15,000 working delivered output. Occupants 1,000 asleep / 1,400 awake. Enabled dehumidifier contributes the retained 640 BTU/hr motor/waste-heat assumption. Shell/glass solar inputs and shade coefficients are retained below. No envelope, equipment-capacity, or original coil-screen constant has been retuned to make a result pass.
 
-| Input | Working value | Basis and confidence |
-|---|---:|---|
-| Shell/glass heat-loss coefficient | 641/7 + 45/1 = 136.57 BTU/(hr·°F) | Existing owner/project envelope; high confidence in arithmetic, low in as-built accuracy |
-| Wind adjustment | UA × (1 + 0.02 × wind in mph) | Existing empirical assumption; not explicit infiltration physics |
-| Effective heat capacity | 136.57 × 2 = 273.14 BTU/°F | Interpret existing two-hour constant as the calm-air time constant; low confidence in the absolute value |
-| AC sensible output | 11,250 BTU/hr | Existing Current-tab estimate, now used on every tab: 75% of 15,000 total. Low confidence as an operating-point prediction |
-| Heat-pump output | 15,000 above 50°F; 13,000 at/below 50°F | Existing engineering estimates; not manufacturer performance curves |
-| Furnace delivered output | 15,000 BTU/hr | Existing estimate of delivered heat, distinct from 19,000 BTU/hr fuel input |
-| Internal heat | Awake 1,400 / asleep 1,000, plus 640 if dehumidifier enabled | Existing heat estimates; dehumidifier off contributes zero |
+## Two-zone heat and water balances
 
-Keeping effective heat capacity fixed corrects the earlier implication that increasing wind increases the coach's thermal mass. At 20 mph, UA rises by 40% and the passive time constant becomes 2/1.4 = 1.43 hours. Ventilation adds `1.08 × CFM` BTU/(hr·°F) while operating and shortens the response time further. The existing 900 CFM value assumes available intake openings and effective airflow; rated fan flow does not guarantee this flow in the coach.
+Bedroom / mid-coach working volumes: 440 / 660 ft³. Effective storage and envelope UA split 40/60. These volumes, allocation, an open interior passage, and mixing rates are engineering assumptions. No partition or door sensor is implied. Occupant gains/moisture are placed in bedroom overnight; daytime allocation is 40/60. Dehumidifier is assumed mid-coach. Current remains attended and uses awake gains, including 9–10 PM preparation for sleep.
 
-The two-hour assumption represents the combined effective storage of air, furnishings, contents, and structure. It is not an estimate of air mass alone. Retaining its calm-air baseline is more defensible than inventing a new material inventory. Absolute recovery times remain sensitive to this assumption.
+For zone i, integrate:
 
-The supplied Dometic installation manual establishes total cooling capacity, but supplies no sensible-capacity map for varying indoor humidity and outdoor temperature. The thermostat manual does not supply one either. Consequently 11,250 is a consistent working estimate, not an ASHRAE requirement, a verified Dometic sensible rating, or a constant physical sensible-heat ratio. With otherwise equal conditions, less sensible output lengthens recovery and can prevent reaching target. There is no indoor moisture balance in this release.
+`C_i dT_i/dt = UA_i(T_out-T_i) + Q_i + 1.08 [outside_in_i(T_out-T_i) + interzone_in_i(T_other-T_i)]`.
 
-## Equipment and scoring behavior
+T is °F, C is BTU/°F, UA is BTU/(hr·°F), airflow is CFM, Q is BTU/hr, and time is hours. Heat sources include occupants, solar, equipment sensible delivery, dehumidifier heat, and latent heat released by dehumidification. Outdoor inflow exchanges both heat and water. Exhaust does not itself create heat or moisture.
 
-Cooling/heating starts from actual cabin temperature, including a hot or cold start whose passive equilibrium would eventually be comfortable. Full modeled output applies during recovery. Ordinary COOL/HEAT operation uses ideal averaged cycling only after reaching its setpoint; it cannot instantly jump to setpoint or forced equilibrium. AUTO uses the CCC2's two-degree triggers and returns to setpoint before stopping. This is a thermal approximation: compressor startup delays, ordinary thermostat hysteresis, fan-speed-dependent capacity, duct losses, and heat-pump defrost cycles are not explicitly simulated.
+For humidity ratio w (lb water / lb dry air):
 
-MaxxFan exchanges heat with outdoor air while above its thermostat setting and idles below it. It can import heat when outdoors is hotter. Reaching its setting permits averaged cycling only when ventilation can offset the incoming load. It does not automatically achieve outdoor temperature or a fixed drift limit.
+`m_air_i dw_i/dt = G_i + 4.5 [outside_in_i(w_out-w_i) + interzone_in_i(w_other-w_i)]`.
 
-Comfort score integrates temperature outside the same band for all candidates in a tab, in weighted °F·hours with warm/cold weights 2/1: Daytime 68–72°F, Overnight 66–70°F, Current 70–72°F. Exact exponential integrals and threshold crossings avoid dependence on sample count. Initial temperature is recorded at window start; equipment recovery starts after that instant. Capacity warnings describe a load exceeding output at the target, distinct from merely starting outside target. Current recovery time is the first analytical crossing of the existing ±0.5°F target tolerance, rounded up to minutes, and must occur within the available window. First reaching target does not establish suitability if the cabin subsequently finishes outside its band.
+m_air = volume × .075 lb/ft³; sources/removal G are lb water/hr. Interzone exchange conserves total heat and water. Simultaneous backward-Euler 2×2 systems avoid unstable mixing steps and negative moisture. Nominal timestep 30 seconds, with every forecast boundary and exact end included. Solar evaluated at step midpoint; no future weather value is used early. AUTO trigger/setpoint crossings subdivide steps with a time-root solve, avoiding artificial undershoot at 65°F. Step-refinement tests check convergence. This is a numerical two-zone model, not the previous exact one-zone exponential profile; standalone legacy analytical helpers remain as reference/component checks.
 
-Operating policy is applied to actual modeled calls and return temperatures. A rejected interval makes that candidate ineligible for the full window. Its diagnostic temperatures assume equipment off during rejected slices; they are not an approved automatic equipment-switching schedule. Passing these checks is not proof of hardware safety or uninterrupted comfort.
+Baseline infiltration for moisture uses .25 ACH. To avoid adding baseline heat loss twice, its 1.08 × CFM contribution is subtracted from the retained aggregate UA before explicit airflow is added; aggregate closed-coach sensible UA is preserved. Background infiltration and wind-dependent aggregate UA are still approximate, not separate measured leakage and shell conductance.
 
-## Equipment-policy reconciliation
+Bidirectional mixing: 60 CFM, plus 120 CFM with active roof HVAC/furnace delivery, multiplied by scenario factor. Air delivery splits 40/60. These do not establish actual duct balance. Ordinary thermostat control averages duty to meet the sensed target subject to capacity; AUTO uses its actual ±2°F triggers and returns toward its single setpoint. Bedroom senses overnight HVAC; daytime uses volume-weighted temperature; each MaxxFan senses its own zone.
 
-### Heat pump and AUTO heating
+## Indoor moisture
 
-Daytime and Current assume the owner can monitor operation. Overnight assumes unattended operation. The app retains the project's 41°F lower limit for a heat-pump call; the generic controller manual is not used to lower that owner/project constraint. Idle equipment does not fail merely because outdoor temperature is below its operating policy.
+Starting RH, if entered, applies at the starting temperature to both zones. Unknown starting RH uses the outdoor absolute moisture converted at indoor temperature, times .85; trials add 5 percentage points. It is an estimate, not a sensor measurement or a guarantee. RH is subsequently computed from dynamic humidity ratio and each zone temperature, never held fixed.
 
-| Context | Outdoor dew point | Minimum outdoor temperature for a heat-pump call |
-|---|---:|---:|
-| Monitored Daytime/Current | Any | 41°F |
-| Unattended Overnight | Below 35°F | 41°F |
-| Unattended Overnight | 35°F to below 38°F | 45°F |
-| Unattended Overnight | 38°F or higher | 50°F |
+Working water sources: .45 pints/hr for two sleepers, .55 awake, 1.043 lb/pint. Sleep source is inherited from the project rationale; awake source is an additional engineering assumption.
 
-The temperature minimum is inclusive. At exactly 35°F dew point the 45°F gate applies; at exactly 38°F the 50°F gate applies. These crossover temperatures and dew points are retained conservative app policies, not manufacturer-validated frost/defrost predictions. Monitored operation between 41°F and 50°F carries an uncertainty/monitoring note rather than inheriting the unattended gate. The note does not claim frost forms faster than defrost clears.
+Enabled dehumidifier has a 50% humidistat. Working removal ceiling is 20/24 pints/hr, derated below 80°F using clamp((T-45)/35, 0, 1), multiplied by clamp((RH-50)/15, 0, 1.5), capped at nameplate maximum. Off contributes no heat or removal. This curve is not a Midea certified performance map. Net room heat includes the retained 640 BTU/hr enabled electrical/waste estimate plus 1,060 BTU per lb of water condensed; the latter is latent energy converted to sensible heat, not a second electrical input. Its average electrical contribution is retained even during low-humidity periods rather than inventing a new duty-power map.
 
-The CCC2 manual describes AUTO heat-source priority (HP, furnace, strip), generic auxiliary-furnace activation below 30°F, restoration above 35°F, and defrost behavior in the 30–42°F range. The exact installed backup configuration is not established. The model consequently rejects AUTO heat-pump calls below the app's 41°F limit and tells the user to select Furnace directly; it does not simulate a backup switch that has not been established for this coach. Generic defrost timing does not verify this coach's capacity or make the retained 41/45/50°F policy a manufacturer rating.
+AC moisture removal is limited by both 3,750 BTU/hr remaining latent capacity and airflow moisture available above saturated 50°F air, scaled by compressor duty. 50°F is a working apparatus-dew-point assumption, separate from the existing empirical coil icing screen. Actual sensible/latent split, startup wetting, and off-cycle re-evaporation are not known; this approximation does not assert manufacturer performance across conditions.
 
-### One cooling fan setting across the window
+Saturation is physical: diagnostic continuation removes excess air moisture, records condensed water, and releases latent heat. Any such condensation permanently rejects that candidate; condensation is never allowed to make a candidate eligible by drying the air.
 
-Each AC/AUTO candidate is simulated with one complete setup. Daytime/Current try Auto, Medium, then High; Overnight tries Low, Medium, then High. The first setting that passes every operating interval is selected. A different fan choice requires a fresh whole-window simulation. No independently generated mitigation text can override the selected setting.
+## Condensation and mold-promoting surface screen
 
-The supplied CCC2 manual says Auto cycles the fan with the compressor and selects Low for a setpoint difference of 4°F or less, Medium at 5–7°F, and High at 8°F or more. Continuous modeled differences below 5°F are conservatively screened as Low; this does not assert knowledge of the controller's internal temperature resolution. Fixed Low/Medium/High runs continuously. In Furnace mode the roof fan's Auto setting is off; the furnace blower controls itself.
+Check both zones from the initial state, with no condensation recovery grace period. Exposed cold-surface estimate:
 
-The retained empirical coil screen is:
+`T_surface = T_zone - max(0,T_zone-T_out) × surfaceFactor`.
 
-`T_coil_est = T_return − D_fan − max(0, 0.3 × (70 − T_out)) − max(0, 0.4 × (DP_indoor − 55))`.
+surfaceFactor .80 nominal / .85 and .90 sensitivity represents a cold frame/glazing screening surface. These are deliberately conservative assumed surface factors, not a measured R-value, thermal bridge survey, or transient surface model. Walls, shades, hidden cavities, bedding against walls, and air leakage may behave differently.
 
-All temperatures are °F. `D_fan` is 24/22/20°F for Low/Medium/High. The 70°F and 55°F reference points, multipliers, and fan depressions are existing engineering heuristics, not coefficients established by the supplied manuals. Auto uses its applicable actual speed, including Low near setpoint, rather than a fictitious intermediate depression. Return air is the modeled cabin temperature; low duty no longer adds up to 2°F to manufacture a passing result.
+Disqualify if surface temperature is less than 2°F above indoor dew point at any evaluated point, or if estimated surface RH is at least 80% for 30 consecutive minutes. The margin and duration are preventive app criteria, not a prediction that mold develops in 30 minutes. The screen does not certify zero condensation or mold at every unobserved surface. Intentional evaporator/dehumidifier condensate in the designed drainage path is not a cabin condensation failure; this release screens cold envelope surfaces, not every grille, pipe, hidden cavity or drain malfunction.
 
-Every cooling segment must have an estimate at or above the 35°F app margin. Exact 35°F passes; every lower estimate fails, including exact 30°F. Numerical comparisons allow only 1e-8°F roundoff. The prior extra 5°F allowance and the separate duty/buffer bypass are removed. The empirical latent-fraction calculation and its claimed condensate-freeze certainty are removed. Low confidence in actual coil-temperature accuracy remains; this correction reconciles the app's policy rather than validating the equation. Displayed one-decimal estimates must not be mistaken for measurement precision.
+The user requires moisture protection to precede comfort preference. When no candidate passes the screen, show **No suitable HVAC setup** and reasons; never prescribe a rejected setup. A moisture result remains estimated even when all three scenarios pass. Unknown initial RH and unmeasured surfaces are material uncertainties.
 
-If the modeled/entered indoor dew point exceeds 60°F, the app chooses fixed High for cooling. Dometic recommends High in high-humidity/high-outdoor-temperature conditions, but the numeric 60°F trigger is an app policy. Continuous fan operation does not guarantee prevention of ice, and a portable dehumidifier is not treated as a freeze-protection device.
+## Measured windows and geometric openings
 
-Cooling instructions require a clean filter, unobstructed airflow, and at least two distribution vents open, or quick-cool plus one distribution vent. Observed-ice guidance follows the supplied installation manual: stop cooling, inspect/clean the filter and open vents, use FAN ONLY until clear, resume at a warmer setting, and obtain service if icing persists. The app does not infer that these physical prerequisites have been verified from weather inputs.
+| Section | Count | Width per section | Operable height | Zone |
+|---|---:|---:|---:|---|
+| Jeff | 2 | 21.625 in | 10.5 in | Bedroom |
+| Kim | 1 | 16.875 in | 25.25 in | Bedroom |
+| Sink | 1 | 19.25 in | 10.5 in | Mid-coach |
+| Dinette | 2 | 21.625 in | 10.5 in | Mid-coach |
 
-### Indoor humidity and dehumidifier assumptions
+Owner measured 43.25 in combined operable width for Jeff/dinette; equal split is assumed. Kim/Jeff/dinette overall height 25.25 in; sink overall width/height 19.25 in. Kim operable pane is full height. All open outward with 4 in maximum bottom gap. Frames, seals and rounded corners remain obstructions.
 
-The owner confirmed in this conversation (factual prompt source) that the portable dehumidifier is normally enabled with a 50% RH automatic setpoint. The app defaults to enabled, retains 640 BTU/hr as an unverified average room-heat contribution while enabled, and includes an off option that removes that contribution on all tabs. A humidistat setpoint is not a duty fraction or a measurement of actual RH. This release does not infer runtime, condensate removal, or guaranteed 50% indoor RH from it.
+Approximate bottom plus two triangular side gaps: `A = min(w × h, g × (w+h))`. Inputs inches, convert to m² using .00064516. Full-open geometric total is 801.5 in²; this is not free airflow area. Discharge coefficient .60 and screen factor .65 are resistance assumptions. Side-gap obstruction is represented approximately in those coefficients; no measured screen pressure drop is claimed.
 
-Starting indoor RH is optional. If supplied, dew point is computed at the applicable starting cabin temperature (Predicted Internal Temperature at the displayed analysis start time, or Current Indoor Temperature). The screening scenario holds that dew point constant through the window, rather than holding RH constant as dry-bulb temperature changes. For screening, dew point is capped at the current return-air temperature to avoid an impossible supersaturated state; this saturation bound does not calculate condensate or claim a modeled moisture-removal rate. If RH is blank, the existing `outdoor dew point − 3°F` estimate is used and clearly labeled as a proxy, with the same saturation cap. This estimate can change with weather; it is not a simulated indoor moisture state. Both paths are low-confidence approximations without moisture storage, occupants' moisture production, infiltration moisture, or AC/dehumidifier condensate balances. No recorded measurements or calibration dataset is required; the input can stay blank.
+## Airflow network and fan control
 
-For the existing dew-point helper, `T_C = (T_F − 32) × 5/9`, `g = ln(RH/100) + 17.27 × T_C / (237.3 + T_C)`, and `DP_C = 237.3 × g / (17.27 − g)`; temperatures in the helper formula are °C, RH is percent, and the result is converted back to °F. This is an approximation, not sensor accuracy. User-entered RH outside 1–100% blocks analysis; blank explicitly selects the estimate. Input edits invalidate results and retain the chosen weather source.
+Solve common cabin pressure from the sum of all window flows minus roof exhaust = zero. An open interior passage supports approximately common pressure while bedroom and mid-coach retain distinct temperature/moisture states. Per-zone imbalance gives directed interzone bulk flow, plus bidirectional mixing. Window flow `Q = C_d × screenFactor × A × sign(deltaP) × sqrt(2 abs(deltaP)/rho)`, rho 1.2 kg/m³; m³/s converted to CFM by 2118.88.
 
-MaxxFan retains the app's 62°F outdoor-dew-point comfort preference. It is no longer presented as a universal ASHRAE prohibition or proof of immediate discomfort at every duration. [ASHRAE Addendum h to Standard 55-2020](https://www.ashrae.org/file%20library/technical%20resources/standards%20and%20guidelines/standards%20addenda/55_2020_h_20221230.pdf), Informative Appendix H, humidity discussion (printed p.11), explains why a standalone universal humidity threshold is not its thermal-comfort criterion. This does not certify compliance with any standard. Daytime/Overnight retain the existing full-period open-window ventilation minimum of 65°F, a more conservative open-window policy than short Current operation. Current can model colder-air cooling under monitoring and thermostat control; it no longer rejects based on a hypothetical full-flow equilibrium that ignores the fan turning off. Actual window leakage after fan shutoff remains unmodeled. Active ventilation that would import warmer outdoor air is rejected for the single-setup recommendation.
+Window pressure includes wind and buoyancy. Working window wind = .5 × forecast speed, wall pressure coefficient ±.35, roof coefficient -.20; approximate .5 m buoyancy reference. Opposing wall exposure assignments Jeff/dinette versus Kim/sink are inferred configuration assumptions. Unknown parking heading/shielding is explored via reversed exposure, not claimed to be known from ZIP/GPS. Wind turbulence adds an exchange term .025 × area × window-wind-speed; it represents unresolved single-sided exchange at small net flow.
 
-### Choice explanations (v4.5.3)
+Maxxair publishes up to 900 CFM for 10-speed Deluxe models; owner-supplied 8501K manual printed p.7 confirms temperature-dependent automatic speed; pp.8–9 describe shutdown/lid closure at setpoint. The installed pressure-flow curve and speed schedule are unavailable. Working normalized AUTO speed = clamp(.15 + .17 × temperature excess in °F, 0, 1), zero at/below setpoint. Fan flow decreases with pressure using a square-root curve, 40 Pa assumed full-speed shutoff pressure scaled with speed²; never exceeds 900 CFM. The 40 Pa value and control curve are assumptions, not Maxxair specifications.
 
-Daytime/Overnight records whether each suitable alternative was outside the pool within 5 weighted degree-hours of the best suitable score, or lost to the existing preference order within that pool. The explanation uses this recorded reason, not the difference from the selected option's score; the preference winner need not have the lowest score. The existing order remains: equipment off, MaxxFan, AUTO that both cooled and heated, heat pump, furnace, AUTO that heated only, COOL, then other AUTO operation. Descriptions distinguish better comfort from a preference between usable options.
+When the fan stops, its lid closes but selected windows remain open. Natural pressure-driven and single-sided exchange continue. The old 65°F outdoor cutoff and 62°F outdoor dew-point gate are not used in live selection; trajectory/moisture screening replaces them. Legacy component helpers retain historical policy only for regression reference.
 
-Current records the actual decision after its existing recovery-time and passive-option selection: equipment off, faster recovery, equal rounded recovery minutes, reaching target, or closer final temperature. These reasons add no new ranking criteria. Numeric scores remain hidden in the comparison. Deterministic tests cover both AUTO/COOL directions, the best-score-pool boundary, heating-mode comparisons, Current recovery differences and rounded recovery ties.
+Practical candidates: all six individual sections at half/full; every pair with all half/full combinations; all mid-coach, all bedroom, and all sections at half/full; each with bedroom or mid-coach fan (one only). This is a practical shortlist, not exhaustive optimization of all 729 window combinations. Three-minute screening ranks them; the top eight are rerun at 30 seconds and under both sensitivity scenarios before selecting the best. Failed nominal candidates cannot be prescribed. Shortlisting may miss another robust layout; this is an optimization limitation, not a guarantee of a global optimum.
 
-### Plain-language comparison (v4.5.1)
+## Drafts, scoring and AUTO
 
-Comparison text uses shared helpers for Daytime, Overnight and Current. Weighted discomfort scores remain in selection and are hidden from the comparison UI. Selected setpoints, actual heating/cooling calls, starting/final temperatures and the selected recommendation determine the wording. An idle heating or cooling mode is not described as actively heating or cooling. A passive recovery from a hot start is described as reaching the preferred temperature, rather than holding it throughout.
+Comfort score is a penalty (lower is better), integrating warm excess × 2 and cold deficit × 1 in °F·hr. Humidity adds .08 per percentage-point-hour above 55 through 60, then .4 + .3 × excess above 60. Below 55 receives no extra drying reward. Small RH differences can influence ranking but cannot alone make a mode unsuitable unless a sustained threshold is crossed.
 
-Stable issue codes carry equipment-rejection causes to both renderers, including the applicable heat-pump minimum. Rejected equipment receives a plain-language reason and no operating temperature range, since its diagnostic trace substitutes passive operation. The cold-ventilation explanation explicitly identifies its predicted final temperature as heating/cooling off with openings closed. Thermal equations, policy thresholds, comfort suitability, scores and ranking are unchanged.
+Overnight draft penalty integrates positive intake CFM at bedside sections /100 × max(0, cooling target minus outdoor temperature) × .03, reduced to 30% when bedroom exceeds its upper comfort limit. Coefficient is a subjective ranking preference, not human heat transfer or a measured body airspeed. Indirect intake produces no direct-window penalty, but bedroom/mid-coach temperature and airflow remain modeled. Viscose bamboo bedding receives no numerical temperature credit.
 
-### Comfort suitability and fallback
+All eligible modes are ranked by score; former five-degree-hour preference pool is removed. Exact ties use off, ventilation, AC, HP, furnace, AUTO. The selected mode is omitted from alternative sections. If no mode qualifies, display no suitable setup, no operating prescription, and the closest result's reasons.
 
-Operating-policy eligibility, full-window minimum-floor compliance, final-band recovery, and the integrated discomfort score are separate fields. A setup is suitable only if it passes operating policies, its unrounded predicted temperature never drops below 65°F (including the starting state), and its unrounded final temperature is within the tab's desired band with ±0.5°F tolerance. This tolerance reuses the established Current target tolerance for consistent recovery decisions. It is an app choice, not a manufacturer or comfort-standard limit.
+AUTO setpoint = 67°F overnight / 71°F daytime; CCC2 triggers at ±2°F. Compare AUTO against cooling-only and best heating-only. At least 5 equivalent full-output minutes of both functions per trial defines meaningful dual use, but is insufficient by itself: neither single-function mode may remain suitable. If COOL stays comfortable above 65°F, heating does not earn flexibility credit. High likelihood = both functions meaningful in all three trials and neither single mode sufficient; Possible = some trials; otherwise Low. These are sensitivity labels, not calibrated probabilities. Genuine dual necessity earns 1 penalty-point benefit; unnecessary heating when COOL is suitable adds 1 + heating-minutes/30; other AUTO adds .5. These explicit owner-approved engineering preferences avoid selecting unnecessary reheating solely to chase a small temperature advantage.
 
-Initial hot starts and transient desired-band misses remain scored and displayed; a small miss does not by itself declare an equipment hazard. Final-band compliance is not a claim to have held the desired band throughout. All candidates now use a common band within a tab, correcting the earlier AC-versus-heating scoring bias. Existing warm/cold weights 2/1 and system-priority tiebreaking remain within the suitable pool.
+Sensitivity trials: nominal; airflow × .7, mixing × .7, outdoor +2°F, starting RH +5 points, surface factor .85, one wind exposure; airflow ×1.2 (fan capped), mixing ×1.3, outdoor -2°F, starting RH +5 points, surface factor .90, reversed exposure. Nominal uses neutral crosswind pressure, factor .80. All three must pass. They are assumption stress tests, not NWS ensemble probabilities or validated error bounds.
 
-When no setup meets these criteria, the UI explains the specific reason in plain language and identifies the best modeled alternative. A furnace with full-output equilibrium below 65°F and a failed floor check is described as unable to maintain the 65°F minimum; AC capacity shortfalls name the selected cooling setpoint. Inadequate recovery time, an initial cold start, a mode unable to heat/cool as needed, and AUTO temperature drift receive distinct explanations. Potential AC icing remains an explicit red equipment-risk warning with stop-cooling/FAN ONLY guidance; comfort shortfalls alone are not described as equipment damage. Blocked equipment receives no setup instructions. It does not mark that alternative as recommended or tell the owner to continue it into a later, unanalyzed window. A cold start below 65°F cannot truthfully be called full-window floor compliant even when a furnace can recover; its recovery remains visible as an alternative. Extreme heat/cold can likewise produce a genuine no-suitable result while some equipment remains policy-eligible. This distinction is model logic, not a human-health temperature-safety assessment.
+## Retained equipment policies
 
-| Claim | Source agreement and confidence | Remaining uncertainty |
-|---|---|---|
-| CCC2 Auto speed selection, continuous fixed fan, roof fan off in Furnace Auto | Agrees with supplied CCC2 manual pp.9–12; Medium (single primary manual) | Exact installed configuration and sensor resolution |
-| Open outlets, filter/airflow, observed-ice recovery, High fan advice | Agrees with supplied Dometic rooftop installation manual p.18; Medium (single primary manual) | Actual physical airflow and maintenance not sensed by the app |
-| 41/45/50°F crossover, 35/38°F dew points, 35°F coil margin, 60/62°F humidity triggers | App policies, not manufacturer-validated numerical rules; Low for physical prediction | Installed equipment and actual moisture/coil behavior |
-| 50% RH dehumidifier setpoint normally enabled | Owner-confirmed prompt fact; High for stated configuration | Actual RH, cycling, average heat and water removal remain uncertain |
-| Comfort floor/final-band selection behaves as documented | Agrees with deterministic regression tests; High for code behavior | Accuracy of the underlying temperature forecast remains unbounded |
+- HP minimum 41°F monitored; overnight effective minimum 41 /45 /50°F for outdoor dew point below 35 /35–<38 /≥38°F. Threshold equality remains inclusive as in v4.5.3. Daytime/Current monitoring and Overnight unattended context remain distinct. No unverified AUTO furnace backup is invented.
+- Cooling coil screen retains fan depressions 24/22/20°F (Low/Medium/High), .3°F per degree outdoors below 70°F, .4°F per indoor dew point above 55°F; reject below 35°F estimated coil. Indoor dew point now comes from the evolving moisture state. Actual return-air minimum across the two zones is screened conservatively while cooling is called. The coil screen is empirical, not an actual coil sensor.
+- One fixed roof HVAC fan setting is evaluated for the entire interval. Overnight tries Low/Medium/High; monitored periods Auto/Medium/High. Each setting is rerun from the beginning. Indoor dew point >60°F requires High under the retained app policy. Idle equipment is not rejected for a call that never occurs.
+- Dometic airflow prerequisites and observed-ice recovery remain: clean filter, unobstructed outlets, at least two distribution vents open or quick-cool plus one; stop cooling and use FAN ONLY to melt existing ice, then resume at a warmer setpoint.
+- Supplied component manuals outrank coach manuals and general references. Retained model heat-loss/capacity/frost heuristics are project assumptions, not newly attributed manufacturer specifications.
+
+## Primary references
+
+- Supplied MaxxFan 8501K guide, printed pp.7–9: AUTO speed adjustment and lid closure. [Maxxair Deluxe](https://www.maxxair.com/products/fans/maxxfan-deluxe-fans/): up to 900 CFM for 10-speed models.
+- Supplied Dometic CCC2 guide, printed pp.9–12: fan behavior and AUTO ±2°F operation; supplied rooftop installation guide: equipment airflow/icing guidance.
+- [EnergyPlus Airflow Network](https://energyplus.readthedocs.io/en/latest/guides/input-output-reference/1.27-group-airflow-network.html): network method, wind/buoyancy, exhaust and two-way exchange. Supports method, not coach coefficients.
+- [Humid heat experiment](https://pubmed.ncbi.nlm.nih.gov/10505822/) and [bedroom field study](https://pubmed.ncbi.nlm.nih.gov/37076419/): humidity/sleep evidence, with stronger humid-heat findings than a universal isolated RH cutoff. App comfort bands are personal policies.
 
 ## Glazing and shades
 
@@ -157,8 +162,3 @@ An illustrative constant peak-solar scenario (85°F outdoors, wind 5 mph, awake 
 
 These are model calculations under deliberately constant peak exposure, not observed temperatures or an ordinary hourly weather forecast. Their purpose is to show material sensitivity: the shade uncertainty can move a near-limit comfort/capacity assessment. It is not negligible, but it does not prevent using the working estimate.
 
-## Source hierarchy
-
-Component manuals take precedence over Coach House, Ford, accessory manufacturers, and general references, in that order. Supplied manuals consulted: Dometic 3314080 CCC2 Operating Instructions (COOL/HP/AUTO operation and fan selection), Dometic rooftop installation instructions (capacity and frost guidance), MaxxFan 8501K operating guide (thermostat-controlled variable/cycling operation), Suburban NT20SQ service/training manual (19,000 BTU/hr input), and Coach House Platinum III 2023/24 model-specific manual (dimensions). Manufacturer accessory pages above are dimensional proxies only; they are not substituted for equipment thermal-performance documentation.
-
-The one-zone energy balance and fixed effective-capacity approach are consistent in form with the [EnergyPlus zone heat-balance reference](https://energyplus.readthedocs.io/en/stable/guides/engineering-reference/2.1-basis-for-the-zone-and-air-system-integration.html). That reference supports the equation structure, not this coach's numerical coefficients.
