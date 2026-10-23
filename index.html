@@ -1407,7 +1407,7 @@ function qualifyAcrossScenarios(candidate,envelope,overnight,sp,meta,start,rows,
     const trials=AIR_SCENARIOS.slice(1).map(scenario=>modelCandidate(candidate.type,envelope,overnight,sp,meta,start,{scenario,rows,config:candidate.config,...context}));
     candidate.scenarioResults=[candidate,...trials].map(c=>({suitable:c.suitable,moistureEligible:c.moistureEligible,comfortEligible:c.comfortEligible,equipmentEligible:c.equipmentEligible,heatMinutes:c.heatMinutes,coolMinutes:c.coolMinutes,finalIndoor:c.finalIndoor}));
     const failed=trials.find(c=>!c.suitable);
-    if(failed){candidate.suitable=false;candidate.robustnessReason='Fails the '+AIR_SCENARIOS[trials.indexOf(failed)+1].name+' scenario: '+(failed.equipmentReason||failed.moistureReason||failed.comfortReason);}
+    if(failed){candidate.suitable=false;candidate.robustnessIssueCode=failed.equipmentIssueCode;candidate.robustnessReason='Fails the '+AIR_SCENARIOS[trials.indexOf(failed)+1].name+' scenario: '+(failed.equipmentReason||failed.moistureReason||failed.comfortReason);}
     candidate.scenarioSummary=failed?'Sensitive to plausible conditions':'Acceptable in all three tested scenarios';
     candidate.moistureRange={min:Math.min(candidate.moisture.minRH,...trials.map(c=>c.moisture.minRH)),max:Math.max(candidate.moisture.maxRH,...trials.map(c=>c.moisture.maxRH))};
     return candidate;
@@ -1463,6 +1463,7 @@ function methodComparison(c,winner,overnight){
     if(c.type==='auto')text+=' '+c.autoNeed.explanation+' Likelihood of needing both: '+c.autoNeed.likelihood.toLowerCase()+'.';
     if(c.type==='maxxfan'&&c.suitable)text+=' '+candidateSetup(c,overnight)+(c.draftScore>0?' Bedside airflow may feel cool.':' Intake windows are away from the beds.');
     else if(c.suitable)text+=' '+candidateSetup(c,overnight);
+    if(c.robustnessIssueCode==='cooling-ice')text+=' The AC may ice up. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.';
     return '<div class="comparison-row"><div class="comparison-name">'+systemDisplayName(c)+set+'</div><div class="comparison-text">'+text+'</div>'
         +(c.equipmentEligible?'<div class="comparison-range">Expected '+c.indoorMin+'–'+c.indoorMax+'°F. '+moistureSummary(c)+'</div>':'')+'</div>';
 }
@@ -1480,7 +1481,7 @@ function renderMethodRecommendation(id,title,result,overnight){
         +(problem?'<div class="mitigation-box severity-red"><strong>'+problem.headline+'</strong>'+problem.text+'</div>':'')
         +(c.suitable?detail('Setup',candidateSetup(c,overnight)):detail('Closest result',systemDisplayName(c)+' — '+(problem?.text||'Does not meet the requirements.')))
         +detail(overnight?'Bedroom':'Expected indoor',c.indoorMin+'–'+c.indoorMax+'°F; '+c.finalIndoor+'°F at '+formatTime(c.simulationEnd))
-        +detail('Comfort',c.suitable?'Acceptable throughout after initial recovery. Preferred '+c.comfortLow+'–'+c.comfortHigh+'°F; minimum 65°F.':c.comfortReason||'Temperature is acceptable; another requirement fails.')
+        +detail('Comfort',c.suitable?'Fits temperature and duration limits. Heat target '+c.setpoints.heat+'°F / cool target '+c.setpoints.cool+'°F; minimum 65°F.':c.comfortReason||'Temperature is acceptable; another requirement fails.')
         +detail('Recovery',c.recoveryMinutes===null?'Acceptable temperature not reached.':'First reaches acceptable temperature in '+Math.ceil(c.recoveryMinutes)+' minutes.')
         +detail('Humidity',moistureSummary(c))
         +(c.type==='auto'?detail('Changeover',c.autoNeed.explanation+' Likelihood: '+c.autoNeed.likelihood.toLowerCase()+'.'):'')
