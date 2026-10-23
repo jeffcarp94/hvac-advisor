@@ -103,3 +103,78 @@ test('Current comparisons explain recovery time without suggesting a failed opti
     const failed=a.run('comparisonRow(c,c,sp,end,false,true,70)');
     assert.match(failed,/cannot maintain your set point of 70°F/);assert.doesNotMatch(failed,/Recommended/);
 });
+
+test('AUTO and COOL explain both directions of a similar-comfort choice',()=>{
+    for(const [first,last,expected,loser,reason] of [
+        [62,55.6,'auto','ac',/both cooling and heating.*COOL cannot add heat/],
+        [80,80,'ac','auto',/cooling alone can do the job.*AUTO’s ability to add heat is not needed/]
+    ]){
+        const a=app();
+        a.run(`forecast.timeZone='UTC';state.indoor=72;start=new Date('2026-10-22T22:00Z');end=new Date('2026-10-23T07:00Z');
+            envelope={windowStart:start,windowEnd:end,wind:10,cloud:0,points:[
+                {time:start,tOut:${first},rh:30,wind:10,cloud:0},
+                {time:new Date(+start+3*3600000),tOut:${last},rh:30,wind:10,cloud:0}]};
+            result=selectOvernightSetup(envelope,true);c=result.allCandidates.find(c=>c.type==='${loser}');`);
+        assert.equal(a.run('result.winner.type'),expected);
+        assert.equal(a.run('c.suitable'),true);
+        assert.equal(a.run('c.selectionReason'),'preference');
+        const text=a.run('comparisonExplanation(c,result.winner,result.setpoints,end,true)');
+        assert.match(text,/Not chosen: both options give similar comfort/);assert.match(text,reason);
+        assert.doesNotMatch(text,/cannot maintain|weighted|Discomfort|No Suitable/);
+        const selected=a.run('comparisonExplanation(result.winner,result.winner,result.setpoints,end,true)');
+        assert.match(selected,/Recommended\. Several options give similar comfort/);
+        assert.doesNotMatch(selected,/Best match/);
+    }
+});
+
+test('period explanation follows the best-score pool rather than distance from the chosen score',()=>{
+    const a=messages();
+    a.run(`forecast.timeZone='UTC';envelope={windowStart:new Date('2026-10-22T22:00Z'),windowEnd:end,wind:0,cloud:0,points:[{time:new Date('2026-10-22T22:00Z'),tOut:60,rh:30,wind:0,cloud:0}]};
+        scores={ac:0,hp:4,auto:6};
+        optimizeCandidate=(type)=>candidate(type,{score:scores[type]??100,optimizedSet:type==='auto'?68:type==='ac'?70:66,
+            suitable:type in scores,equipmentEligible:type in scores,autoDidCool:type==='auto',autoDidHeat:type!=='ac'});
+        result=selectOvernightSetup(envelope,true);c=result.allCandidates.find(c=>c.type==='auto');`);
+    assert.equal(a.run('result.winner.type'),'hp');
+    assert.equal(a.run('c.selectionReason'),'comfort');
+    assert.match(a.run('comparisonExplanation(c,result.winner,result.setpoints,end,true)'),/Not chosen: the heat pump better matches your preferred 66–70°F temperature range over the whole period/);
+    a.run('scores.auto=5;result=selectOvernightSetup(envelope,true)');
+    assert.equal(a.run('result.winner.type'),'auto');
+    assert.equal(a.run("result.allCandidates.find(c=>c.type==='ac').selectionReason"),'preference');
+});
+
+test('AUTO compared with heating modes explains their inability to cool',()=>{
+    const a=messages();
+    a.run("winner.autoDidCool=true;winner.selectionBasis='preference';c=candidate('furnace',{selectionReason:'preference'})");
+    const text=a.run('comparisonExplanation(c,winner,sp,end,true)');
+    assert.match(text,/both cooling and heating.*The furnace can heat but cannot cool/);
+    assert.doesNotMatch(text,/COOL cannot add heat/);
+});
+
+test('Current explains faster recovery for both MaxxFan and AC selections',()=>{
+    for(const [temp,expected] of [[60,'maxxfan'],[68,'ac']]){
+        const a=app();
+        a.run(`forecast.timeZone='UTC';state.weatherMode='manual';state.indoorCurrent=85;state.temp=${temp};state.rh=30;state.wind=0;state.cloud=0;
+            result=runCurrentAnalysis(new Date('2026-10-22T08:00Z'));c=result.allModes.find(c=>c.suitable&&c!==result.winner);`);
+        assert.equal(a.run('result.winner.mode'),expected);
+        assert.equal(a.run('c.selectionReason'),'faster-recovery');
+        const text=a.run('comparisonExplanation(c,result.winner,{cool:72,heat:70,auto:71},result.window.windowEnd,false,true,result.target)');
+        assert.match(text,/Not chosen:.*reaches about 72°F in \d+ minutes, compared with \d+ minutes/);
+    }
+});
+
+test('equal Current recovery times are explained as preferences, not faster performance',()=>{
+    for(const [indoor,expected,loser] of [[85,'maxxfan','ac'],[66,'hp','furnace']]){
+        const a=app();
+        a.run(`forecast.timeZone='UTC';state.indoorCurrent=${indoor};state.temp=60;state.rh=30;state.wind=0;state.cloud=0;
+            simulateCurrentMode=(mode)=>({mode,status:'ok',equipmentEligible:true,suitable:mode!=='passive',
+                floorCompliant:true,endInBand:mode!=='passive',comfortLow:70,comfortHigh:72,
+                finalIndoor:${indoor>72?72:70},timeToTargetMin:12,didHeat:${indoor<70},didCool:${indoor>72},
+                trace:[{indoor:${indoor}},{indoor:${indoor>72?72:70}}]});
+            result=runCurrentAnalysis(new Date('2026-10-22T08:00Z'));c=result.allModes.find(c=>c.mode==='${loser}');`);
+        assert.equal(a.run('result.winner.mode'),expected);
+        assert.equal(a.run('c.selectionReason'),'equal-recovery');
+        const text=a.run('comparisonExplanation(c,result.winner,{cool:72,heat:70,auto:71},result.window.windowEnd,false,true,result.target)');
+        assert.match(text,/Not chosen: both options reach your target in about the same time/);
+        assert.doesNotMatch(text,/sooner|faster|AUTO’s ability/);
+    }
+});
