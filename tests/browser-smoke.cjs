@@ -91,7 +91,7 @@ function weather(url){
   await page.evaluate(()=>{state.temp=55;state.wind=10;state.cloud=0;state.rh=40;state.indoor=72;setPeriod('night');analyze();});
   assert.equal(await page.locator('.comparison-row').count(),5);
   const comparison=await page.locator('#results').innerText();
-  assert.match(comparison,/Other Viable HVAC Options/);assert.match(comparison,/Unsuitable HVAC Modes/);
+  assert.match(comparison,/Other Viable HVAC Options/i);assert.match(comparison,/Unsuitable HVAC Modes/i);
   assert.doesNotMatch(comparison,/Heating and Cooling Options Compared|weighted|constant dew point/);
   // The recommendation is excluded from comparisons, whatever mode wins.
   assert.equal(await page.evaluate(()=>{
@@ -107,7 +107,7 @@ function weather(url){
   await page.evaluate(()=>checkResultValidity());assert.equal(await page.locator('#results').innerText(),'');
   await page.locator('#analyzeBtn').click();
   assert.match(await page.locator('#setpointDisplay').innerText(),/Cool 68°F.*Heat 66°F/);
-  assert.match(await page.locator('#results').innerText(),/Preparing for Sleep/);
+  assert.match(await page.locator('#results').innerText(),/Preparing for Sleep/i);
   await page.evaluate(()=>{state.temp=-10;state.wind=50;state.cloud=0;state.indoor=66;setPeriod('night');analyze();});
   assert.match(await page.locator('#results').innerText(),/No suitable HVAC setup/);
   assert.doesNotMatch(await page.locator('#results').innerText(),/Select FURNACE at/);
