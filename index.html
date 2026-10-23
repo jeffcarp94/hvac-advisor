@@ -1444,6 +1444,7 @@ function validatePlanRequest(request){
     }
 }
 function readPlanRequest(){
+    updatePlanUI();
     const value=id=>document.getElementById(id).value,number=id=>value(id).trim()===''?NaN:Number(value(id));
     const future=value('planningMode')==='future',now=new Date(),start=future?parseLocalInput(value('futureStart'),'the planning start time'):now;
     if(future&&start<now)throw new Error('Choose a future planning time.');
@@ -1506,7 +1507,12 @@ function evaluatePlan(phases,envelope,request,rows){
         let prefix=envelope.planCache.get(key);
         if(!prefix){prefix=simulatePlan([phases[0]],envelope,request,s,rows,null,true);envelope.planCache.set(key,prefix);}
         const time=phases[1].time,checkpoint=prefix.checkpoints.find(p=>p.time===time);
-        if(!checkpoint)return prefix;
+        if(!checkpoint){
+            if(prefix.failureTime!=null&&prefix.failureTime<=time)return prefix;
+            // A handoff derived from a forecast boundary may not lie on the
+            // cached grid. Resolve it directly rather than reset/interpolate state.
+            return simulatePlan(phases,envelope,request,s,rows);
+        }
         return simulatePlan(phases,envelope,request,s,rows,{time,carry:checkpoint,prefix});
     });
     const failed=trials.find(t=>!t.suitable),late=trials.find(t=>!t.ready);

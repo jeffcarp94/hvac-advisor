@@ -25,8 +25,9 @@ function weather(url){
   const context=await browser.newContext({viewport:{width:448,height:950},timezoneId:'America/Los_Angeles',colorScheme:'light'});
   await context.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css'}));let requests=0;
   await context.route(/https:\/\/(api.weather.gov|api.zippopotam.us)\//,r=>{requests++;return r.fulfill({json:weather(r.request().url()),headers:{'Access-Control-Allow-Origin':'*'}});});
-  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const page=await context.newPage(),errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error('PAGE ERROR:',e.message);});
   await page.clock.install({time:new Date('2026-10-21T13:45Z')});await page.goto(base);await page.evaluate(()=>navigator.serviceWorker.ready);await page.reload();
+  await page.screenshot({path:path.join(screens,'v6-initial.png'),fullPage:true});console.log('INITIAL',await page.evaluate(()=>({remote:document.getElementById('remoteAccess')?.checked,away:document.getElementById('awayOption')?.disabled,heading:document.getElementById('indoorHeading')?.textContent,loaded:typeof initializePlan})));assert.deepEqual(errors,[]);
   assert.equal(await page.locator('.period-toggle').count(),0);assert.equal(await page.locator('#awayOption').isDisabled(),true);
   assert.equal(await page.locator('#departureFields').isVisible(),false);
   await page.locator('#analyzeBtn').click();assert.match(await page.locator('#resultStatus').innerText(),/both indoor temperatures/);
