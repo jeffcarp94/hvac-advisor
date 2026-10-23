@@ -28,7 +28,7 @@ function weather(url){
   const page=await context.newPage(),errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error('PAGE ERROR:',e.message);});
   await page.clock.install({time:new Date('2026-10-21T13:45Z')});await page.goto(base);await page.evaluate(()=>navigator.serviceWorker.ready);await page.reload();
   await page.screenshot({path:path.join(screens,'v6-initial.png'),fullPage:true});console.log('INITIAL',await page.evaluate(()=>({remote:document.getElementById('remoteAccess')?.checked,away:document.getElementById('awayOption')?.disabled,heading:document.getElementById('indoorHeading')?.textContent,loaded:typeof initializePlan})));assert.deepEqual(errors,[]);
-  assert.equal(await page.locator('.period-toggle').count(),0);assert.equal(await page.locator('#awayOption').isDisabled(),true);
+  assert.equal(await page.locator('.period-toggle').count(),0);assert.equal(await page.locator('#awayOption').evaluate(e=>e.disabled),true);
   assert.equal(await page.locator('#departureFields').isVisible(),false);
   await page.locator('#analyzeBtn').click();assert.match(await page.locator('#resultStatus').innerText(),/both indoor temperatures/);
   for(const id of ['bedTemp','frontTemp'])await page.locator('#'+id).fill('68');for(const id of ['bedRH','frontRH'])await page.locator('#'+id).fill('35');
@@ -52,12 +52,12 @@ function weather(url){
   await page.locator('#occupancyMode').selectOption('leaving');assert.equal(await page.locator('#departureFields').isVisible(),true);assert.equal(await page.locator('#returnFields').isVisible(),true);
   await page.locator('#departureTime').fill('2026-10-22T06:50');await page.locator('#returnTime').fill('2026-10-22T08:30');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:180000});
-  await page.locator('#remoteAccess').check();assert.equal(await page.locator('#awayOption').isDisabled(),false);
+  await page.locator('#remoteAccess').check();assert.equal(await page.locator('#awayOption').evaluate(e=>e.disabled),false);
   await page.locator('#occupancyMode').selectOption('away');assert.equal(await page.locator('#actualSetup').isVisible(),true);
   await page.locator('#analyzeBtn').click();assert.match(await page.locator('#resultStatus').innerText(),/Confirm/);
   await page.locator('#setupConfirmed').check();await page.locator('#actualMode').selectOption('ac');await page.locator('#actualWindow3').selectOption('4');
   await page.locator('#analyzeBtn').click();assert.match(await page.locator('#resultStatus').innerText(),/open windows/);
-  await page.locator('#remoteAccess').uncheck();assert.equal(await page.locator('#occupancyMode').inputValue(),'staying');assert.equal(await page.locator('#awayOption').isDisabled(),true);
+  await page.locator('#remoteAccess').uncheck();assert.equal(await page.locator('#occupancyMode').inputValue(),'staying');assert.equal(await page.locator('#awayOption').evaluate(e=>e.disabled),true);
   await page.locator('#planningMode').selectOption('now');await page.locator('#dehumidifierMode').selectOption('off');assert.equal(await page.evaluate(()=>state.dehumidifierEnabled),false);
   await page.locator('#weatherMode').selectOption('manual');await context.setOffline(true);await page.reload();
   await page.locator('#analyzeBtn').click();assert.match(await page.locator('#resultStatus').innerText(),/both indoor temperatures/);
