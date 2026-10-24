@@ -1,5 +1,12 @@
 # HVAC Advisor
 
+## v6.1.0 — daytime and overnight comparisons
+
+- Two planning periods: awake 7 AM–10 PM and unattended sleep 10 PM–7 AM. No 7–10 AM or 7–10 PM transition gate. Natural recovery is checked throughout awake hours; preparation is calculated against the 10 PM deadline.
+- Daytime alternatives must pass continuously until the next displayed adjustment (or the bounded review time). A later switch to AC cannot qualify an otherwise unsuitable daytime heater. An idle heater is labeled unnecessary. Choosing another daytime option requires fresh readings and a rebuilt plan at the end of that interval.
+- Projected overnight alternatives retain the recommended daytime and preparation phases. All use identical predicted bedtime heat/moisture state and carried exposure history in each scenario, and must pass through 7 AM with one fixed setup. Alternatives requiring different preparation are not silently substituted.
+- Nighttime runs compare only the remaining night. If no verified bedtime preparation is available, overnight comparisons explicitly await reassessment. Physical constants and equipment limits are unchanged.
+
 The preparation planner now checks missed five-minute intervals and can cool before selecting a heating-only overnight setup. Overnight plans require no manual changes or automatic furnace backup. Heat-pump operation follows the documented 30°F changeover, with explicit defrost pauses and a documented estimated capacity decline; humidity no longer invents a 45–50°F equipment lockout. AUTO bedtime readiness distinguishes normal cycling after reaching the cooling target from an actual preparation miss. See model-assumptions.md for equations and limitations.
 
 The v6.0.1 humidity repair treats the small coach as one mixed moisture volume, per the owner's instruction. Paired temperature/RH inputs initialize the prediction; both temperature forecasts remain, with one predicted dew point and RH derived at each local temperature. A front/rear moisture bottleneck cannot disqualify equipment.
@@ -116,4 +123,5 @@ node tests/browser-smoke.cjs
 An existing Chromium executable can be supplied using `CHROMIUM_EXECUTABLE`. Screenshots are optional via `QC_SCREENSHOT_DIR`. GitHub Actions runs the browser test in a separate job.
 
 For local manual checks, serve the repository under the deployment subpath, for example run `python3 -m http.server 8000` from its parent and open `http://localhost:8000/hvac-advisor/`. Do not open `index.html` through `file://` for weather or PWA tests.
+
 

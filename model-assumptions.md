@@ -1,3 +1,13 @@
+# v6.1.0 two-period comparisons (supersedes earlier transition-window rules)
+
+Owner-approved planning periods are awake 7 AM–10 PM and unattended sleep 10 PM–7 AM in the forecast location time zone. There are no morning/evening eligibility gates or one-minute boundary buffers. Natural recovery receives the existing priority throughout awake hours when the same temperature, moisture and equipment checks pass. Bedtime readiness and its preparation search remain deadline-based; occupancy and available controls govern departure/return actions.
+
+Daytime options are independently tested, with daytime settings, from the entered conditions until the next displayed adjustment or bounded review time. All three scenarios must pass continuously without a borrowed early mode change. Heating-only modes with no heating call in any scenario are marked unnecessary, not viable heating recommendations. Alternatives show the exact interval and their own settings and predicted ranges. Their state is not substituted into the displayed overnight projection: choosing one requires rebuilding the plan with fresh readings at the next adjustment. If sleep preparation begins immediately there is no separate normal-daytime interval to compare.
+
+Projected overnight options preserve every recommended phase before 10 PM and replace only the fixed overnight setup. The existing evaluator carries temperature, water, equipment phase/defrost, dehumidifier heat and exposure counters across these phases; no independently chosen daytime plan or reset bedtime moisture is allowed. Fixed fan variants and vent configurations are tested, then the best result per overnight mode is retained. A full pass includes bedtime readiness, comfort, moisture, equipment limits and available bedtime action. Otherwise the reason is shown under unsuitable projected overnight modes. No automatic furnace backup or post-bedtime intervention is added. If the recommended prefix fails, overnight comparison is deferred rather than prescribed from an unverified state. After 10 PM or before 7 AM the current observations initialize the remaining-night comparison.
+
+All thermodynamic constants, setpoints, equipment limits, comfort tolerances and moisture rules remain unchanged by this release. Earlier sections document historical behavior where they disagree with these comparison and time-scope rules.
+
 # v6.0.1 preparation search and heat-pump repair
 
 Owner decision (October 24, 2026): no automatic furnace fallback and no manual or remote setup change during sleep. The 10 PM boundary is the final awake action; the chosen setup must run unchanged through 7 AM. AUTO may alternate cooling and heat-pump heating; it never receives furnace output. Below-limit heat-pump calls fail the plan instead of silently crediting backup heat. A furnace plan is selected before sleep where necessary. Setup-execution checks apply both during search and to directly evaluated sequences.
@@ -258,4 +268,5 @@ An illustrative constant peak-solar scenario (85°F outdoors, wind 5 mph, awake 
 | Upper solar gain | 0.455 | 98.3°F | 83% |
 
 These are model calculations under deliberately constant peak exposure, not observed temperatures or an ordinary hourly weather forecast. Their purpose is to show material sensitivity: the shade uncertainty can move a near-limit comfort/capacity assessment. It is not negligible, but it does not prevent using the working estimate.
+
 
