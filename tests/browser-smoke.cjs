@@ -119,7 +119,7 @@ function weather(url){
   const wintersetText=await page.locator('#results').innerText();
   assert.match(wintersetText,/Select (COOL|AUTO|HEAT PUMP|FURNACE) at \d+°F/);
   assert.match(wintersetText,/Bed-area comfort takes priority/);
-  assert.match(wintersetText,/70% rear \/ 30% front/);
+  assert.match(await page.locator('#planCard').textContent(),/70% rear \/ 30% front/);
   assert.doesNotMatch(wintersetText,/No suitable current setup|Overnight needs reassessment/);
   assert.equal(await page.evaluate(()=>lastPlan.winner.suitable&&lastPlan.winner.ready&&lastPlan.current===null),true);
   assert.equal(await page.evaluate(()=>lastPlan.winner.trials.every(t=>t.suitable&&t.moisture.humidMax===0&&+t.trace.at(-1).time===+lastPlan.bounds.end)),true);

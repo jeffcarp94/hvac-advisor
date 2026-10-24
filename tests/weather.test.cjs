@@ -90,7 +90,7 @@ test('editing ZIP clears the previous forecast, location, recommendation and set
     const a=app();fixture(a);a.run('analyze()');a.element('weatherLocation').textContent='Old city';
     a.run('locationEdited()');assert.equal(a.run('forecast.fetched'),false);
     assert.equal(a.element('weatherLocation').textContent,'');assert.equal(a.element('results').innerHTML,'');
-    assert.match(a.element('setpointDisplay').textContent,/Thermostat: day heat\/cool 70\/72/);
+    assert.match(a.element('setpointDisplay').textContent,/Bed-area targets: awake\/away 71°F/);
     assert.throws(()=>a.run('buildEnvelope(false)'),/Retrieve a forecast/);
 });
 

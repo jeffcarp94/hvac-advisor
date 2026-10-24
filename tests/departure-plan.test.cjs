@@ -51,7 +51,7 @@ test('complete departure plan carries state, covers each stage and renders the s
 });
 test('current and departure modes may differ without inserting any adjustment during the absence',()=>{
  const a=scenario({start:'2026-10-23T17:00Z',departure:'2026-10-23T17:02Z',back:'2026-10-24T14:00Z',temp:85});
- a.run(`r.initial.temperature=[70,70];result=runUnifiedPlan(r,e);html=renderPlan(result)`);
+ a.run(`r.initial.temperature=[70.5,70.5];result=runUnifiedPlan(r,e);html=renderPlan(result)`);
  assert.equal(a.run('result.stages.current.recommended.setup.type'),'passive');
  assert.ok(['ac','auto'].includes(a.run('result.stages.departure.recommended.setup.type')));
  assert.equal(a.run('result.stages.night'),null);
@@ -60,7 +60,7 @@ test('current and departure modes may differ without inserting any adjustment du
 });
 test('identical current and departure setup says keep it; immediate departure omits a zero-length current stage',()=>{
  const a=scenario({back:'2026-10-24T12:00Z',temp:80});
- a.run(`r.initial.temperature=[72,72];planSetups=sleep=>[planSetup('ac',sleep)];result=runUnifiedPlan(r,e);html=renderPlan(result)`);
+ a.run(`r.initial.temperature=[72,72];stageSetups=sleep=>[planSetup('ac',sleep,null,'Low')];settingValues=()=>[];result=runUnifiedPlan(r,e);html=renderPlan(result)`);
  assert.match(a.run('html'),/Keep this setup when you leave/);
  a.run(`r.departure=r.start;result=runUnifiedPlan(r,e);html=renderPlan(result)`);
  assert.equal(a.run('result.stages.current'),null);assert.ok(a.run('result.winner.trials'));

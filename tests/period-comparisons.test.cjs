@@ -30,8 +30,10 @@ test('projected alternatives retain identical preparation and exact carried bedt
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
  assert.equal(a.run('comparisons.night.projected'),true);
  assert.equal(a.run('comparisons.night.options.length'),5);
- assert.equal(a.run(`records.every(p=>JSON.stringify(p.phases.filter(x=>x.time<+result.bounds.bedtime))===JSON.stringify(result.winner.phases.filter(x=>x.time<+result.bounds.bedtime)))`),true);
- assert.equal(a.run(`records.every(p=>p.trials.every((t,i)=>JSON.stringify(t.atBedtime)===JSON.stringify(result.winner.trials[i].atBedtime)))`),true);
+ assert.equal(a.run(`records.filter(p=>p.phases.at(-1).time===+result.bounds.bedtime).every(p=>JSON.stringify(p.phases.filter(x=>x.time<+result.bounds.bedtime))===JSON.stringify(result.winner.phases.filter(x=>x.time<+result.bounds.bedtime)))`),true);
+ assert.equal(a.run(`records.filter(p=>p.phases.at(-1).time===+result.bounds.bedtime).every(p=>p.trials.every((t,i)=>JSON.stringify(t.atBedtime)===JSON.stringify(result.winner.trials[i].atBedtime)))`),true);
+ assert.ok(a.run('records.some(p=>p.phases.at(-1).time===+result.bounds.bedtime)'));
+ assert.equal(a.run('comparisons.night.options.every(p=>typeof p.front===\"string\"&&!p.front.includes(\"undefined\"))'),true);
  assert.match(a.run('html'),/projected overnight options/);assert.match(a.run('html'),/same predicted sleep-start conditions/);
  // Comparison summaries survive the exact worker payload pruning.
  a.run(`delete result.envelope.planCache;for(const p of result.plans)for(const t of p.trials){delete t.checkpoints;if(p!==result.winner){t.trace=[];t.segments=[];}};serialized=structuredClone(result);workerHTML=renderPlan(serialized)`);

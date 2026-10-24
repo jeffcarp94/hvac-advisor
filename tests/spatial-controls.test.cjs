@@ -47,7 +47,20 @@ test('AUTO control keeps actual selected deadband independently of the bedroom t
  a.run(`env.tOut=40;p=thermalStep('auto',64,env,s.setpoints,2)`);close(a.run('p.segments[0].t1'),62);close(a.run('p.segments[1].t1'),64);
 });
 test('planned cabinet isolation has no invented numeric correction or insulation credit',()=>{
- const a=scenario();assert.equal(a.run('state.thermostatIsolated'),false);assert.match(a.run('spatialModelText()'),/planned/);
+ const a=scenario();assert.equal(a.run('state.thermostatIsolated'),false);assert.match(a.run('spatialModelText(true)'),/planned/);
  a.run(`before=simulatePlan([{time:+r.start,setup:withSetting(planSetup('furnace',true),63)}],e,r,AIR_SCENARIOS[0],rows);state.thermostatIsolated=true;after=simulatePlan([{time:+r.start,setup:withSetting(planSetup('furnace',true),63)}],e,r,AIR_SCENARIOS[0],rows)`);
- assert.deepEqual(a.run('before.finalZones'),a.run('after.finalZones'));assert.match(a.run('spatialModelText()'),/installed/);
+ assert.deepEqual(a.run('before.finalZones'),a.run('after.finalZones'));assert.match(a.run('spatialModelText(true)'),/installed/);
+});
+
+test('unchanged effective controls preserve AUTO cycle and cached state across a stage label',()=>{
+ const a=scenario();a.run(`r.initial.temperature=[67,67];state.temp=80;e=makeEnvelope(r.start,planBounds(r.start,r).end,'Cycle continuity',300000);
+ to=+r.start+60*60000;rows=planRows(e,r,.5,[to]).filter(x=>x.to<=to);
+ first=withSetting(planSetup('auto',true),67);second=withSetting(planSetup('auto',false,null,'Low'),67);
+ direct=simulatePlan([{time:+r.start,setup:first}],e,r,AIR_SCENARIOS[0],rows);
+ split=[{time:+r.start,setup:first},{time:+r.start+7*60000,setup:second}];
+ divided=simulatePlan(split,e,r,AIR_SCENARIOS[0],rows);e.planCache=new Map();cached=evaluatePlan(split,e,r,rows);`);
+ assert.equal(a.run('sameSetup(first,second)'),true);
+ assert.deepEqual(a.run('direct.finalZones'),a.run('divided.finalZones'));
+ assert.deepEqual(a.run('divided.finalZones'),a.run('cached.trials[0].finalZones'));
+ assert.equal(a.run('direct.coolMinutes'),a.run('divided.coolMinutes'));
 });
