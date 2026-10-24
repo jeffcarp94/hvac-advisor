@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.0.1 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.4.1 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -97,7 +97,7 @@
         .sensor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;} .sensor-title{font-size:14px;font-weight:800;margin:7px 0;}
         .hint{font-size:12px;line-height:1.5;color:var(--text-secondary);margin:7px 0;} details>summary{cursor:pointer;font-size:13px;font-weight:700;padding:8px 0;} details .diag-title{margin-top:8px;}
         .minor-btn{background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:12px;cursor:pointer;}
-        .plan-step{border-left:3px solid var(--accent-blue);padding:0 0 16px 12px;margin:12px 0;} .plan-time{font-family:var(--font-mono);font-size:12px;color:var(--accent-blue);margin-bottom:5px;} .plan-step p{font-size:13px;line-height:1.55;margin:5px 0;} .plan-metrics{font-size:12px;line-height:1.6;color:var(--text-secondary);margin-top:10px;}
+        .plan-stage{margin:18px 0;padding-top:14px;border-top:1px solid var(--border);}.plan-stage h3{font-size:15px;margin-bottom:8px;}.plan-stage .result-primary{font-size:20px;} .plan-step{border-left:3px solid var(--accent-blue);padding:0 0 16px 12px;margin:12px 0;} .plan-time{font-family:var(--font-mono);font-size:12px;color:var(--accent-blue);margin-bottom:5px;} .plan-step p{font-size:13px;line-height:1.55;margin:5px 0;} .plan-metrics{font-size:12px;line-height:1.6;color:var(--text-secondary);margin-top:10px;}
         .result-card-header{gap:8px;flex-wrap:wrap;} .diag-row{gap:12px;} .diag-row span:last-child{text-align:right;} .result-detail-label{min-width:76px;} .setpoint-display{line-height:1.65;margin-top:12px;color:var(--text-secondary);}
         button:disabled{opacity:.6;cursor:default;} :focus-visible{outline:2px solid var(--accent-blue);outline-offset:3px;} .input-unit{color:var(--text-secondary);} .result-card-title{font-size:13px;}
     </style>
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.0.1</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.4.1</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -128,7 +128,7 @@
         <div id="weatherLocation" style="font-size:12px;color:var(--accent-cyan);margin-top:4px;font-weight:600;display:none;"></div>
     </div>
 
-    <div class="setpoint-display" id="setpointDisplay">Day: heat 70°F / cool 72°F · Sleep: heat 66°F / cool 68°F</div>
+    <div class="setpoint-display" id="setpointDisplay">Bed-area targets: awake/away 71°F (68–73°F); sleeping 67°F (65–69°F). Thermostat settings are selected in your plan.</div>
     <div class="input-section">
         <div class="input-section-title" id="indoorHeading">Inside the RV now</div>
         <div class="sensor-grid">
@@ -154,13 +154,14 @@
         <div id="returnFields" hidden><label class="field">Approximate return<input id="returnTime" type="datetime-local" onchange="planInputsChanged()"></label><p class="hint">Zero occupant heat or moisture while away. Comfort targets stay unchanged. Physical window and fan settings must remain fixed until return.</p></div>
     </div>
     <details class="input-section" id="planningOptions"><summary>Equipment & planning options</summary>
+        <label class="field"><input type="checkbox" id="thermostatIsolation" style="display:inline;width:auto" onchange="state.thermostatIsolated=this.checked;planInputsChanged()"> Thermostat cabinet isolation installed</label>
         <label class="field">Portable dehumidifier<select id="dehumidifierMode" onchange="equipmentInputsChanged()"><option value="enabled">Enabled — 50% RH setting</option><option value="off">Off</option></select></label>
         <p class="hint">MCD day shades remain down. One MaxxFan at a time. Active heating or cooling requires closed windows and closed/off MaxxFans.</p>
         <label class="field"><input id="remoteAccess" type="checkbox" onchange="planInputsChanged()" style="display:inline;width:auto"> Remote thermostat access is available</label>
         <p class="hint">Future capability; off for your current equipment. Read remote sensors in their app and enter values here. This app does not connect to or control equipment.</p>
         <div id="actualSetup" hidden>
           <label class="field">Current thermostat mode<select id="actualMode" onchange="planInputsChanged()"><option value="passive">OFF</option><option value="ac">COOL</option><option value="hp">HEAT PUMP</option><option value="furnace">FURNACE</option><option value="auto">AUTO changeover</option><option value="maxxfan">OFF — MaxxFan in AUTO</option></select></label>
-          <label class="field">Current setpoint (°F)<input id="actualSetpoint" type="number" value="72" min="55" max="85" onchange="planInputsChanged()"></label>
+          <label class="field">Current setpoint (°F)<input id="actualSetpoint" type="number" value="72" min="40" max="90" onchange="planInputsChanged()"></label>
           <label class="field">Current HVAC fan<select id="actualFan" onchange="planInputsChanged()"><option>Auto</option><option>Low</option><option>Medium</option><option>High</option></select></label>
           <label class="field">Active MaxxFan<select id="actualVent" onchange="planInputsChanged()"><option value="1">Mid-coach</option><option value="0">Bedroom</option></select></label>
           <div id="actualWindows"></div>
@@ -206,14 +207,87 @@
     <div id="resultStatus" role="status" aria-live="polite" style="font-size:12px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px;"></div>
     <div class="results" id="results"></div>
 
-    <div class="footer-note">Coach House Platinum III 250 DT · Day heat/cool 70/72°F · Sleep heat/cool 66/68°F · Bedtime readiness at 10 PM.</div>
+    <div class="footer-note">Coach House Platinum III 250 DT · Bed-area targets: awake/away 71°F; sleeping 67°F · Mode-specific thermostat settings appear in your plan.</div>
 </div>
 
 <script>
-let state={dehumidifierEnabled:true,indoorRH:null,weatherMode:'manual',period:'plan',temp:78,rh:65,cloud:1.0,wind:5,precip:'none',indoor:72,indoorCurrent:72};
+let state={thermostatIsolated:false,dehumidifierEnabled:true,indoorRH:null,weatherMode:'manual',period:'plan',temp:78,rh:65,cloud:1.0,wind:5,precip:'none',indoor:72,indoorCurrent:72};
 let forecast={day:null,night:null,location:null,fetched:false,tempVals:null,humVals:null};
 
-const M={volumeFt3:[440,660],fraction:[.4,.6],mixCFM:60,ductMixCFM:120,
+// Owner floor plan 31808.jpg: pixel stations and the 73-inch bed reference.
+// Coach headroom: supplied Coach House model manual p. dimensions. Cab height
+// and relative body conductance are engineering sensitivity assumptions.
+const GEOMETRY=(()=>{
+    const ftPerPixel=73/(1322-960)/12,coachHeight=76/12,cabHeight=5.5;
+    const rearFloor=(1484-960)*(550-90)*ftPerPixel**2;
+    const frontBodyFloor=(960-490)*(550-90)*ftPerPixel**2;
+    const cabFloor=(490-220)*(505-155)*ftPerPixel**2;
+    const volume=[rearFloor*coachHeight,frontBodyFloor*coachHeight+cabFloor*cabHeight];
+    const total=volume[0]+volume[1],cabLength=(490-220)*ftPerPixel,cabWidth=(505-155)*ftPerPixel;
+    return Object.freeze({ftPerPixel,rearFloor,frontBodyFloor,cabFloor,coachHeight,cabHeight,
+        volume:Object.freeze(volume),fraction:Object.freeze(volume.map(v=>v/total)),
+        rearBodyFraction:rearFloor/(rearFloor+frontBodyFloor),
+        cabExposedArea:2*cabFloor+(cabWidth+2*cabLength)*cabHeight});
+})();
+// Anchor the nominal component conductances to the retained working estimate.
+// Vary cab conduction independently: insulation uncertainty must change total UA.
+// These are effective engineering assumptions, not certified assembly R-values.
+function envelopeAllocation(cabFactor=3){
+    const cabGlass=C.glassArea*C.cabGlassFraction,bodyGlass=C.glassArea-cabGlass;
+    const cabOpaque=Math.max(0,GEOMETRY.cabExposedArea-cabGlass),bodyOpaque=C.shellArea-cabOpaque;
+    const shellUA=C.shellArea/C.rShell,anchorDenominator=bodyOpaque+3*cabOpaque;
+    const cabVolume=GEOMETRY.cabFloor*GEOMETRY.cabHeight,bodyVolume=M.volumeFt3.reduce((a,b)=>a+b)-cabVolume;
+    const cabLeak=1.08*cabVolume*M.baseACH/60,bodyLeak=1.08*bodyVolume*M.baseACH/60;
+    const bodyConduction=shellUA*bodyOpaque/anchorDenominator-bodyLeak;
+    const cabConduction=(shellUA*3*cabOpaque/anchorDenominator-cabLeak)*cabFactor/3;
+    const cabUA=cabConduction+cabGlass/C.rGlass+cabLeak;
+    const bodyUA=bodyConduction+bodyGlass/C.rGlass+bodyLeak;
+    const rear=bodyUA*GEOMETRY.rearBodyFraction,total=cabUA+bodyUA;
+    return{rear,front:total-rear,cab:cabUA,body:bodyUA,cabOpaque,bodyOpaque,total,
+        bodyConduction,cabConduction,bodyLeak,cabLeak,bodyGlass,cabGlass,
+        bodyEffectiveR:bodyOpaque/bodyConduction,cabEffectiveR:cabOpaque/cabConduction};
+}
+function envelopeAudit(){
+    const e=envelopeAllocation(),floor=GEOMETRY.rearFloor+GEOMETRY.frontBodyFloor;
+    const length=(1484-490)*GEOMETRY.ftPerPixel,width=(550-90)*GEOMETRY.ftPerPixel,h=GEOMETRY.coachHeight;
+    const cabWidth=(505-155)*GEOMETRY.ftPerPixel;
+    const planBodyGross=2*floor+2*length*h+width*h+(width*h-cabWidth*GEOMETRY.cabHeight);
+    const planGross=planBodyGross+GEOMETRY.cabExposedArea,assumedGross=C.shellArea+C.glassArea;
+    // R-18 is a historical shell-lining claim. Floor, cab, glazing and leakage
+    // retain baseline assumptions in this optimistic diagnostic, not a plan trial.
+    const floorConduction=floor/e.bodyEffectiveR,wallRoofOpaque=e.bodyOpaque-floor;
+    const lining18UA=e.cab+e.bodyGlass/C.rGlass+e.bodyLeak+floorConduction+wallRoofOpaque/18;
+    return{nominalUA:e.total,lowCabUA:envelopeAllocation(1.5).total,highCabUA:envelopeAllocation(4.5).total,
+        bodyEffectiveR:e.bodyEffectiveR,cabEffectiveR:e.cabEffectiveR,leakUA:e.bodyLeak+e.cabLeak,
+        planGross,assumedGross,areaDifferencePct:100*(assumedGross/planGross-1),lining18UA,
+        lining18ReductionPct:100*(1-lining18UA/e.total),mass:UA_BASE*C.tau};
+}
+function envelopeAuditText(){
+    const a=envelopeAudit();
+    return '<p class="hint">Envelope estimate: '+a.nominalUA.toFixed(1)+' BTU/hr per °F, before wind. Cab-conduction sensitivity: '+a.lowCabUA.toFixed(1)+'–'+a.highCabUA.toFixed(1)+'. '+
+        'The historical R-18 shell-lining claim is not a whole-RV assembly rating. Applying it to the RV walls/roof only would give '+a.lining18UA.toFixed(1)+' with the same floor, cab, glass and leakage assumptions. '+
+        'That is an optimistic comparison, not a calibrated prediction or a separate comfort test. Magneshades receive no insulation credit.</p>';
+}
+function solarAllocation(total,cabFactor=3){
+    const e=envelopeAllocation(cabFactor),nominal=envelopeAllocation();
+    const shell=C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac;
+    const cabGlass=C.cabGlassFraction*C.glassArea*C.cabGlassSHGC*C.solarPeak*C.glassSunFrac;
+    const bodyGlass=(1-C.cabGlassFraction)*C.glassArea*C.coachDayGlassSHGC*C.solarPeak*C.glassSunFrac;
+    const denominator=shell+cabGlass+bodyGlass;if(!denominator)return[0,0];
+    // Common effective sol-air exposure; poor insulation transmits more opaque
+    // solar heat. Retain nominal total gain and existing glazing/shade estimates.
+    const conductance=nominal.bodyConduction+nominal.cabConduction;
+    const body=bodyGlass+shell*e.bodyConduction/conductance;
+    const cab=cabGlass+shell*e.cabConduction/conductance;
+    const rear=body*GEOMETRY.rearBodyFraction;
+    return[total*rear/denominator,total*(body+cab-rear)/denominator];
+}
+function zoneHeatGains(internal,solar,hvac,operation,solarWeights=null){
+    const weights=solarWeights||solarAllocation(1),delivery=operation==='furnace'?[.7,.3]:M.fraction;
+    return M.fraction.map((f,z)=>internal*f+solar*weights[z]+hvac*delivery[z]);
+}
+
+const M={volumeFt3:GEOMETRY.volume,fraction:GEOMETRY.fraction,mixCFM:60,ductMixCFM:120,
     discharge:.6,screenFactor:.65,fanShutoffPa:40,interzoneArea:.8,
     surfaceFactor:.8,dewpointMargin:2,surfaceRHLimit:80,surfaceMinutes:30,
     humidLimit:65,humidMinutes:30,recoveryMinutes:30,warmMinutes:30,
@@ -235,9 +309,6 @@ const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:3
     shellSunFrac:0.50,glassSunFrac:0.50,
     tau: 2.0, // Still-air baseline; C_eff = UA_BASE * tau stays fixed as UA changes.
     dayCoolDefault:72,nightCoolDefault:68,dayHeatDefault:70,nightHeatDefault:66,comfortFloor:65,
-    nightBandLow:66,nightBandHigh:70,
-    dayHeatBandLow:68,dayHeatBandHigh:72,
-    dayCoolBandLow:70,dayCoolBandHigh:72,
     warmPenalty:2.0,coldPenalty:1.0,
     maxxFanMinOutdoor:65,  // Existing full-period open-window ventilation preference
     maxxFanSetNight:70,
@@ -252,11 +323,6 @@ const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:3
     // v4.0 Current tab constants
     currentCoolTarget:72,        // Cooling target for Current tab (drive cabin down to here)
     currentHeatTarget:70,        // Heating target for Current tab (drive cabin up to here)
-    currentMorningStartH:7,      // Morning transition window: 07:00 (inclusive)
-    currentMorningEndH:10,       // Morning transition window: 10:00 (exclusive, with 1-min buffer)
-    currentEveningStartH:19,     // Evening transition window: 19:00 (inclusive)
-    currentEveningEndH:22,       // Evening transition window: 22:00 (exclusive, with 1-min buffer)
-    currentBufferMin:1,          // 1-minute buffer before considering time inside next interval
     // Shared sensible-cooling estimate: 75% of 15,000 BTU/hr total. The supplied
     // Dometic manual does not publish a sensible map. This is a working assumption,
     // not an ASHRAE requirement or a manufacturer-verified capacity at all conditions.
@@ -465,7 +531,7 @@ function forecastPeriodsFor(start,end){
 function applyForecast(period){
     if(state.weatherMode!=='forecast'||!forecast.fetched)return;
     let preview=new Date();if(period==='plan'&&document.getElementById('planningMode').value==='future'){try{preview=parseLocalInput(document.getElementById('futureStart').value,'planning start');}catch{}}
-    const win=period==='plan'?{start:preview,end:planBounds(preview).end}:period==='current'?currentTransitionWindow(new Date()):computeWindow(period==='night');
+    const win=period==='plan'?{start:preview,end:planningBounds(preview).end}:period==='current'?currentTransitionWindow(new Date()):computeWindow(period==='night');
     const start=period==='current'?Date.now():win.start.getTime(),end=period==='current'?(win.windowEnd?.getTime()||start+1):win.end.getTime();
     const periods=forecast.periods.filter(p=>p.end>start&&p.start<end);
     const temps=forecast.intervals.temperature.filter(v=>v.end>start&&v.start<end&&v.value!==null),rhs=forecast.intervals.humidity.filter(v=>v.end>start&&v.start<end&&v.value!==null);
@@ -627,13 +693,12 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
 }
 
 function simulationComfort(sim,isOvernight,current=false){
-    const low=current?C.currentHeatTarget:isOvernight?C.nightBandLow:C.dayHeatBandLow;
-    const high=current?C.currentCoolTarget:isOvernight?C.nightBandHigh:C.dayCoolBandHigh;
+    const {low,high}=comfortPolicy(isOvernight);
     const min=Math.min(...sim.trace.map(p=>p.indoor));
     const floorCompliant=min>=C.comfortFloor-1e-8;
-    const endInBand=sim.finalIndoor>=low-.5-1e-8&&sim.finalIndoor<=high+.5+1e-8;
+    const endInBand=sim.finalIndoor>=low-1e-8&&sim.finalIndoor<=high+1e-8;
     return{floorCompliant,endInBand,comfortLow:low,comfortHigh:high,
-        comfortReason:!floorCompliant?'Predicted below the '+C.comfortFloor+'°F comfort floor':!endInBand?'Finishes outside the '+low+'–'+high+'°F band (±0.5°F tolerance)':''};
+        comfortReason:!floorCompliant?'Predicted below the '+C.comfortFloor+'°F comfort floor':!endInBand?'Finishes outside the '+low+'–'+high+'°F band':''};
 }
 function operatingAssumptions(mode,fan){
     return 'Two connected cabin zones; indoor moisture is simulated. '+(state.indoorRH==null?'Starting indoor RH is estimated. ':'Starting indoor RH is entered. ')
@@ -742,7 +807,7 @@ function predictIndoor(candidateType,tOut,wind,cf,isDay,meta,setpoints,solarCtx,
 function predictIndoorTransient(mode,tOut,wind,cf,isDay,meta,setpoints,solarCtx,tInPrev,dtHours){
     return predictIndoor(mode,tOut,wind,cf,isDay,meta,setpoints,solarCtx,tInPrev,dtHours??.25);
 }
-function comfortBand(mode,isOvernight,env){return{low:isOvernight?C.nightBandLow:C.dayHeatBandLow,high:isOvernight?C.nightBandHigh:C.dayCoolBandHigh};}
+function comfortBand(mode,isOvernight,env){return comfortPolicy(isOvernight);}
 function segmentComfort(segment,band){
     const cuts=[0,segment.hours];
     for(const threshold of [band.low,band.high]){
@@ -1001,25 +1066,9 @@ function comparisonRow(c,winner,setpoints,end,isOvernight,current=false,target=n
     return '<div class="comparison-row"><div class="comparison-name">'+label+'</div><div class="comparison-text">'+comparisonExplanation(c,winner,setpoints,end,isOvernight,current,target)+'</div>'+(c.equipmentEligible?'<div class="comparison-range">Expected indoor temperature: '+min+'–'+max+'°F.</div>':'')+'</div>';
 }
 function currentTransitionWindow(now){
-    const parts=localParts(now),h=parts.hour,m=parts.minute;
-    const mStart=C.currentMorningStartH, mEnd=C.currentMorningEndH;
-    const eStart=C.currentEveningStartH, eEnd=C.currentEveningEndH;
-    const buf=C.currentBufferMin;
-    // Morning active: 07:00:00 ≤ now < 09:59:00
-    if(h>=mStart && (h<mEnd-1 || (h===mEnd-1 && m<60-buf))){
-        return{active:true,period:'morning',label:'Morning',windowEnd:localDateTime(parts,mEnd),redirectTab:null};
-    }
-    // Evening active: 19:00:00 ≤ now < 21:59:00
-    if(h>=eStart && (h<eEnd-1 || (h===eEnd-1 && m<60-buf))){
-        return{active:true,period:'evening',label:'Evening',windowEnd:localDateTime(parts,eEnd),redirectTab:null};
-    }
-    // Inactive: redirect.
-    // Daytime interval defined as 10:00 ≤ now < 19:00 (or :59 of 18 with buffer).
-    // Overnight is everything else (22:00–06:59, with buffer rolling at 21:59).
-    if(h>=mEnd && h<eStart) return{active:false,period:null,label:null,windowEnd:null,redirectTab:'day'};
-    if(h===mEnd-1 && m>=60-buf) return{active:false,period:null,label:null,windowEnd:null,redirectTab:'day'};
-    if(h===eEnd-1 && m>=60-buf) return{active:false,period:null,label:null,windowEnd:null,redirectTab:'night'};
-    return{active:false,period:null,label:null,windowEnd:null,redirectTab:'night'};
+    const parts=localParts(now),awake=parts.hour>=7&&parts.hour<22;
+    return{active:awake,period:awake?'day':null,label:awake?'Daytime':null,
+        windowEnd:awake?localDateTime(parts,22):null,redirectTab:awake?null:'night'};
 }
 
 function lookupEnvelopeAt(envelope,simTime){
@@ -1081,10 +1130,111 @@ const WINDOW_SECTIONS=[
     {id:'dinette1',name:'dinette window, first section',zone:1,side:-1,width:21.625,height:10.5},
     {id:'dinette2',name:'dinette window, second section',zone:1,side:-1,width:21.625,height:10.5}];
 const AIR_SCENARIOS=[
-    {name:'working estimate',flow:1,windSign:0,mix:1,rhOffset:0,tempOffset:0,surfaceFactor:.8},
-    {name:'restricted airflow / warmer',flow:.7,windSign:1,mix:.7,rhOffset:5,tempOffset:2,surfaceFactor:.85},
-    {name:'greater airflow / cooler',flow:1.2,windSign:-1,mix:1.3,rhOffset:5,tempOffset:-2,surfaceFactor:.9}];
-function confirmedSetpoints(isOvernight){return isOvernight?{heat:66,cool:68,auto:67,fan:68}:{heat:70,cool:72,auto:71,fan:72};}
+    {name:'working estimate',flow:1,windSign:0,mix:1,rhOffset:0,tempOffset:0,surfaceFactor:.8,cabFactor:3},
+    {name:'restricted airflow / warmer',flow:.7,windSign:1,mix:.7,rhOffset:5,tempOffset:2,surfaceFactor:.85,cabFactor:4.5},
+    {name:'greater airflow / cooler',flow:1.2,windSign:-1,mix:1.3,rhOffset:5,tempOffset:-2,surfaceFactor:.9,cabFactor:1.5}];
+const COMFORT=Object.freeze({tolerance:.5,
+    sleeping:Object.freeze({low:65,high:69,target:67}),
+    nonSleeping:Object.freeze({low:68,high:73,target:71})});
+function comfortPolicy(sleeping){return sleeping?COMFORT.sleeping:COMFORT.nonSleeping;}
+function targetPenalty(temperature,sleeping,mode,operation='off'){
+    const p=comfortPolicy(sleeping),delta=temperature-p.target,miss=Math.max(0,Math.abs(delta)-COMFORT.tolerance);
+    if(miss<=1e-9)return 0;
+    const heating=['hp','furnace'].includes(mode)||mode==='auto'&&['hp','furnace'].includes(operation);
+    const cooling=['ac','maxxfan'].includes(mode)||mode==='auto'&&operation==='ac';
+    const below=p.target-p.low-COMFORT.tolerance,above=p.high-p.target-COMFORT.tolerance;
+    // Preferred-side misses occupy 0..1 across the allowed band. An opposite-
+    // side miss starts above 1, so it cannot beat a preferred-side steady result.
+    if(heating)return delta<0?miss/below:1+miss/above;
+    if(cooling)return delta>0?miss/above:1+miss/below;
+    return miss/Math.max(below,above); // OFF and idle AUTO have no directional bias.
+}
+function targetMetrics(trials,from=-Infinity,to=Infinity){
+    const profiles=trials.map(t=>{
+        let loss=0,absolute=0,hours=0;
+        for(const s of t.segments||[]){
+            const duration=Math.max(0,Math.min(to,s.endMs)-Math.max(from,s.startMs))/3600000;
+            if(!duration||!Number.isFinite(s.targetPenalty))continue;
+            hours+=duration;loss+=duration*s.targetPenalty;absolute+=duration*s.targetAbsolute;
+        }
+        return hours?{rank:loss/hours,deviation:absolute/hours}:null;
+    }).filter(Boolean);
+    return profiles.length?{...frontMetrics(trials,from,to),targetRank:Math.max(...profiles.map(p=>p.rank)),targetDeviation:Math.max(...profiles.map(p=>p.deviation))}:{};
+}
+function compareTarget(a,b){return Number.isFinite(a.targetRank)&&Number.isFinite(b.targetRank)?a.targetRank-b.targetRank:0;}
+function frontMetrics(trials,from=-Infinity,to=Infinity){
+    const values=trials.map(t=>{
+        let outside=0,excess=0;
+        for(const s of t.segments||[]){
+            const duration=Math.max(0,Math.min(to,s.endMs)-Math.max(from,s.startMs,+(t.start||0)+M.recoveryMinutes*60000))/3600000;
+            if(!duration||!Number.isFinite(s.frontTemperature))continue;
+            const delta=Math.max(0,s.comfortLow-s.frontTemperature,s.frontTemperature-s.comfortHigh);
+            if(delta>1e-6)outside+=duration;
+            excess+=duration*delta;
+        }
+        return{outside,excess};
+    });
+    return{frontFits:values.every(v=>v.outside===0),frontExcess:Math.max(0,...values.map(v=>v.excess))};
+}
+function compareFront(a,b){return typeof a.frontFits==='boolean'&&typeof b.frontFits==='boolean'?Number(!a.frontFits)-Number(!b.frontFits):0;}
+function withSetting(setup,value){
+    const field=setup.type==='auto'?'auto':setup.type==='ac'?'cool':setup.type==='maxxfan'?'fan':'heat';
+    const setpoints={...setup.setpoints,[field]:value};
+    return{...setup,setpoints,key:[setup.type,setup.sleepComfort,setup.fan,JSON.stringify(setpoints),setupPhysicalKey(setup)].join('|')};
+}
+function settingValues(setup){
+    if(setup.type==='passive')return [];
+    const policy=comfortPolicy(setup.sleepComfort);
+    // CCC2 manual p.9: heat 40–90°F; cooling 55–90°F. AUTO respects cooling minimum.
+    // MaxxFan candidates use the room comfort interval, not a fictitious roof-AC mode.
+    const low=setup.type==='maxxfan'?policy.low:['hp','furnace'].includes(setup.type)?40:55;
+    const high=setup.type==='maxxfan'?policy.high:90;
+    return Array.from({length:high-low+1},(_,i)=>low+i);
+}
+function optimizePhase(plan,index,envelope,request,rows,from=+request.start,to=+planBounds(request.start,request).end,stageEvaluate=null){
+    const base=plan.phases[index].setup,values=settingValues(base);if(!values.length)return plan;
+    if(plan.trials.some(t=>t.failureTime!=null&&t.failureTime<plan.phases[index].time))return plan;
+    const field=base.type==='auto'?'auto':base.type==='ac'?'cool':base.type==='maxxfan'?'fan':'heat';
+    const candidates=values.filter(v=>v!==base.setpoints[field]);
+    const coarseRows=planRows(envelope,request,3,[from,to,...plan.phases.map(p=>p.time)]).filter(row=>row.to<=to);
+    const screened=candidates.map(value=>{
+        const phases=plan.phases.map((p,i)=>i===index?{...p,setup:withSetting(base,value)}:p);
+        const t=simulatePlan(phases,envelope,request,AIR_SCENARIOS[0],coarseRows);
+        const p=planFromTrials(phases,[t],envelope,request);
+        if(to<(+planBounds(request.start,request).bedtime||Infinity))p.ready=true;
+        Object.assign(p,targetMetrics([t],from,to));return{value,plan:p};
+    }).sort((a,b)=>comparePlans(a.plan,b.plan));
+    let best=plan,tested=0;
+    for(const candidate of screened.filter((c,i)=>i<3||c.plan.suitable)){
+        const phases=plan.phases.map((p,i)=>i===index?{...p,setup:withSetting(base,candidate.value)}:p);
+        const next=stageEvaluate?stageEvaluate(phases[index].setup):evaluatePlan(phases,envelope,request,rows);
+        if(comparePlans(next,best)<0)best=next;
+        tested++;
+        // Verify the best three plus every nominally qualified candidate until
+        // a robust option is found. Grossly failed nominal controls need not
+        // repeat their complete trajectory in every sensitivity scenario.
+        if(tested>=3&&best.suitable&&(best.ready||from>=+(planBounds(request.start,request).bedtime||request.start)))break;
+    }
+    return best;
+}
+function optimizeSequence(plan,envelope,request,rows,minTime=+request.start){
+    let best=plan;
+    for(let i=0;i<best.phases.length;i++)if(best.phases[i].time>=minTime)best=optimizePhase(best,i,envelope,request,rows);
+    return best;
+}
+function spatialModelText(detailed=false){
+    if(!detailed)return '<p class="hint">Bed-area comfort takes priority. The front thermostat controls the equipment; its setting may differ from your indoor target.</p>';
+    return '<p class="hint">'+
+        'Overhead delivery is uniform by volume; furnace delivery is 70% rear / 30% front. The open Ford cab contributes separate front-area heat loss and solar gain. Magneshades reduce solar gain only. Cabinet-void isolation is '+(state.thermostatIsolated?'installed':'planned')+'; no guessed sensor offset is applied.</p>'+envelopeAuditText();
+}
+function frontOutlook(trials,from,to){
+    const points=trials.flatMap(t=>t.trace.filter(p=>+p.time>=from&&+p.time<=to));
+    const misses=points.filter(p=>{const policy=comfortPolicy(p.sleep);return p.midCoach<policy.low-.05||p.midCoach>policy.high+.05;});
+    if(!misses.length)return '<p class="hint">Dinette predictions stay within their comfort bands in this interval. Bedroom ranges are shown separately.</p>';
+    return '<p class="hint"><strong>Dinette comfort differs:</strong> predicted '+Math.min(...points.map(p=>p.midCoach)).toFixed(1)+'–'+Math.max(...points.map(p=>p.midCoach)).toFixed(1)+'°F. Bed-area comfort is prioritized; the dinette leaves the applicable comfort band.</p>';
+}
+
+function confirmedSetpoints(isOvernight){const heat=isOvernight?C.nightHeatDefault:C.dayHeatDefault,cool=isOvernight?C.nightCoolDefault:C.dayCoolDefault;return{heat,cool,auto:(heat+cool)/2,fan:cool};}
 function currentTargets(now){return confirmedSetpoints(localParts(now).hour>=22||localParts(now).hour<7);}
 function targetDescription(now=new Date()){const p=currentTargets(now);return 'Current targets: heat '+p.heat+'°F / cool '+p.cool+'°F';}
 function openingArea(section,gap){
@@ -1210,7 +1360,10 @@ function scheduleWeather(envelope,start,end,maxStepMin=.5){
 }
 function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,options={}){
     const {start,end}=simulationBounds(envelope),rows=options.rows||scheduleWeather(envelope,start,end,options.maxStepMin||.5);
-    const scenario=options.scenario||AIR_SCENARIOS[0];let config=mode==='maxxfan'?(options.config||{fanZone:1,fanName:'Mid-coach MaxxFan',gaps:[0,0,0,4,0,0]}):null;
+    if(!rows.length||rows.some(row=>!Number.isFinite(row.dt)||row.dt<=0))throw new Error('The calculation needs positive-duration intervals. Rebuild the plan with valid times.');
+    const scenario=options.scenario||AIR_SCENARIOS[0];
+    const envelopeParts=envelopeAllocation(scenario.cabFactor??3),solarWeights=solarAllocation(1,scenario.cabFactor??3);
+    let config=mode==='maxxfan'?(options.config||{fanZone:1,fanName:'Mid-coach MaxxFan',gaps:[0,0,0,4,0,0]}):null;
     let sp={...setpoints,fan:setpoints.fan??setpoints.cool},maxFan=options.fanSetting||(isOvernight?'Low':'Auto');
     const initialRH=Math.max(5,Math.min(100,(state.indoorRH??rhFromRatio(startIndoor,humidityRatio(rows[0].tOut,rows[0].rh))*.85)+scenario.rhOffset));
     let t=options.initialZones?options.initialZones.temperature.slice():[startIndoor,startIndoor],w=options.initialZones?t.map((v,z)=>humidityRatio(v,Math.max(1,Math.min(100,options.initialZones.rh[z]+scenario.rhOffset)))):t.map(v=>humidityRatio(v,initialRH)),phase='off',score=0,hoursOut=0,draftScore=0;
@@ -1220,19 +1373,20 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     let condensedLb=0,humidRun=0,humidMax=0,surfaceRun=[0,0],surfaceMax=0,minMargin=Infinity,maxRH=0,minRH=100,maxSurfaceRH=0;
     let warmRun=0,warmMax=0,coldRun=0,coldMax=0,severeRun=0,severeMax=0,recovery=null,freezeRisk=null,condensationConcern=null,failureTime=null,comfortProblem=null,surfaceConcern=null;
     const unsafe=[],warnings=new Set(),trace=[],segments=[],mass=M.fraction.map(f=>UA_BASE*C.tau*f),airMass=M.volumeFt3.map(v=>v*.075);
-    let band={low:Math.max(65,sp.heat-2),high:sp.cool+1};const floor=C.comfortFloor;let lastSetup='';
+    let band=comfortPolicy(isOvernight);const floor=C.comfortFloor;let lastSetup=null;
     const record=(time,elapsed)=>{
-        const comfortT=isOvernight?t[0]:Math.max(...t),rh=t.map((v,z)=>rhFromRatio(v,w[z]));
-        trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],dewPoint:dpFromRatio(w[0]),midDewPoint:dpFromRatio(w[1]),water:w.slice(),sleep:isOvernight});
+        if([...t,...w].some(v=>!Number.isFinite(v)))throw new Error('Indoor prediction is not finite. Check the inputs and rebuild the plan.');
+        const comfortT=t[0],rh=t.map((v,z)=>rhFromRatio(v,w[z]));
+        trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],dewPoint:dpFromRatio(w[0]),midDewPoint:dpFromRatio(w[1]),water:w.slice(),sleep:options.sleepAt?options.sleepAt(time):isOvernight});
         return{comfortT,rh};
     };
-    const checkpoints=[],carry=options.carry;let runningMin=Math.min(...t);
+    const checkpoints=[],carry=options.carry;let runningMin=t[0];
     if(carry){
-        t=carry.t.slice();w=carry.w.slice();phase=carry.phase;
+        t=carry.t.slice();w=carry.w.slice();phase=carry.phase;lastSetup=carry.lastSetup||null;
         ({score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern}=carry);
         moistureTotals={...carry.moistureTotals};surfaceRun=carry.surfaceRun.slice();unsafe.push(...carry.unsafe);carry.warnings.forEach(w=>warnings.add(w));
     }
-    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),w:w.slice(),phase,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin)});};
+    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),w:w.slice(),phase,lastSetup,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin)});};
     record(carry?rows[0].from:start.getTime(),carry?(rows[0].from-start.getTime())/60000:0);
     // Surface estimates are output-only observations, including at the initial state.
     const moistureCheck=(weather,elapsed,dt,rh)=>{
@@ -1252,16 +1406,17 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const scheduled=options.controlAt?.(row.from);
         if(scheduled){
             mode=scheduled.type;sp={...scheduled.setpoints};config=scheduled.config||null;maxFan=scheduled.fan||'Auto';
-            isOvernight=row.sleeping||!!scheduled.sleepComfort;const comfortSP=confirmedSetpoints(isOvernight);band={low:Math.max(65,comfortSP.heat-2),high:comfortSP.cool+1};
-            if(lastSetup!==scheduled.key){phase='off';lastSetup=scheduled.key;}
+            isOvernight=!!row.sleeping&&row.occupants>0;band=comfortPolicy(isOvernight);
+            if(!lastSetup||!sameSetup(lastSetup,scheduled))phase='off';lastSetup=scheduled;
             meta=(row.sleeping?C.metaSleep:C.metaAwake)*(row.occupants/2);
         }
         // Owner-approved small-coach assumption: shared water content; retain both temperatures.
         const sharedW=mixedHumidityRatio(w);w=[sharedW,sharedW];
-        const out=row.tOut+scenario.tempOffset,dt=row.dt,elapsed=(row.to-start.getTime())/60000,previous=isOvernight?t[0]:Math.max(...t);
+        const previousZones=t.slice();
+        const out=row.tOut+scenario.tempOffset,dt=row.dt,elapsed=(row.to-start.getTime())/60000,previous=t[0];
         const sensed=config&&mode==='maxxfan'?t[config.fanZone]:options.frontControl?t[1]:isOvernight?t[0]:t[0]*.4+t[1]*.6;
-        const uaTotal=UA_BASE*(1+.02*row.wind),bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
-        const ua=M.fraction.map(f=>Math.max(0,uaTotal-1.08*bgTotal)*f);
+        const uaTotal=envelopeParts.total*(1+.02*row.wind),bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
+        const ua=[envelopeParts.rear,envelopeParts.front].map((u,z)=>Math.max(0,u*(1+.02*row.wind)-1.08*M.volumeFt3[z]*M.baseACH/60));
         let operation='off',q=0,duty=0;
         if(mode==='auto'){
             if(phase==='ac'&&sensed<=sp.auto+1e-6)phase='off';if(phase==='hp'&&sensed>=sp.auto-1e-6)phase='off';
@@ -1275,7 +1430,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
                 workRows.splice(rowIndex,1,{...row,to:cut,dt:defrostRemaining/60},{...row,from:cut,dt:dt-defrostRemaining/60});rowIndex--;continue;}
             operation='defrost';
         }
-        const initialGains=meta+priorDehumHeat+row.solar;
+        const initialGains=meta+priorDehumHeat+row.solar*(solarWeights[0]+solarWeights[1]);
         if(operation==='ac'||operation==='hp'||operation==='furnace'){
             const target=mode==='auto'?sp.auto:operation==='ac'?sp.cool:sp.heat;
             const capacity=operation==='ac'?C.acSensibleCapacity:operation==='furnace'?C.furnaceOutput:heatPumpCapacity(out);
@@ -1307,7 +1462,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const outdoorCFM=air.incoming.reduce((sum,q)=>sum+q,0),outdoorW=humidityRatio(out,row.rh);
         const moisture=mixedMoistureStep(sharedW,t[1],occupant-acRemoval,outdoorCFM,outdoorW,dt,state.dehumidifierEnabled);
         // Internal sensible gains share the small coach; location creates no bottleneck.
-        const internal=meta+row.solar+moisture.heatBTU+q,gains=M.fraction.map(f=>internal*f);
+        const gains=zoneHeatGains(meta+moisture.heatBTU,row.solar,q,operation,solarWeights);
         const nextT=coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,dt,1.08);
         if(mode==='auto'&&operation!=='defrost'&&dt>1/60000){
             const sense=values=>options.frontControl?values[1]:isOvernight?values[0]:values[0]*.4+values[1]*.6;
@@ -1333,7 +1488,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             t[coldZone]+=condensed*M.latentBTUPerLb/mass[coldZone];
             if(!condensationConcern)condensationConcern={time:new Date(row.to),zone:coldZone,source:'air',margin:0};}
         w=[nextW,nextW];
-        const now=record(row.to,elapsed),comfortT=now.comfortT,coldT=isOvernight?t[0]:Math.min(...t);
+        const now=record(row.to,elapsed),comfortT=now.comfortT,coldT=t[0];
         moistureCheck(out,elapsed,dt,now.rh);
         const outside=comfortT>band.high||coldT<band.low;
         if(outside)hoursOut+=dt;
@@ -1342,7 +1497,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         if(elapsed>M.recoveryMinutes){warmRun=comfortT>band.high?warmRun+dt*60:0;warmMax=Math.max(warmMax,warmRun);coldRun=coldT<band.low?coldRun+dt*60:0;coldMax=Math.max(coldMax,coldRun);severeRun=comfortT>band.high+1?severeRun+dt*60:0;severeMax=Math.max(severeMax,severeRun);}
         if(recovery===null&&comfortT<=band.high&&coldT>=band.low)recovery=elapsed;
         if(!comfortProblem){
-            const reason=Math.min(...t)<floor-1e-6?'Predicted temperature falls below 65°F.':elapsed>=M.recoveryMinutes&&recovery===null?'Does not reach acceptable temperature within 30 minutes.':coldRun>M.warmMinutes?'Remains below '+band.low+'°F for more than 30 minutes.':warmRun>M.warmMinutes?'Remains above '+band.high+'°F for more than 30 minutes.':severeRun>=M.severeWarmMinutes?'Remains above '+(band.high+1)+'°F for at least 15 minutes.':'';
+            const reason=t[0]<floor-1e-6?'Predicted bed-area temperature falls below 65°F.':elapsed>=M.recoveryMinutes&&recovery===null?'Does not reach acceptable temperature within 30 minutes.':coldRun>M.warmMinutes?'Remains below '+band.low+'°F for more than 30 minutes.':warmRun>M.warmMinutes?'Remains above '+band.high+'°F for more than 30 minutes.':severeRun>=M.severeWarmMinutes?'Remains above '+(band.high+1)+'°F for at least 15 minutes.':'';
             if(reason)comfortProblem={time:new Date(row.to),reason,low:band.low,high:band.high};
         }
         if(config&&isOvernight){const bedside=air.flows.reduce((a,v,i)=>a+(WINDOW_SECTIONS[i].bed?Math.max(0,v):0),0);
@@ -1351,13 +1506,16 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         didCool||=operation==='ac'&&duty>0;didHeat||=(operation==='hp'||operation==='furnace')&&duty>0;
         coolMinutes+=operation==='ac'?dt*60*duty:0;heatMinutes+=operation==='hp'||operation==='furnace'?dt*60*duty:0;
         heatingFloorLimited||=q>0&&out+(initialGains+q)/uaTotal<floor;
-        segments.push({t0:previous,t1:comfortT,startMs:row.from,endMs:row.to,hours:dt,operation,duty,circulation,eq:comfortT,tau:0,airflow:air.exhaust,mode,occupied:options.controlAt?row.occupants:2});
-        runningMin=Math.min(runningMin,...t);capture(row.to);
+        const targets=[0].map(z=>(previousZones[z]+t[z])/2);
+        const targetLoss=targets.reduce((sum,v)=>sum+targetPenalty(v,isOvernight,mode,operation),0)/targets.length;
+        const targetAbsolute=targets.reduce((sum,v)=>sum+Math.abs(v-band.target),0)/targets.length;
+        segments.push({frontTemperature:t[1],comfortLow:band.low,comfortHigh:band.high,targetPenalty:targetLoss,targetAbsolute,sleeping:isOvernight,t0:previous,t1:comfortT,startMs:row.from,endMs:row.to,hours:dt,operation,duty,circulation,eq:comfortT,tau:0,airflow:air.exhaust,mode,occupied:options.controlAt?row.occupants:2});
+        runningMin=Math.min(runningMin,t[0]);capture(row.to);
         if(options.stopOnFailure&&(unsafe.length||humidMax>M.humidMinutes||comfortProblem)){
             failureTime=unsafe[0]?.time?.getTime()??row.to;break;
         }
     }
-    const min=Math.min(carry?.min??Infinity,...trace.map(p=>isOvernight&&!options.controlAt?p.bedroom:Math.min(p.bedroom,p.midCoach))),finalIndoor=trace.at(-1).indoor;
+    const min=Math.min(carry?.min??Infinity,...trace.map(p=>p.bedroom)),finalIndoor=trace.at(-1).indoor;
     const surfaceWarning=surfaceConcern?'Estimated '+(surfaceConcern.zone===0?'bedroom':'front-zone')+' surface humidity reaches 80% for 30 minutes by '+formatTime(surfaceConcern.time)+'. This is surface RH, not room-air RH.':'';
     // Condensation/surface warnings must never gate, stop, score or rank a setup.
     const moistureReason=humidMax>M.humidMinutes?'Indoor RH exceeds 65% for '+Math.round(humidMax)+' consecutive minutes after recovery.':'';
@@ -1371,8 +1529,8 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         moisture:{condensedLb,initialWaterLb,finalWaterLb:w.reduce((sum,v,z)=>sum+v*airMass[z],0),totals:{...moistureTotals},dehumRuntimeMinutes,maxRH,minRH,minMargin,maxSurfaceRH,surfaceMax,humidMax,estimated:options.initialZones?false:state.indoorRH==null},surfaceWarning,surfaceConcern,condensationConcern,comfortProblem,recoveryMinutes:recovery,finalZones:{temperature:t.slice(),water:w.slice()},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
 }
 function profileCandidate(type,sim,setpoints){
-    const first=sim.unsafe[0],values=sim.trace.map(p=>p.indoor),min=sim.isOvernight?Math.min(...values):Math.min(...sim.trace.map(p=>Math.min(p.bedroom,p.midCoach))),max=Math.max(...values);
-    return{...sim,type,mode:type,optimizedSet:type==='auto'?setpoints.auto:type==='ac'||type==='maxxfan'?setpoints.cool:setpoints.heat,
+    const first=sim.unsafe[0],values=sim.trace.map(p=>p.indoor),min=Math.min(...sim.trace.map(p=>p.bedroom)),max=Math.max(...values);
+    return{...sim,...targetMetrics([sim]),type,mode:type,optimizedSet:type==='auto'?setpoints.auto:type==='ac'||type==='maxxfan'?setpoints.cool:setpoints.heat,
         indoorMin:+min.toFixed(1),indoorMax:+max.toFixed(1),indoorMedian:values.slice().sort((a,b)=>a-b)[Math.floor(values.length/2)],finalIndoor:+sim.finalIndoor.toFixed(1),
         hourly:sim.trace,simulationStart:sim.start,simulationEnd:sim.end,hoursOutOfBand:sim.hoursOut,fanSpeed:sim.maxFan,
         safe:sim.equipmentEligible,equipmentReason:first?.reason||'',equipmentIssueCode:first?.issueCode||'',equipmentMinimum:first?.minimum,
@@ -1386,7 +1544,7 @@ function modelCandidate(type,envelope,overnight,sp,meta,start,options={}){
     return profileCandidate(type,sim,sp);
 }
 function eligibilityRank(c){return c.suitable?0:c.equipmentEligible&&c.moistureEligible?1:c.equipmentEligible?2:3;}
-function compareCandidates(a,b){return eligibilityRank(a)-eligibilityRank(b)||a.score-b.score||modePreference(a)-modePreference(b);}
+function compareCandidates(a,b){return eligibilityRank(a)-eligibilityRank(b)||compareFront(a,b)||compareTarget(a,b)||a.score-b.score||modePreference(a)-modePreference(b);}
 function modePreference(c){return({passive:0,maxxfan:1,ac:2,hp:3,furnace:4,auto:5})[c.type];}
 function qualifyAcrossScenarios(candidate,envelope,overnight,sp,meta,start,rows,context={}){
     const trials=AIR_SCENARIOS.slice(1).map(scenario=>modelCandidate(candidate.type,envelope,overnight,sp,meta,start,{scenario,rows,config:candidate.config,...context}));
@@ -1481,7 +1639,7 @@ function renderRecommendation(id,title,result,isOvernight){return renderMethodRe
 
 // v6: a single measured-state plan. No network writes or equipment control.
 let planRevision=0,lastPlan=null,planBusy=false,formTimeZone=null,planWorker=null,cancelPlanWorker=null;
-const PLAN={searchMinutes:5,readinessTolerance:.5};
+const PLAN={searchMinutes:5};
 function escapeHTML(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function partsInZone(date,timeZone=analysisTimeZone()){return Object.fromEntries(dateFormatter({timeZone,year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'}).formatToParts(date).filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));}
 function inputDate(date,timeZone=analysisTimeZone()){const p=partsInZone(date,timeZone),pad=n=>String(n).padStart(2,'0');return p.year+'-'+pad(p.month)+'-'+pad(p.day)+'T'+pad(p.hour)+':'+pad(p.minute);}
@@ -1494,10 +1652,26 @@ function parseLocalInput(text,label,timeZone=analysisTimeZone()){
     if(p.year!==year||p.month!==month||p.day!==day||p.hour!==hour||p.minute!==minute)throw new Error(label+' is not a valid local time.');
     return result;
 }
-function planBounds(start){
+function planBounds(start,request=null){
     const p=localParts(start),sleep=p.hour<7||p.hour>=22;
-    const bedtime=sleep?null:localDateTime(p,22),end=localDateTime(p,7,p.hour<7?0:1);
-    return{start,end,bedtime,sleep};
+    let bedtime=sleep?null:localDateTime(p,22),end=localDateTime(p,7,p.hour<7?0:1);
+    let sleepFrom=bedtime||start,hasSleep=true,delayed=false;
+    if(request?.occupancy!=='staying'&&request?.returnTime&&request?.departure&&+request.departure<+end&&+request.returnTime>+sleepFrom){
+        delayed=true;
+        if(+request.returnTime>=+end){hasSleep=false;sleepFrom=null;bedtime=null;end=new Date(+request.returnTime);}
+        else{sleepFrom=new Date(+request.returnTime);bedtime=sleepFrom;}
+    }
+    return{start,end,bedtime,sleep:hasSleep&&+sleepFrom<=+start,sleepFrom,hasSleep,delayed};
+}
+function planningBounds(start){
+    // Weather preview can be refreshed while schedule fields are incomplete.
+    try{
+        const occupancy=document.getElementById('occupancyMode').value;
+        if(occupancy!=='leaving'&&occupancy!=='away')return planBounds(start);
+        const departure=occupancy==='away'?start:parseLocalInput(document.getElementById('departureTime').value,'departure');
+        const returnTime=parseLocalInput(document.getElementById('returnTime').value,'return');
+        return planBounds(start,{occupancy,departure,returnTime});
+    }catch{return planBounds(start);}
 }
 function isAwayAt(request,time){return request.occupancy!=='staying'&&time>=+request.departure&&time<+request.returnTime;}
 function planSetup(type,sleep,config=null,fan=null){
@@ -1506,17 +1680,20 @@ function planSetup(type,sleep,config=null,fan=null){
         key:[type,sleep,config?.fanZone,config?.gaps.join(','),fan].join('|')};
 }
 function setupPhysicalKey(setup){return setup.config?'windows:'+setup.config.gaps.join(',')+';vent:'+(setup.type==='maxxfan'?setup.config.fanZone:'off'):'closed';}
-function sameSetup(a,b){return a.type===b.type&&setupPhysicalKey(a)===setupPhysicalKey(b)&&(a.type==='passive'||JSON.stringify(a.setpoints)===JSON.stringify(b.setpoints)&&a.fan===b.fan);}
+function sameSetup(a,b){
+    if(a.type!==b.type||setupPhysicalKey(a)!==setupPhysicalKey(b))return false;
+    if(a.type==='passive')return true;
+    const field=a.type==='auto'?'auto':a.type==='ac'?'cool':a.type==='maxxfan'?'fan':'heat';
+    return a.setpoints[field]===b.setpoints[field]&&a.fan===b.fan;
+}
 function setupChangeAllowed(from,to,time,request){
-    // At bedtime is the final awake action. No later change, even via remote access.
-    const b=planBounds(request.start),hour=localParts(new Date(time)).hour;
-    if(time>+request.start&&(hour<7||hour>=22)&&time!==+b.bedtime)return sameSetup(from,to);
-    // The departure instant represents a last action BEFORE leaving.
+    const b=planBounds(request.start,request);
+    // Departure is an occupied final adjustment, including a late-night departure.
     if(request.occupancy==='leaving'&&time===+request.departure)return true;
+    if(time>+request.start&&b.hasSleep&&time>=+b.sleepFrom&&time!==+b.bedtime)return sameSetup(from,to);
     if(!isAwayAt(request,time))return true;
     if(sameSetup(from,to))return true;
     if(!request.remote||setupPhysicalKey(from)!==setupPhysicalKey(to))return false;
-    // No remote window, roof lid, fan selection, or MaxxFan setpoint controls.
     return from.type!=='maxxfan'&&to.type!=='maxxfan';
 }
 function validatePlanRequest(request){
@@ -1551,49 +1728,46 @@ function readPlanRequest(){
         const type=value('actualMode'),gaps=WINDOW_SECTIONS.map((_,i)=>Number(value('actualWindow'+i))),fanZone=Number(value('actualVent'));
         const config=gaps.some(Boolean)?{gaps,fanZone,fanName:fanZone===0?'Bedroom MaxxFan':'Mid-coach MaxxFan'}:null;
         if(type==='maxxfan'&&!config)throw new Error('A MaxxFan exhaust setup needs at least one intake window open.');
-        const actual=planSetup(type,planBounds(start).sleep,config,value('actualFan')),sp=number('actualSetpoint');
-        if(!Number.isFinite(sp)||sp<55||sp>85)throw new Error('Enter the current setpoint from 55–85°F.');
+        const actual=planSetup(type,planBounds(start,request).sleep,config,value('actualFan')),sp=number('actualSetpoint');
+        const minimum=['hp','furnace'].includes(type)?40:55;
+        if(!Number.isInteger(sp)||sp<minimum||sp>90)throw new Error('Enter the current setpoint as a whole degree from '+minimum+'–90°F.');
         actual.setpoints={heat:sp,cool:sp,auto:sp,fan:sp};actual.key+='|actual|'+sp;
         request.actual=actual;request.actualConfirmed=!!document.getElementById('setupConfirmed').checked;
     }
     validatePlanRequest(request);return request;
 }
 function planRows(envelope,request,step=.5,extra=[]){
-    const bounds=planBounds(request.start),base=scheduleWeather(envelope,request.start,bounds.end,step);
+    const bounds=planBounds(request.start,request),base=scheduleWeather(envelope,request.start,bounds.end,step);
     const boundaries=[bounds.bedtime,request.departure,request.returnTime,...extra].filter(Boolean).map(Number);
     if(bounds.bedtime)for(let t=+bounds.bedtime-PLAN.searchMinutes*60000;t>+request.start;t-=PLAN.searchMinutes*60000)boundaries.push(t);
     const rows=[];
     for(const row of base){
-        const cuts=[row.from,...boundaries.filter(t=>t>row.from&&t<row.to),row.to].sort((a,b)=>a-b);
+        const cuts=[...new Set([row.from,...boundaries.filter(t=>t>row.from&&t<row.to),row.to])].sort((a,b)=>a-b);
         for(let i=1;i<cuts.length;i++){
             const from=cuts[i-1],to=cuts[i],hour=localParts(new Date((from+to)/2)).hour;
-            rows.push({...row,from,to,dt:(to-from)/3600000,sleeping:hour<7||hour>=22,occupants:isAwayAt(request,from)?0:2});
+            rows.push({...row,from,to,dt:(to-from)/3600000,sleeping:bounds.hasSleep&&from>=+bounds.sleepFrom&&from<+bounds.end,occupants:isAwayAt(request,from)?0:2});
         }
     }
     return rows;
 }
 function phaseControl(phases){return time=>{let current=phases[0].setup;for(const phase of phases){if(phase.time>time)break;current=phase.setup;}return current;};}
 function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=null,resume=null,capture=false,diagnostic=false){
-    const bounds=planBounds(request.start),timeline=rows||planRows(envelope,request,.5,phases.map(p=>p.time));
+    const bounds=planBounds(request.start,request),timeline=rows||planRows(envelope,request,.5,phases.map(p=>p.time));
     // Split even a partial final step exactly at each equipment/target change.
     const split=[];
-    for(const row of timeline){const cuts=[row.from,...phases.map(p=>p.time).filter(t=>t>row.from&&t<row.to),row.to].sort((a,b)=>a-b);
+    for(const row of timeline){const cuts=[...new Set([row.from,...phases.map(p=>p.time).filter(t=>t>row.from&&t<row.to),row.to])].sort((a,b)=>a-b);
         for(let i=1;i<cuts.length;i++)split.push({...row,from:cuts[i-1],to:cuts[i],dt:(cuts[i]-cuts[i-1])/3600000});}
     const first=phases[0].setup;
     const activeRows=resume?split.filter(row=>row.from>=resume.time):split;
     const sim=zoneProfile(first.type,envelope,bounds.sleep,first.setpoints,C.metaAwake,request.initial.temperature[0],{
-        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry});
+        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry,sleepAt:time=>bounds.hasSleep&&time>=+bounds.sleepFrom&&time<+bounds.end&&!isAwayAt(request,time)});
     if(resume){sim.trace=[...resume.prefix.trace.filter(p=>+p.time<resume.time),...sim.trace];sim.segments=[...resume.prefix.segments.filter(s=>s.endMs<=resume.time),...sim.segments];}
     const atBedtime=bounds.bedtime?sim.trace.find(p=>+p.time===+bounds.bedtime):null;
-    const last=phases.at(-1).setup;
-    const lower=['hp','furnace'].includes(last.type)?66-PLAN.readinessTolerance:65;
-    // AUTO's documented ±2°F cycle is normal once cooling preparation has reached target.
-    const high=last.type==='auto'?69:68+PLAN.readinessTolerance;
-    const cooled=last.type!=='auto'||sim.trace.some(p=>+p.time<=+bounds.bedtime&&p.bedroom<=68+PLAN.readinessTolerance+1e-6);
-    const ready=!bounds.bedtime||!!atBedtime&&cooled&&atBedtime.bedroom>=lower-1e-6&&atBedtime.bedroom<=high+1e-6;
+    const sleepPolicy=comfortPolicy(true);
+    const ready=!bounds.bedtime||!!atBedtime&&atBedtime.bedroom>=sleepPolicy.low-1e-6&&atBedtime.bedroom<=sleepPolicy.high+1e-6;
     const unavailable=phases.find((p,i)=>i>0&&!setupChangeAllowed(phases[i-1].setup,p.setup,p.time,request));
     if(unavailable){sim.unsafe.push({time:new Date(unavailable.time),reason:'This setup change requires an unavailable action during sleep or absence.',issueCode:'unavailable-action'});sim.suitable=false;sim.equipmentEligible=false;}
-    const bedtimeReason=ready?'':!atBedtime?'Conditions fail before bedtime.':'Bedroom is '+atBedtime.bedroom.toFixed(1)+'°F at 10 PM; the '+(atBedtime.bedroom>68.5?'68°F cooling':'66°F heating')+' target is not reached.';
+    const bedtimeReason=ready?'':!atBedtime?'Conditions fail before bedtime.':'Bedroom is '+atBedtime.bedroom.toFixed(1)+'°F at '+(localParts(bounds.bedtime).hour===22&&localParts(bounds.bedtime).minute===0?'10 PM':formatTime(bounds.bedtime))+'; it must be within the '+sleepPolicy.low+'–'+sleepPolicy.high+'°F sleeping band (target '+sleepPolicy.target+'°F).';
     return{...sim,ready,bedtimeReason,atBedtime};
 }
 function planTrialReason(trial){return trial.unsafe[0]?.reason||trial.moistureReason||trial.comfortReason||trial.bedtimeReason||'';}
@@ -1602,28 +1776,37 @@ function evaluatePlan(phases,envelope,request,rows){
         if(phases.length<2||!envelope.planCache)return simulatePlan(phases,envelope,request,s,rows);
         const key=phases[0].setup.key+'|'+s.name;
         let prefix=envelope.planCache.get(key);
-        if(!prefix){prefix=simulatePlan([phases[0]],envelope,request,s,rows,null,true);envelope.planCache.set(key,prefix);}
-        const time=phases[1].time,checkpoint=prefix.checkpoints.find(p=>p.time===time);
+        if(!prefix){
+            prefix=simulatePlan([phases[0]],envelope,request,s,rows,null,true);
+            // Keep recent complete prefixes without retaining every screened
+            // thermostat setting's full trace/checkpoints on a phone.
+            if(envelope.planCache.size>=12)envelope.planCache.delete(envelope.planCache.keys().next().value);
+        }else envelope.planCache.delete(key);
+        envelope.planCache.set(key,prefix);
+        const time=phases[1].time;
+        if(prefix.failureTime!=null&&prefix.failureTime<=time)return prefix;
+        const checkpoint=prefix.checkpoints.find(p=>p.time===time);
         if(!checkpoint){
-            if(prefix.failureTime!=null&&prefix.failureTime<=time)return prefix;
             // A handoff derived from a forecast boundary may not lie on the
             // cached grid. Resolve it directly rather than reset/interpolate state.
             return simulatePlan(phases,envelope,request,s,rows);
         }
         return simulatePlan(phases,envelope,request,s,rows,{time,carry:checkpoint,prefix});
     });
+    return planFromTrials(phases,trials,envelope,request);
+}
+function planFromTrials(phases,trials,envelope,request){
     const failed=trials.find(t=>!t.suitable),late=trials.find(t=>!t.ready);
     const suitable=!failed,ready=!late,first=phases[0].setup,last=phases.at(-1).setup;
-    const natural=morningRecovery(trials,request,first);
-    return{phases,trials,suitable,ready,reason:failed?planTrialReason(failed):late?late.bedtimeReason:'',
+    const natural=naturalRecovery(trials,request,first);
+    return{...targetMetrics(trials),phases,trials,suitable,ready,reason:failed?planTrialReason(failed):late?late.bedtimeReason:'',
         score:trials.reduce((a,t)=>a+t.score,0)/trials.length,natural,type:first.type,nightType:last.type,
         setup:first,nightSetup:last,envelope,request,prepareAt:phases.find((p,i)=>i>0&&p.setup.sleepComfort)?.time??null};
 }
-function morningRecovery(trials,request,setup){
-    const hour=localParts(request.start).hour;
-    if(hour<7||hour>=10||!['passive','ac'].includes(setup.type)||setup.config)return null;
+function naturalRecovery(trials,request,setup){
+    if(planBounds(request.start,request).sleep||!['passive','ac'].includes(setup.type)||setup.config)return null;
     const times=trials.map(t=>{
-        const point=t.trace.find(p=>p.elapsedMin<=30&&Math.min(p.bedroom,p.midCoach)>=68&&Math.max(p.bedroom,p.midCoach)<=73);
+        const point=t.trace.find(p=>p.elapsedMin<=30&&Math.min(p.bedroom,p.midCoach)>=COMFORT.nonSleeping.low&&Math.max(p.bedroom,p.midCoach)<=COMFORT.nonSleeping.high);
         if(!point)return null;
         if(t.segments.some(s=>s.startMs<+point.time&&(s.operation==='hp'||s.operation==='furnace')))return null;
         if(t.segments.some(s=>s.startMs<+point.time&&s.operation==='ac'&&s.duty>0))return null;
@@ -1638,10 +1821,10 @@ function comparePlans(a,b){
     // that remains acceptable longer, not the one that stopped accumulating first.
     const until=p=>Math.min(...p.trials.map(t=>t.failureTime??+t.trace.at(-1).time));
     const duration=!a.suitable&&!b.suitable&&a.trials&&b.trials?until(b)-until(a):0;
-    return rank(a)-rank(b)||duration||Number(!!b.natural)-Number(!!a.natural)||a.score-b.score||modePreference(a)-modePreference(b);
+    return rank(a)-rank(b)||duration||compareFront(a,b)||compareTarget(a,b)||Number(!!b.natural)-Number(!!a.natural)||a.score-b.score||modePreference(a)-modePreference(b);
 }
 function currentRecommendation(envelope,request,plans){
-    const bounds=planBounds(request.start);
+    const bounds=planBounds(request.start,request);
     // A departure is a required review point: a short current recommendation
     // never certifies the subsequent absence or schedules unavailable intervention.
     const reviewAt=Math.min(+request.start+30*60000,+bounds.end,request.occupancy==='leaving'?+request.departure:Infinity);
@@ -1653,11 +1836,11 @@ function currentRecommendation(envelope,request,plans){
     const candidates=[];
     for(const setup of setups.values()){
         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,setup,+request.start,request))continue;
-        const trials=AIR_SCENARIOS.map(s=>simulatePlan([{time:+request.start,setup}],envelope,request,s,rows));
-        if(!trials.every(t=>t.suitable&&+t.trace.at(-1).time===reviewAt))continue;
-        candidates.push({setup,trials,reviewAt,type:setup.type,natural:morningRecovery(trials,request,setup),score:trials.reduce((n,t)=>n+t.score,0)/trials.length});
+        const p=stagePlan([],setup,+request.start,reviewAt,envelope,request,rows);
+        if(!p.suitable)continue;
+        candidates.push({...p,setup:p.setup,trials:p.trials,reviewAt,type:p.setup.type});
     }
-    candidates.sort((a,b)=>Number(!!b.natural)-Number(!!a.natural)||a.score-b.score||modePreference(a)-modePreference(b));
+    candidates.sort((a,b)=>compareFront(a,b)||compareTarget(a,b)||Number(!!b.natural)-Number(!!a.natural)||a.score-b.score||modePreference(a)-modePreference(b));
     const current=candidates[0];if(!current)return null;
     const matching=plans.filter(p=>p.type===current.type&&setupPhysicalKey(p.setup)===setupPhysicalKey(current.setup));
     const template=matching.find(p=>p.nightType===current.type)||matching[0];
@@ -1671,7 +1854,7 @@ function currentRecommendation(envelope,request,plans){
 function planSetups(sleep,vents=[]){return ['passive','ac','hp','furnace','auto'].map(t=>planSetup(t,sleep)).concat(vents.map(c=>planSetup('maxxfan',sleep,c)));}
 function shortlistVents(envelope,request,sleep){
     if(request.occupancy==='away')return request.actual.type==='maxxfan'?[request.actual.config]:[];
-    const bounds=planBounds(request.start),limit=!sleep&&bounds.bedtime?+bounds.bedtime:Infinity;
+    const bounds=planBounds(request.start,request),limit=!sleep&&bounds.bedtime?+bounds.bedtime:Infinity;
     const rows=planRows(envelope,request,3).filter(row=>row.to<=limit),ranked=[];
     // Equal panes on the same side have identical modeled pressure/area and
     // draft exposure. Evaluate one representative of each exact symmetry.
@@ -1704,17 +1887,209 @@ function repairPlanFans(plan,envelope,request,rows){
     }
     return plan;
 }
+function stageSetups(sleep,vents){
+    return planSetups(sleep,vents).flatMap(base=>['ac','auto','hp'].includes(base.type)?
+        ['Auto','Low','Medium','High'].map(fan=>planSetup(base.type,sleep,base.config,fan)):[base]);
+}
+function stageSummary(plan,from,to){
+    return{...targetMetrics(plan.trials,from,to),setup:plan.setup,suitable:plan.suitable,reason:plan.reason,ready:plan.ready,
+        bedroom:traceRange(plan,from,to,'bedroom'),front:traceRange(plan,from,to,'midCoach'),
+        humidity:traceRange(plan,from,to,'rh'),frontRH:traceRange(plan,from,to,'midRH')};
+}
+function stageGroup(plans,from,to){
+    const modes=new Map();for(const p of plans.slice().sort(comparePlans))if(!modes.has(p.type))modes.set(p.type,stageSummary(p,from,to));
+    return [...modes.values()];
+}
+function stagePlan(prefix,setup,from,to,envelope,request,rows){
+    const original=stagePlanRaw(prefix,setup,from,to,envelope,request,rows);
+    return optimizePhase(original,original.phases.length-1,envelope,request,rows.filter(row=>row.to<=to),from,to,changed=>stagePlanRaw(prefix,changed,from,to,envelope,request,rows));
+}
+function stagePlanRaw(prefix,setup,from,to,envelope,request,rows){
+    const phases=[...prefix.filter(p=>p.time<from),{time:from,setup}],stageRows=rows.filter(row=>row.to<=to);
+    const p=evaluatePlan(phases,envelope,request,stageRows),failed=p.trials.find(t=>!t.suitable||+t.trace.at(-1).time!==to);
+    const available=request.occupancy!=='away'||setupChangeAllowed(request.actual,phases[0].setup,+request.start,request);
+    const idleHeat=['hp','furnace'].includes(setup.type)&&p.trials.every(t=>!t.segments.some(s=>s.startMs>=from&&s.startMs<to&&['hp','furnace'].includes(s.operation)&&s.duty>0));
+    const bedtime=planBounds(request.start,request).bedtime;
+    return{...p,...targetMetrics(p.trials,from,to),setup,type:setup.type,suitable:available&&!failed&&!idleHeat,ready:bedtime&&to===+bedtime?p.ready:true,
+        reason:!available?'This setup requires an unavailable physical adjustment while you are away.':failed?planTrialReason(failed):idleHeat?'Heating is not needed during this interval; this heating mode would remain idle.':''};
+}
+function* departureOvernight(prefix,nights,envelope,request,rows){
+    const bounds=planBounds(request.start,request),bed=+bounds.bedtime,earliest=Math.max(+request.returnTime,+request.start);
+    const cached=AIR_SCENARIOS.map(s=>simulatePlan(prefix,envelope,request,s,rows,null,true));
+    const attempt=(time,setup,cool=null)=>{
+        const phases=[...prefix.filter(p=>p.time<time),{time,setup:cool||setup}];
+        if(cool)phases.push({time:bed,setup});
+        const trials=AIR_SCENARIOS.map((s,i)=>{
+            const checkpoint=cached[i].checkpoints.find(p=>p.time===time);
+            return checkpoint?simulatePlan(phases,envelope,request,s,rows,{time,carry:checkpoint,prefix:cached[i]}):simulatePlan(phases,envelope,request,s,rows);
+        });
+        return planFromTrials(phases,trials,envelope,request);
+    };
+    const times=new Set([bed,earliest]);
+    for(let t=bed-PLAN.searchMinutes*60000;t>earliest;t-=PLAN.searchMinutes*60000)times.add(t);
+    const ordered=[...times].sort((a,b)=>b-a),plans=[];
+    for(const night of nights){
+        let best=null;
+        for(const time of ordered){
+            const p=attempt(time,night);if(!best||comparePlans(p,best)<0)best=p;
+            yield{overnight:time};if(p.suitable&&p.ready){best=p;break;}
+        }
+        if(!(best?.suitable&&best.ready)&&['hp','furnace'].includes(night.type)){
+            let found=false;
+            for(const fan of ['Low','Medium','High']){
+                for(const time of ordered.filter(t=>t<bed)){
+                    const p=attempt(time,night,planSetup('ac',true,null,fan));
+                    if(!best||comparePlans(p,best)<0)best=p;
+                    yield{preparing:time};if(p.suitable&&p.ready){best=p;found=true;break;}
+                }
+                if(found)break;
+            }
+        }
+        if(best)plans.push(optimizeSequence(best,envelope,request,rows,Math.max(+request.returnTime,+request.start)));
+    }
+    annotateAutoPlans(plans);plans.sort(comparePlans);
+    return{winner:plans[0],plans};
+}
+function* searchDeparturePlans(envelope,request){
+    const bounds=planBounds(request.start,request),rows=planRows(envelope,request,.5,[+request.departure,+request.returnTime]);
+    const vents=shortlistVents(envelope,request,false),nightVents=bounds.hasSleep?shortlistVents(envelope,request,true):[];
+    const days=stageSetups(false,vents),nights=stageSetups(true,nightVents);
+    const from=+request.start,departure=+request.departure,back=+request.returnTime;
+    const stages={current:null,departure:null,night:null,preparation:[],returnConditions:null};
+    let currents=[];
+    if(departure>from){
+        const currentSetups=back===+bounds.bedtime?[...days,...stageSetups(true,vents).filter(s=>s.type==='ac')]:days;
+        for(const setup of currentSetups){currents.push(stagePlan([],setup,from,departure,envelope,request,rows));yield{current:currents.length};}
+        currents.sort(comparePlans);
+        stages.current={from,to:departure,recommended:null,options:stageGroup(currents,from,departure)};
+    }else currents=[{suitable:true,ready:true,phases:[],setup:days[0],score:0,type:days[0].type}];
+    let selectedCurrent=null,selectedDeparture=null,departurePlans=[];
+    // Try another occupied setup if its predicted departure state is needed to
+    // obtain a fixed setup that covers the absence. No resets at departure.
+    const depSetups=back===+bounds.bedtime?[...days,...stageSetups(true,vents)]:days.slice();
+    if(request.occupancy==='away')depSetups.push(request.actual);
+    for(const current of currents.filter(p=>p.suitable)){
+        const prefix=departure>from?current.phases:[],tested=[];
+        for(const setup of depSetups){tested.push(stagePlan(prefix,setup,departure,back,envelope,request,rows));yield{departure:tested.length};}
+        tested.sort((a,b)=>comparePlans(a,b)||Number(sameSetup(current.setup,b.setup))-Number(sameSetup(current.setup,a.setup)));
+        const viable=tested.find(p=>p.suitable);
+        if(!selectedCurrent){selectedCurrent=current;departurePlans=tested;selectedDeparture=viable||null;}
+        if(viable&&(back!==+bounds.bedtime||viable.ready)){selectedCurrent=current;selectedDeparture=viable;departurePlans=tested;break;}
+    }
+    if(stages.current&&selectedCurrent)stages.current.recommended=stageSummary(selectedCurrent,from,departure);
+    stages.departure={from:departure,to:back,recommended:selectedDeparture?stageSummary(selectedDeparture,departure,back):null,
+        options:stageGroup(departurePlans,departure,back),blocked:!selectedCurrent?'No current setup passes continuously through departure. Refresh readings before projecting the absence.':!selectedDeparture?'No single departure setup passes continuously through return. Refresh readings and revise the absence plan.':''};
+    let winner=selectedDeparture||(selectedCurrent?.trials?selectedCurrent:departurePlans[0])||currents[0],plans=winner?[winner]:[];
+    if(selectedDeparture){
+        stages.returnConditions={bedroom:readingAt(selectedDeparture,back,'bedroom'),front:readingAt(selectedDeparture,back,'midCoach'),
+            humidity:readingAt(selectedDeparture,back,'rh'),frontRH:readingAt(selectedDeparture,back,'midRH')};
+        if(bounds.hasSleep){
+            const continuation=yield* departureOvernight(selectedDeparture.phases,nights,envelope,request,rows);
+            winner=continuation.winner;plans=continuation.plans;
+            if(winner?.suitable&&winner.ready){
+                const result={winner,plans,bounds,envelope,request,current:null};
+                stages.night=periodComparisons(result,[],nights,rows).night;
+                stages.night.recommendation=stageSummary({...winner,setup:winner.nightSetup},+bounds.sleepFrom,+bounds.end);
+                stages.preparation=winner.phases.filter(p=>p.time>=back&&p.time<+bounds.sleepFrom&&!sameSetup(selectedDeparture.setup,p.setup));
+            }else stages.night={from:+bounds.sleepFrom,to:+bounds.end,projected:true,recommended:null,recommendation:null,
+                options:stageGroup(plans.map(p=>({...p,setup:p.nightSetup,type:p.nightType,suitable:p.suitable&&p.ready})),+bounds.sleepFrom,+bounds.end)};
+        }
+    }
+    if(winner&&(!selectedDeparture||bounds.hasSleep&&!stages.night?.recommendation)){
+        const previous=winner;winner={...previous,suitable:false};plans=[winner,...plans.filter(p=>p!==previous)];
+    }
+    return{winner,plans,bounds,envelope,request,current:null,stages,comparisons:{day:null,night:stages.night}};
+}
+function comfortPolicyText(){const s=COMFORT.sleeping,a=COMFORT.nonSleeping;return '<p class="hint">Indoor targets: sleeping '+s.target+'°F (allowed '+s.low+'–'+s.high+'°F); awake or unoccupied '+a.target+'°F (allowed '+a.low+'–'+a.high+'°F). Within ±'+COMFORT.tolerance+'°F is preferred. For misses, heating favors the cooler side and cooling the warmer side; closer on that side ranks better. Equipment and moisture checks must pass first.</p>';}
+function setpointSummary(){return 'Bed-area targets: awake/away '+COMFORT.nonSleeping.target+'°F ('+COMFORT.nonSleeping.low+'–'+COMFORT.nonSleeping.high+'°F); sleeping '+COMFORT.sleeping.target+'°F ('+COMFORT.sleeping.low+'–'+COMFORT.sleeping.high+'°F). Thermostat settings are selected in your plan.';}
+function renderDeparturePlan(result){
+    const {stages,bounds,request,winner}=result;
+    const passed=!!stages.departure.recommended&&(!bounds.hasSleep||!!stages.night?.recommendation);
+    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+policyBadge(passed,true)+'</div>'+comfortPolicyText()+spatialModelText();
+    const interval=(from,to)=>escapeHTML(formatStamp(new Date(from))+' → '+formatStamp(new Date(to)));
+    const metrics=p=>'<p class="plan-metrics">Bedroom: '+escapeHTML(p.bedroom)+'°F · '+escapeHTML(p.humidity)+'% RH.<br>Front: '+escapeHTML(p.front)+'°F · '+escapeHTML(p.frontRH)+'% RH.'+(Number.isFinite(p.targetDeviation)?'<br>Average distance from indoor target: '+p.targetDeviation.toFixed(1)+'°F.':'')+'</p>';
+    const section=(title,stage,kind)=>{
+        if(!stage)return '';
+        const recommended=stage.recommendation||stage.recommended;
+        let out='<section class="plan-stage" data-stage="'+kind+'"><h3>'+escapeHTML(title)+'</h3><p class="plan-time">'+interval(stage.from,stage.to)+'</p>';
+        if(recommended?.setup){
+            const keep=kind==='departure'&&stages.current?.recommended&&sameSetup(stages.current.recommended.setup,recommended.setup);
+            out+='<div class="result-primary">'+escapeHTML(setupName(recommended.setup))+'</div>';
+            out+='<p class="hint">'+(keep?'Keep this setup when you leave. ':'')+escapeHTML(setupInstructions(recommended.setup))+'</p>'+metrics(recommended);
+        }else out+='<p class="hint">'+escapeHTML(stage.blocked||'No verified setup for this period. Refresh both readings and rebuild the plan before following this stage.')+'</p>';
+        const options=stage.options.filter(p=>p.setup.type!==recommended?.setup?.type);
+        for(const suitable of [true,false]){
+            const list=options.filter(p=>p.suitable===suitable);
+            out+='<details class="diag-panel"><summary>'+(suitable?'Other viable '+kind+' options':'Unsuitable or unnecessary '+kind+' modes')+'</summary>';
+            out+=list.length?list.map(p=>'<div class="comparison-row"><div class="comparison-name">'+escapeHTML(setupName(p.setup))+'</div><p class="comparison-text">'+escapeHTML(suitable?'Passes this entire interval in all three scenarios. '+(kind==='current'?'Choosing this alternative changes the departure projection; rebuild the plan with fresh readings before leaving.':kind==='departure'?'Uses the recommended current plan’s predicted departure conditions. Choosing it changes the overnight projection; rebuild the plan on return.':'Uses the same predicted sleep-start conditions after the displayed preparation.'):p.reason||'Does not pass the checks for this period.')+'</p>'+(suitable?'<p class="comparison-range">'+escapeHTML(setupInstructions(p.setup))+'</p>'+metrics(p)+(p.frontFits===false?'<p class="hint">The dinette leaves its comfort band; the bed area takes priority.</p>':''):'')+'</div>').join(''):'<p class="hint">None for this interval.</p>';
+            out+='</details>';
+        }
+        if(recommended?.setup)out+='<p class="hint">'+(recommended.frontFits===false?'The dinette may leave its comfort band; the bed area takes priority.':'Bed and dinette predictions are shown separately above.')+'</p>';
+        return out+'</section>';
+    };
+    html+=section('Recommended current mode',stages.current,'current');
+    html+=section(request.occupancy==='away'?'Recommended mode while away':'Recommended departure mode',stages.departure,'departure');
+    if(stages.returnConditions){
+        const c=stages.returnConditions;
+        html+='<p class="hint"><strong>Predicted conditions at return — '+escapeHTML(formatStamp(request.returnTime))+':</strong><br>Bedroom '+escapeHTML(c.bedroom)+'°F · '+escapeHTML(c.humidity)+'% RH; front '+escapeHTML(c.front)+'°F · '+escapeHTML(c.frontRH)+'% RH. Refresh both readings and rerun the app when you return.</p>';
+    }
+    if(bounds.hasSleep){
+        if(bounds.delayed)html+='<p class="hint">Sleep starts at your return, '+escapeHTML(formatTime(bounds.sleepFrom))+', rather than 10 PM. The absence remains unoccupied until then.</p>';
+        if(stages.preparation.length)html+='<p class="hint"><strong>Preparation assumed by the overnight projection:</strong> '+stages.preparation.map(p=>escapeHTML(formatTime(new Date(p.time))+': '+setupInstructions(p.setup))).join(' ')+' Confirm this preparation with fresh readings when you return.</p>';
+        html+=section('Recommended overnight mode',stages.night||{from:+bounds.sleepFrom,to:+bounds.end,recommended:null,options:[],blocked:'Overnight alternatives need reassessment after the departure plan is verified.'},'overnight');
+        if(stages.night?.recommendation)html+='<p class="hint">The overnight setup runs through 7 AM without manual changes or automatic furnace backup.</p>';
+    }else html+='<p class="hint">No overnight recommendation: your return is at or after 7 AM. The departure setup is evaluated through your return time.</p>';
+    html+='<p class="hint">No occupant heat or moisture between departure and return. Non-sleeping comfort applies throughout the absence; any sleep-temperature setting is preparation. The departure setup remains fixed throughout your absence, even if remote controls are available.</p>';
+    html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+interval(+bounds.start,+bounds.end)+' · '+escapeHTML(analysisTimeZone())+'. Temperature, water content, dehumidifier heat and exposure history carry continuously across departure, return and sleep preparation. Overnight alternatives share the displayed preparation.</p>'+spatialModelText(true)+'</details>';
+    if(winner?.trials)html+=surfaceOutlook(winner.trials);
+    return html+'</div>';
+}
+
 function* searchPlans(envelope,request){
     validatePlanRequest(request);envelope.planCache=new Map();
-    const bounds=planBounds(request.start),rows=planRows(envelope,request),vents=shortlistVents(envelope,request,bounds.sleep);
+    if(request.occupancy==='leaving'||request.occupancy==='away')return yield* searchDeparturePlans(envelope,request);
+    const bounds=planBounds(request.start,request),rows=planRows(envelope,request),vents=shortlistVents(envelope,request,bounds.sleep);
     const nightVents=bounds.bedtime?shortlistVents(envelope,request,true):vents;
     let days=planSetups(bounds.sleep,vents),nights=planSetups(true,nightVents),results=[];
+    if(bounds.bedtime){
+        const nightSeeds=nights.slice();
+        // Learn controls before searching transition times. An unsuitable default
+        // (especially a rear-biased furnace) must not trigger hundreds of timing
+        // attempts before its setting has even been considered. These are seeds;
+        // every retained connected sequence is still fully verified below.
+        const daytime=days.map(base=>{
+            const fans=['ac','hp','auto'].includes(base.type)?['Auto','Low','Medium','High']:[base.fan];
+            return fans.map(fan=>{
+                const setup={...base,fan,key:base.key+'|'+fan};
+                const original=stagePlanRaw([],setup,+request.start,+bounds.bedtime,envelope,request,rows);original.ready=true;
+                return optimizePhase(original,0,envelope,request,rows.filter(r=>r.to<=+bounds.bedtime),+request.start,+bounds.bedtime,changed=>{const p=stagePlanRaw([],changed,+request.start,+bounds.bedtime,envelope,request,rows);p.ready=true;return p;});
+            }).sort(comparePlans)[0];
+        });
+        days=daytime.map(p=>p.setup);
+        const prefix=daytime.slice().sort(comparePlans)[0].phases;
+        nights=nights.map(setup=>{
+            const fans=['ac','hp','auto'].includes(setup.type)?['Auto','Low','Medium','High']:[setup.fan];
+            return fans.map(fan=>stagePlan(prefix,{...setup,fan,key:setup.key+'|'+fan},+bounds.bedtime,+bounds.end,envelope,request,rows))
+                .sort(comparePlans)[0].setup;
+        });
+        // A control that cannot start at bedtime may work when preparation
+        // begins earlier, under different weather. Keep the original controls
+        // alongside learned settings instead of pruning that valid sequence.
+        for(const setup of nightSeeds)if(!nights.some(s=>sameSetup(s,setup)))nights.push(setup);
+    }
     if(request.occupancy==='away'){
         days=days.filter(s=>setupChangeAllowed(request.actual,s,+request.start,request));
         days.push(request.actual);
     }
     if(!bounds.bedtime){
-        for(const setup of days){const p=repairPlanFans(evaluatePlan([{time:+request.start,setup}],envelope,request,rows),envelope,request,rows);results.push(p);yield{completed:results.length};}
+        for(const base of days){
+            const fans=['ac','hp','auto'].includes(base.type)?['Auto','Low','Medium','High']:[base.fan];
+            for(const fan of fans){
+                const setup={...base,fan,key:base.key+'|'+fan};
+                const p=repairPlanFans(evaluatePlan([{time:+request.start,setup}],envelope,request,rows),envelope,request,rows);
+                results.push(optimizeSequence(p,envelope,request,rows));yield{completed:results.length};
+            }
+        }
     }else{
         for(const day of days)for(const night of nights){
             let found=null,closest=null;const attempted=new Set();
@@ -1773,6 +2148,7 @@ function* searchPlans(envelope,request){
                             [{time:+request.start,setup:day},{time,setup:cool},{time:+bounds.bedtime,setup:night}];
                         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))continue;
                         const plan=evaluatePlan(phases,envelope,request,rows);
+                        if(!closest||comparePlans(plan,closest)<0)closest=plan;
                         if(plan.suitable&&plan.ready){found=plan;break;}yield{searching:time};
                     }
                     if(found)break;
@@ -1819,11 +2195,16 @@ function* searchPlans(envelope,request){
             }
         }
     }
+    const settingsGroups=new Map();
+    for(const p of results.slice().sort(comparePlans)){const key=p.type+'|'+p.nightType;if(!settingsGroups.has(key))settingsGroups.set(key,p);}
+    results=[...settingsGroups.values()].map(p=>optimizeSequence(p,envelope,request,rows));
     annotateAutoPlans(results);
     results.sort(comparePlans);
     if(!results.length)throw new Error('No executable setup can be evaluated with the entered physical arrangement.');
     const current=results[0].suitable?null:currentRecommendation(envelope,request,results);
-    return{winner:results[0],plans:results,bounds,envelope,request,current};
+    const result={winner:results[0],plans:results,bounds,envelope,request,current};
+    result.comparisons=periodComparisons(result,days,nights,rows);
+    return result;
 }
 function annotateAutoPlans(plans){
     for(const plan of plans){
@@ -1842,9 +2223,80 @@ function annotateAutoPlans(plans){
     }
 }
 function runUnifiedPlan(request,envelope=null){
-    validatePlanRequest(request);const bounds=planBounds(request.start);
+    validatePlanRequest(request);const bounds=planBounds(request.start,request);
     envelope=envelope||makeEnvelope(request.start,bounds.end,'HVAC Plan',THERMAL_STEP_MIN*60000);
     const iterator=searchPlans(envelope,request);let step;do{step=iterator.next();}while(!step.done);return step.value;
+}
+// Compare periods independently. Overnight trials retain the recommended prefix,
+// including its carried heat, water and exposure counters in every scenario.
+function periodComparisons(result,days,nights,rows){
+    const {winner,bounds,request,envelope,current}=result,output={day:null,night:null};
+    const summarize=(plan,from,to)=>({...targetMetrics(plan.trials,from,to),setup:plan.setup,suitable:plan.suitable&&plan.ready,
+        idle:plan.trials.every(t=>!t.segments.some(s=>s.startMs>=from&&s.startMs<to&&s.duty>0&&['ac','hp','furnace'].includes(s.operation))),
+        reason:plan.reason,score:plan.score,bedroom:traceRange(plan,from,to,'bedroom'),
+        humidity:traceRange(plan,from,to,'rh'),front:traceRange(plan,from,to,'midCoach')});
+    const bestByMode=plans=>{
+        plans.sort(comparePlans);const grouped=new Map();
+        for(const p of plans)if(!grouped.has(p.type))grouped.set(p.type,p);
+        return [...grouped.values()];
+    };
+    if(!bounds.sleep){
+        // The next displayed adjustment ends the current comparison interval. An
+        // alternative must work continuously until then, not borrow an earlier
+        // switch to cooling to make an idle heater appear useful.
+        const next=winner.phases.find((p,i)=>i>0&&!sameSetup(winner.phases[i-1].setup,p.setup));
+        const end=current?current.reviewAt:winner.setup.sleepComfort?+request.start:next?.time??+bounds.bedtime;
+        if(end>+request.start&&(winner.suitable||current)){
+            const dayRows=planRows(envelope,request,.5,[end]).filter(row=>row.to<=end);
+            const candidates=[],setups=days.flatMap(base=>['ac','hp','auto'].includes(base.type)?['Auto','Low','Medium','High'].map(fan=>planSetup(base.type,false,base.config,fan)):[base]);
+            for(const setup of setups){
+                const available=request.occupancy!=='away'||setupChangeAllowed(request.actual,setup,+request.start,request);
+                const p=stagePlan([],setup,+request.start,end,envelope,request,dayRows);
+                candidates.push(p);
+            }
+            output.day={from:+request.start,to:end,recommended:current?.setup||winner.setup,
+                options:bestByMode(candidates).map(p=>summarize(p,+request.start,end))};
+        }
+    }
+    if(bounds.sleep){
+        output.night={from:+request.start,to:+bounds.end,projected:false,recommended:winner.suitable?winner.nightSetup:null,
+            options:bestByMode(result.plans.slice()).map(p=>summarize(p,+request.start,+bounds.end))};
+    }else if(winner.suitable&&winner.ready){
+        const from=+bounds.bedtime,prefix=winner.phases.filter(p=>p.time<from),candidates=[];
+        for(const base of nights){
+            const fans=['ac','auto','hp'].includes(base.type)?['Auto','Low','Medium','High']:[base.fan];
+            for(const fan of fans){
+                const setup={...base,fan,key:base.key+'|'+fan};
+                let plan=evaluatePlan([...prefix,{time:from,setup}],envelope,request,rows);
+                plan=optimizePhase(plan,plan.phases.length-1,envelope,request,rows,from,+bounds.end);
+                // Label/group by the overnight mode, never the common daytime mode.
+                candidates.push({...plan,setup:plan.nightSetup,type:plan.nightType});
+            }
+        }
+        output.night={from,to:+bounds.end,projected:true,recommended:winner.nightSetup,
+            options:bestByMode(candidates).map(p=>summarize(p,from,+bounds.end))};
+    }
+    return output;
+}
+function renderPeriodComparisons(period,night=false){
+    if(!period)return '';
+    const label=night?(period.projected?'projected overnight':'overnight'):'daytime';
+    const interval=formatStamp(new Date(period.from))+' → '+formatStamp(new Date(period.to));
+    const options=period.options.filter(p=>p.setup.type!==period.recommended?.type);
+    let html='<div class="period-comparisons" data-period="'+(night?'night':'day')+'"><p class="hint">'+escapeHTML(interval)+'. '+
+        (night?(period.projected?'Overnight alternatives assume you follow the recommended daytime and bedtime preparation steps. Each is tested from the same predicted sleep-start conditions. ':'')+'Each listed setup must work through 7 AM without further adjustments or automatic furnace backup.':
+        'Each option is tested continuously until the next recommended adjustment. If you choose an alternative, refresh readings and rebuild the plan at that time; the overnight projection below assumes the recommended daytime plan.')+'</p>';
+    for(const viable of [true,false]){
+        const title=viable?'Other viable '+label+' options':night?'Unsuitable '+label+' modes':'Unsuitable or unnecessary daytime modes';
+        const list=options.filter(p=>p.suitable===viable);
+        html+='<details class="diag-panel"><summary>'+escapeHTML(title)+'</summary>';
+        html+=list.length?list.map(p=>'<div class="comparison-row"><div class="comparison-name">'+escapeHTML(setupName(p.setup))+'</div><div class="comparison-text">'+
+            escapeHTML(viable?'Passes temperature, moisture and equipment checks in all three scenarios for this interval. '+
+                (p.idle?'No active heating or cooling is predicted with this setting. ':p.setup.type==='auto'?'AUTO can maintain acceptable conditions, but is not required by the recommended plan. ':'')+(period.recommended?(night?'The displayed overnight recommendation was selected within the complete plan.':'The displayed daytime recommendation was selected within the complete plan; this alternative passes only the stated interval.'):'No complete plan has been recommended; this option passes only the stated interval.'):p.reason||'Does not pass this interval’s checks.')+'</div>'+
+            (viable?'<div class="comparison-range">'+escapeHTML(setupInstructions(p.setup))+'</div><p class="hint">Bedroom: '+escapeHTML(p.bedroom)+'°F · '+escapeHTML(p.humidity)+'% RH.<br>Dinette: '+escapeHTML(p.front)+'°F.'+(p.frontFits===false?' The dinette leaves its comfort band; the bed area takes priority.':'')+'</p>':'')+'</div>').join(''):'<p class="hint">None for this interval.</p>';
+        html+='</details>';
+    }
+    return html+'</div>';
 }
 function setupName(setup){return systemDisplayName({type:setup.type,variant:setup.config?.fanName});}
 function setupInstructions(setup){if(setup.type==='passive'&&setup.config)return 'Keep the thermostat and roof fans OFF. Leave '+windowInstruction(setup.config)+'; the window arrangement stays fixed.';return candidateSetup({type:setup.type,setpoints:setup.setpoints,fanSpeed:setup.fan,variant:setup.config?.fanName,config:setup.config},setup.sleepComfort);}
@@ -1881,49 +2333,49 @@ function currentOutlook(current,bounds){
     return html+surfaceOutlook(p.trials);
 }
 function renderPlan(result){
+    if(result.stages)return renderDeparturePlan(result);
     const {winner:p,bounds,request}=result,initial=p.phases[0],sleepFrom=bounds.bedtime?+bounds.bedtime:+bounds.start;
     const step=(title,time,body)=>'<div class="plan-step"><div class="plan-time">'+escapeHTML(time)+'</div><strong>'+escapeHTML(title)+'</strong><p>'+body+'</p></div>';
-    const safe=p.suitable,current=!safe&&result.current,displaySetup=current?current.setup:initial.setup;
+    const safe=p.suitable,current=!safe&&result.current;
     const badge=current?'<div class="risk-badge moderate"><div class="risk-dot moderate"></div><span>Recheck overnight</span></div>':policyBadge(safe,true);
-    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+badge+'</div>';
+    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+badge+'</div>'+comfortPolicyText()+spatialModelText();
     if(current){
         html+='<div class="result-primary">'+escapeHTML(setupName(current.setup))+'</div>';
         if(current.natural)html+='<div class="mitigation-box"><strong>Active heating is not needed</strong>'+(current.natural.minutes===0?'Both zones are already in the acceptable daytime comfort band.':'Natural recovery is expected to reach the acceptable daytime comfort band within '+current.natural.minutes+' minutes, by approximately '+escapeHTML(formatTime(current.natural.time))+'.')+'</div>';
         html+=step('What to do '+(request.future?'at the start':'now'),formatStamp(bounds.start),planActionText({time:+bounds.start,setup:current.setup},request));
+        html+=frontOutlook(current.trials,+bounds.start,current.reviewAt)+renderPeriodComparisons(result.comparisons?.day);
         html+=step('Next action — refresh readings',formatTime(new Date(current.reviewAt)),'Refresh both temperature and humidity readings and build a new plan. This setup passes the temperature, moisture and equipment checks until this review time in all three scenarios.'+(request.occupancy==='leaving'&&current.reviewAt===+request.departure?' Reassess before leaving; this current recommendation does not cover your absence.':''));
         html+=currentOutlook(current,bounds);
     }else if(!safe){
         html+='<div class="result-primary">No suitable current setup</div><p class="hint">'+escapeHTML(p.reason)+'</p><p class="hint">No current setup passes the checks. Refresh both readings and review the operating or moisture concerns below.</p>';
         html+=surfaceOutlook(p.trials);
     }else{
-        html+='<div class="result-primary">'+escapeHTML(setupName(initial.setup))+'</div>';
+        html+='<div class="result-primary">'+escapeHTML(bounds.sleep?setupName(p.nightSetup)+' overnight':setupName(initial.setup)+' now → '+setupName(p.nightSetup)+' overnight')+'</div>';
         if(p.natural){const text=p.natural.minutes===0?'Both zones are already in the acceptable daytime comfort band.':'Natural recovery is expected to reach the acceptable daytime comfort band within '+p.natural.minutes+' minutes, by approximately '+formatTime(p.natural.time)+'.';
             html+='<div class="mitigation-box"><strong>Active heating is not needed</strong>'+escapeHTML(text)+'</div>';}
         html+=step('What to do '+(request.future?'at the start':'now'),formatStamp(bounds.start),planActionText(initial,request));
+        html+=renderPeriodComparisons(result.comparisons?.day);
+        if(!bounds.sleep&&!result.comparisons?.day&&initial.setup.sleepComfort)html+='<p class="hint">Bedtime preparation begins now. The steps below replace the normal daytime settings; projected overnight alternatives assume you follow this preparation.</p>';
         const actions=p.phases.filter((phase,i)=>i>0&&!sameSetup(p.phases[i-1].setup,phase.setup));
         if(actions.length){actions.forEach((phase,i)=>{html+=step((i===0?'Next action':'Later action')+(phase.setup.sleepComfort?' — prepare for sleep':' — daytime adjustment'),formatTime(new Date(phase.time)),planActionText(phase,request));});
             if(p.prepareAt&&p.ready)html+='<p class="hint">Estimated preparation time: '+Math.ceil((+bounds.bedtime-p.prepareAt)/60000)+' minutes. This preparation time passes all three tested scenarios; the search refines timing in five-minute steps.</p>';
         }else html+=step('Next action',bounds.bedtime?'Before 10 PM':'Through '+formatTime(bounds.end),'No additional setup change is needed in this plan. Recalculate with fresh readings if conditions or your return time change.');
         if(bounds.bedtime){
             html+='<div class="plan-metrics"><strong>Bedroom at 10 PM:</strong> '+readingAt(p,+bounds.bedtime,'bedroom')+'°F · '+readingAt(p,+bounds.bedtime,'rh')+'% RH</div>';
-            if(!p.ready){const next=p.trials[0].trace.find(t=>+t.time>=+bounds.bedtime&&t.bedroom>=65&&t.bedroom<=68.5);
+            if(!p.ready){const next=p.trials[0].trace.find(t=>+t.time>=+bounds.bedtime&&t.bedroom>=COMFORT.sleeping.low&&t.bedroom<=COMFORT.sleeping.high);
                 html+='<div class="mitigation-box severity-amber"><strong>Bedtime target needs more time</strong>'+escapeHTML(p.reason)+(next?' Nominal forecast first reaches the bedtime range at '+formatTime(next.time)+'.':' The bedtime target is not reached in the modeled period.')+'</div>';}
         }
-        html+=step('Overnight plan',bounds.bedtime?'From 10 PM':'Overnight in progress',planActionText({time:sleepFrom,setup:p.nightSetup},request));
+        html+=step('Recommended overnight setup',bounds.bedtime?'From 10 PM':'Overnight in progress',planActionText({time:sleepFrom,setup:p.nightSetup},request));
         html+='<div class="plan-metrics">Bedroom: '+traceRange(p,sleepFrom,+bounds.end,'bedroom')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'rh')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'dewPoint')+'°F.<br>Front: '+traceRange(p,sleepFrom,+bounds.end,'midCoach')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'midRH')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'midDewPoint')+'°F.<br>Temperature, moisture and equipment checks pass in all three tested scenarios.</div>';
         html+='<p class="hint">The overnight setup runs through 7 AM without manual changes or automatic furnace backup.'+(p.trials.some(t=>t.defrostMinutes>0)?' Heat-pump defrost pauses are included.':'')+'</p>';
         if(p.autoExplanation)html+='<p class="hint">'+escapeHTML(p.autoExplanation)+'</p>';
-        html+=surfaceOutlook(p.trials);
-        if(request.occupancy!=='staying')html+='<p class="hint">Away '+formatTime(request.departure)+'–'+formatTime(request.returnTime)+': no occupant heat or moisture. No away setback. No physical setup changes while absent.</p>';
+        html+=surfaceOutlook(p.trials)+frontOutlook(p.trials,+bounds.start,+bounds.end);
+        if(request.occupancy!=='staying')html+='<p class="hint">Away '+formatTime(request.departure)+'–'+formatTime(request.returnTime)+': no occupant heat or moisture. Non-sleeping comfort applies throughout the absence; any sleep-temperature setting is preparation. No physical setup changes while absent.</p>';
     }
-    const grouped=new Map();for(const plan of result.plans){const key=bounds.sleep?plan.nightType:plan.type;if(!grouped.has(key))grouped.set(key,plan);}
-    const alternatives=[...grouped.values()].filter(c=>c.type!==displaySetup.type);
-    if(current)html+='<p class="hint">The comparisons below cover complete daytime and overnight plans. A later shortfall does not rule out the current recommendation above.</p>';
-    for(const [title,list] of [['Other Viable HVAC Options',alternatives.filter(c=>c.suitable)],['Unsuitable HVAC Modes',alternatives.filter(c=>!c.suitable)]]){
-        html+='<details class="diag-panel"><summary>'+title+'</summary>'+(list.length?list.map(c=>'<div class="comparison-row"><div class="comparison-name">'+escapeHTML(setupName(c.setup))+'</div><div class="comparison-text">'+escapeHTML(c.suitable?'Also provides acceptable conditions. '+(c.natural?'Natural morning recovery is sufficient. ':'')+(c.ready?'Bedtime readiness passes. ':'Bedtime preparation takes longer. '):c.reason)+'</div>'+(c.suitable?'<div class="comparison-range">'+escapeHTML(setupInstructions(c.setup))+c.phases.slice(1).map(phase=>' Then at '+formatTime(new Date(phase.time))+': '+escapeHTML(setupInstructions(phase.setup))).join('')+'</div>':'')+'</div>').join(''):'<p class="hint">None for this plan.</p>')+'</details>';
-    }
+    html+=renderPeriodComparisons(result.comparisons?.night,true);
+    if(bounds.bedtime&&!result.comparisons?.night)html+='<p class="hint">Projected overnight alternatives need reassessment. A verified daytime and bedtime preparation plan is required before comparing overnight modes from common starting conditions.</p>';
     const e=result.envelope;
-    html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+escapeHTML(formatStamp(bounds.start)+' → '+formatStamp(bounds.end)+' · '+analysisTimeZone())+'</p><p class="hint">'+(e.singlePoint?'Manual weather remains constant. Solar elevation changes when location is known.':'Changing NWS temperature, humidity, wind and sky conditions are evaluated throughout.')+'</p><p class="hint">Front temperature governs HVAC calls. Bedroom temperature governs sleep comfort. Both temperatures are initialized from entered readings. Humidity uses one mixed coach air volume; RH can differ with temperature, while predicted dew point is shared. Moisture and dehumidifier runtime carry continuously between stages.</p><p class="hint">MCD day shades down throughout. Bamboo bedding receives no invented cooling credit. Airflow, surface and equipment performance use the documented engineering assumptions.</p></details>';
+    html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+escapeHTML(formatStamp(bounds.start)+' → '+formatStamp(bounds.end)+' · '+analysisTimeZone())+'</p><p class="hint">'+(e.singlePoint?'Manual weather remains constant. Solar elevation changes when location is known.':'Changing NWS temperature, humidity, wind and sky conditions are evaluated throughout.')+'</p><p class="hint">Front temperature governs HVAC calls. Bed-area temperature governs comfort and target fit at all times. Both temperatures are initialized from entered readings. Humidity uses one mixed coach air volume; RH can differ with temperature, while predicted dew point is shared. Moisture and dehumidifier runtime carry continuously between stages.</p><p class="hint">MCD day shades down throughout. Bamboo bedding receives no invented cooling credit. Airflow, surface and equipment performance use the documented engineering assumptions.</p>'+spatialModelText(true)+'</details>';
     if(!safe&&p.trials.some(t=>t.unsafe.some(u=>u.issueCode==='cooling-ice')))html+='<p class="hint">The AC may ice up. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.</p>';
     return html+'</div>';
 }
@@ -1945,7 +2397,9 @@ function updatePlanUI(){
     get('gpsBtn').textContent=mode==='away'?'Use the RV’s ZIP code while away':gpsRequestActive?'◎ Locating…':'◎ Use My Location';
     get('departureFields').hidden=mode!=='leaving';get('returnFields').hidden=mode==='staying';get('actualSetup').hidden=mode!=='away';
     get('futureFields').hidden=get('planningMode').value!=='future';
-    get('setpointDisplay').textContent='Day: heat 70°F / cool 72°F · Sleep: heat 66°F / cool 68°F · Ready by 10 PM';
+    let start=new Date();if(get('planningMode').value==='future'){try{start=parseLocalInput(get('futureStart').value,'start');}catch{}}
+    const bounds=planningBounds(start);
+    get('setpointDisplay').textContent=setpointSummary()+' · '+(bounds.hasSleep?'Sleep starts '+(bounds.bedtime?formatTime(bounds.bedtime):'now'):'No sleep period before return');
     get('tempLabel').textContent=state.weatherMode==='manual'?'Outdoor temperature':'Forecast temperature';
     get('manualWeather').open=state.weatherMode==='manual';
     if(get('readingTime').value){try{const age=Math.max(0,Math.floor((Date.now()-parseLocalInput(get('readingTime').value,'reading time'))/60000));
@@ -1957,7 +2411,7 @@ function invalidateResults(message='Inputs changed. Build a fresh plan.'){
     resultContext=null;lastPlan=null;planRevision++;cancelPlanWorker?.();
     const c=document.getElementById('results');c.replaceChildren();c.classList.remove('visible');
     document.getElementById('resultStatus').textContent=message;
-    document.getElementById('setpointDisplay').textContent='Day: heat 70°F / cool 72°F · Sleep: heat 66°F / cool 68°F';
+    document.getElementById('setpointDisplay').textContent=setpointSummary();
 }
 function resultRecorded(envelope,nextAction=null,request=null){
     resultContext={mode:state.weatherMode,windowEnd:+envelope.windowEnd,expires:Math.min(nextAction||Infinity,+envelope.windowEnd,Date.now()+30*60000),request};
@@ -1997,7 +2451,7 @@ async function analyze(){
     invalidateResults('Checking the connected daytime and overnight plan…');const revision=planRevision;
     try{
         await new Promise(resolve=>setTimeout(resolve,0));
-        const bounds=planBounds(request.start),envelope=makeEnvelope(request.start,bounds.end,'HVAC Plan',THERMAL_STEP_MIN*60000);
+        const bounds=planBounds(request.start,request),envelope=makeEnvelope(request.start,bounds.end,'HVAC Plan',THERMAL_STEP_MIN*60000);
         let result;
         if(typeof Worker!=='undefined')result=await calculateInWorker(request,envelope);
         else{
@@ -2041,4 +2495,5 @@ updatePeriodSublabels();updateWeatherContext();
 </script>
 </body>
 </html>
+
 

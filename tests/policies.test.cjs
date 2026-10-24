@@ -92,14 +92,14 @@ test('all Daytime candidates use the same desired comfort band',()=>{
     const a=app();
     for(const mode of ['passive','maxxfan','ac','auto','hp','furnace']){
         assert.equal(a.run(`comfortBand('${mode}',false,{}).low`),68);
-        assert.equal(a.run(`comfortBand('${mode}',false,{}).high`),72);
+        assert.equal(a.run(`comfortBand('${mode}',false,{}).high`),73);
     }
 });
 
 test('comfort tolerance and floor use unrounded temperatures',()=>{
-    const a=app();a.run('s={trace:[{indoor:65}],finalIndoor:70.5}');
+    const a=app();a.run('s={trace:[{indoor:65}],finalIndoor:69}');
     assert.equal(a.run('simulationComfort(s,true).endInBand'),true);
-    a.run('s.finalIndoor=70.5001');assert.equal(a.run('simulationComfort(s,true).endInBand'),false);
+    a.run('s.finalIndoor=69.0001');assert.equal(a.run('simulationComfort(s,true).endInBand'),false);
     a.run('s.trace[0].indoor=64.9999');assert.equal(a.run('simulationComfort(s,true).floorCompliant'),false);
 });
 
@@ -134,4 +134,5 @@ test('an opposite-band excursion is explained even if the final temperature reco
         comfortLow:70,comfortHigh:72,finalIndoor:70,overshoot:true,trace:[{indoor:74},{indoor:70}]},{heat:70},new Date()).text`);
     assert.match(issue,/range from 70.0 to 74.0°F/);assert.doesNotMatch(issue,/needs more time|cannot maintain/);
 });
+
 

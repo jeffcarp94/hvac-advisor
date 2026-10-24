@@ -1,5 +1,44 @@
 # HVAC Advisor
 
+## v6.4.1 — construction evidence and envelope sensitivity
+
+- Audited the source drawings, model-specific manual and manufacturer R-18 shell-insulation claim. The geometry supports the existing enclosure area within rough drawing precision; the sources do not establish a measured whole-coach UA. The retained nominal 136.57 BTU/(hr·°F) is a working estimate, not a certified R-value conversion.
+- Corrected the cab-loss sensitivity: it now changes total heat loss (119.52–153.63 before wind) while holding RV-body conductance fixed. The duty/capacity calculation uses the same scenario load as the zone temperatures, with baseline infiltration counted once and thermal storage held fixed.
+- Opaque solar gain now follows body/cab conductance under a common mean exposure assumption. The nominal aggregate gain and separate glazing/shade coefficients are retained; uncertain cab conduction also affects cab solar transmission.
+- Calculation details show an R-18 walls/roof-only comparison of 118.74 BTU/(hr·°F), keeping the floor, cab, glass and leakage assumptions. This is an optimistic sensitivity comparison rather than a qualified operating scenario. See [model-assumptions.md](model-assumptions.md) for variables, formulas, evidence, confidence and limitations.
+
+Earlier notes are historical where superseded below.
+
+## v6.4.0 — bedroom priority, duct distribution and selected control settings
+
+- The bed area determines comfort and target fit during awake, unoccupied and sleeping periods. The front sensor remains the thermostat input. Plans that also keep the dinette within its band rank first among bedroom-qualified plans; otherwise the output identifies the dinette miss.
+- Each current, departure, preparation and overnight setup searches thermostat settings along with mode and fan. The old settings are starting candidates, not fixed requirements. No universal furnace offset is applied. Every selected setting is checked in all three scenarios and remains fixed during an absence or overnight interval. AUTO retains its actual ±2°F triggers and returns to its selected setpoint.
+- The supplied scale drawing and 73-inch beds establish approximate served volumes: 431 ft³ rear and 533 ft³ front, including the open Ford cab. Overhead delivery follows those volumes (about 44.7% rear / 55.3% front); furnace delivery follows the owner’s 70% rear / 30% front instruction. Cab envelope losses and solar gains are assigned to the front separately from the insulated RV body.
+- Total closed-coach UA remains 136.57 BTU/(hr·°F). Historical manufacturer advertising cites R-18 insulation lining, but does not establish an assembly rating for this model or the Ford cab. See [model-assumptions.md](model-assumptions.md) for sources, geometry, relative cab-loss assumptions, sensitivity cases and search limitations. Magneshades receive solar reduction only. Cabinet-void thermostat isolation defaults to planned; marking it installed adds no invented temperature offset or coach-insulation credit.
+
+Earlier release notes below describe historical behavior and are superseded by this section where they differ.
+
+## v6.3.0 — independent comfort bands and preferred targets
+
+- Exactly two comfort policies: occupied sleep uses 65–69°F with a 67°F target; awake and unoccupied periods use 68–73°F with a 71°F target. Sleep/preparation thermostat settings cannot change the applicable band. Sleep ends at exactly 7 AM.
+- Equipment, moisture, temperature and readiness checks qualify plans first. Among qualified plans, temperatures within ±0.5°F of target receive no target penalty. Heating favors cooler-side misses; cooling favors warmer-side misses. Closer temperatures on the preferred side rank better. OFF and idle AUTO use neutral distance; active AUTO follows the actual heating/cooling operation. Ventilation uses the cooling preference.
+- Target preference is integrated over time (both zones while non-sleeping; bedroom while sleeping), retaining the least favorable scenario result. Departure comparisons score only the departure interval. Cached continuations preserve all target history. Natural recovery, humidity/draft scores and existing mode preferences break target-fit ties.
+- Bedtime readiness uses the sleeping band for every mode; target fit ranks acceptable misses rather than disqualifying them. Thermostat settings, capacities, equipment limits and existing excursion-duration rules remain unchanged.
+
+## v6.2.0 — occupied, departure and sleep stages
+
+- Leaving plans evaluate one occupied setup from the run time to departure, then a separate fixed setup from departure through return. Current and departure alternatives are collapsed and have explicit intervals. If a different initial setup is needed to make the absence feasible, it is evaluated with continuous state; alternatives never reset departure conditions.
+- The departure setup stays unchanged throughout the absence, including when remote controls exist. It can be physically configured immediately before departure. Predicted bedroom/front temperature and RH at return are shown, followed by a request to rerun with fresh readings. No separate return-mode recommendation is presented.
+- Sleep begins at the later of 10 PM and a return that overlaps the sleep period, and ends at 7 AM. An absence through or beyond 7 AM is evaluated through return and omits that night's sleep recommendation. Occupant sources are zero while away and resume at return; sleep metabolism starts at the adjusted sleep time. Earlier returns retain the 10 PM preparation deadline.
+- Projected overnight modes and collapsed alternatives retain the recommended occupied/departure trajectory and any explicitly shown post-return preparation. A fixed departure mode that cannot cover the absence is never presented as verified. Preparation cannot require an adjustment during the absence. Thermodynamic constants and equipment operating limits are unchanged.
+
+## v6.1.0 — daytime and overnight comparisons
+
+- Two planning periods: awake 7 AM–10 PM and unattended sleep 10 PM–7 AM. No 7–10 AM or 7–10 PM transition gate. Natural recovery is checked throughout awake hours; preparation is calculated against the 10 PM deadline.
+- Daytime alternatives must pass continuously until the next displayed adjustment (or the bounded review time). A later switch to AC cannot qualify an otherwise unsuitable daytime heater. An idle heater is labeled unnecessary. Choosing another daytime option requires fresh readings and a rebuilt plan at the end of that interval.
+- Projected overnight alternatives retain the recommended daytime and preparation phases. All use identical predicted bedtime heat/moisture state and carried exposure history in each scenario, and must pass through 7 AM with one fixed setup. Alternatives requiring different preparation are not silently substituted.
+- Nighttime runs compare only the remaining night. If no verified bedtime preparation is available, overnight comparisons explicitly await reassessment. Physical constants and equipment limits are unchanged.
+
 The preparation planner now checks missed five-minute intervals and can cool before selecting a heating-only overnight setup. Overnight plans require no manual changes or automatic furnace backup. Heat-pump operation follows the documented 30°F changeover, with explicit defrost pauses and a documented estimated capacity decline; humidity no longer invents a 45–50°F equipment lockout. AUTO bedtime readiness distinguishes normal cycling after reaching the cooling target from an actual preparation miss. See model-assumptions.md for equations and limitations.
 
 The v6.0.1 humidity repair treats the small coach as one mixed moisture volume, per the owner's instruction. Paired temperature/RH inputs initialize the prediction; both temperature forecasts remain, with one predicted dew point and RH derived at each local temperature. A front/rear moisture bottleneck cannot disqualify equipment.
@@ -116,4 +155,5 @@ node tests/browser-smoke.cjs
 An existing Chromium executable can be supplied using `CHROMIUM_EXECUTABLE`. Screenshots are optional via `QC_SCREENSHOT_DIR`. GitHub Actions runs the browser test in a separate job.
 
 For local manual checks, serve the repository under the deployment subpath, for example run `python3 -m http.server 8000` from its parent and open `http://localhost:8000/hvac-advisor/`. Do not open `index.html` through `file://` for weather or PWA tests.
+
 
