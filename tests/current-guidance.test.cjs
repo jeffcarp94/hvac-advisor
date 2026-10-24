@@ -79,7 +79,8 @@ test('Winterset evening regression verifies a complete plan through 7 AM with fi
  assert.doesNotMatch(a.run('html'),/No suitable current setup|Overnight needs reassessment/);
 });
 test('a future extreme-cold shortfall still provides bounded current guidance',()=>{
- const a=setup();a.run(`e.points=e.points.map(p=>+p.time>+r.start+3*3600000?{...p,tOut:-50,wind:20,rh:30}:p);
+ const a=setup();a.run(`shortlistVents=()=>[];planSetups=sleep=>['ac','furnace'].map(type=>planSetup(type,sleep));
+ e.points=e.points.map(p=>+p.time>+r.start+3*3600000?{...p,tOut:-50,wind:20,rh:30}:p);
  result=runUnifiedPlan(r,e);html=renderPlan(result)`);
  assert.equal(a.run('result.winner.suitable'),false);assert.ok(a.run('result.current'));
  assert.equal(a.run('result.current.reviewAt'),+new Date(winterset.request.start)+30*60000);

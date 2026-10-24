@@ -1291,7 +1291,9 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             }
         }
         if(operation==='hp'&&out<HP.defrostBelow&&duty>0){
-            const available=(HP.heatingMinutes-hpRunMinutes)/duty/60;
+            // Split no later than the remaining full-load time. Recomputing averaged
+            // duty on a smaller step must not repeatedly move the event closer.
+            const available=(HP.heatingMinutes-hpRunMinutes)/60;
             if(available<dt-1e-10&&available>1e-10){const cut=row.from+available*3600000;
                 workRows.splice(rowIndex,1,{...row,to:cut,dt:available},{...row,from:cut,dt:dt-available});rowIndex--;continue;}
         }

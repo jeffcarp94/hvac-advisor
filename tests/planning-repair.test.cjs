@@ -12,6 +12,14 @@ test('heat pump includes full defrost interruptions and never substitutes furnac
  assert.equal(a.run("p.segments.filter(s=>s.operation==='defrost').every(s=>s.duty===0&&s.circulation===0)"),true);
  assert.equal(a.run("p.segments.some(s=>s.operation==='furnace')"),false);
 });
+test('part-load heating advances through defrost boundaries with finite substeps',()=>{
+ const a=app();a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;
+ e={windowStart:new Date('2026-05-10T03:00Z'),windowEnd:new Date('2026-05-10T08:00Z'),wind:8,cloud:0,points:[{time:new Date('2026-05-10T03:00Z'),tOut:40,rh:75,wind:8,cloud:0}]};
+ p=zoneProfile('hp',e,true,confirmedSetpoints(true),C.metaSleep,66,{frontControl:true});`);
+ assert.ok(a.run('p.defrostMinutes')>0);assert.ok(a.run('p.segments.length')<2000);
+ assert.equal(a.run('p.segments.every(s=>s.hours>0&&Number.isFinite(s.duty))'),true);
+ assert.equal(a.run('+p.trace.at(-1).time'),Date.parse('2026-05-10T08:00Z'));
+});
 test('cached heating handoff preserves defrost clock, pauses and moisture',()=>{
  const a=app();load(a,require('./fixtures/winterset-planning-regressions.json')[0]);
  a.run(`e.points=e.points.map(p=>({...p,tOut:40,rh:60}));ph=[{time:+r.start,setup:planSetup('hp',false)},{time:+r.start+55*60000,setup:planSetup('hp',true)}];rows=planRows(e,r);
