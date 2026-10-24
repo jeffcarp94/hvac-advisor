@@ -1197,7 +1197,7 @@ function spatialModelText(detailed=false){
 function frontOutlook(trials,from,to){
     const points=trials.flatMap(t=>t.trace.filter(p=>+p.time>=from&&+p.time<=to));
     const misses=points.filter(p=>{const policy=comfortPolicy(p.sleep);return p.midCoach<policy.low-.05||p.midCoach>policy.high+.05;});
-    if(!misses.length)return '<p class="hint">Both areas remain within their comfort bands in this interval.</p>';
+    if(!misses.length)return '<p class="hint">Dinette predictions stay within their comfort bands in this interval. Bedroom ranges are shown separately.</p>';
     return '<p class="hint"><strong>Dinette comfort differs:</strong> predicted '+Math.min(...points.map(p=>p.midCoach)).toFixed(1)+'–'+Math.max(...points.map(p=>p.midCoach)).toFixed(1)+'°F. Bed-area comfort is prioritized; the dinette leaves the applicable comfort band.</p>';
 }
 
