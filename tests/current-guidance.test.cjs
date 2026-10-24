@@ -68,7 +68,8 @@ test('currently-away guidance preserves the verified physical arrangement and av
  assert.equal(a.run("setupChangeAllowed(r.actual,planSetup('ac',false),+r.start,r)"),false);
 });
 test('Winterset evening regression verifies a complete plan through 7 AM with finite humidity control',()=>{
- const a=setup();a.run('result=runUnifiedPlan(r,e);html=renderPlan(result)');
+ // Full window/fan search is exercised in browser CI; isolate closed-coach guidance here.
+ const a=setup();a.run('shortlistVents=()=>[];result=runUnifiedPlan(r,e);html=renderPlan(result)');
  assert.equal(a.run('result.winner.suitable'),true);assert.equal(a.run('result.winner.ready'),true);
  assert.equal(a.run('result.current'),null);assert.equal(a.run('result.winner.setup.type'),'ac');
  assert.equal(a.run('result.winner.setup.setpoints.cool'),72);

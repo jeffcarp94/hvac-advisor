@@ -43,7 +43,7 @@ test('attended and away heating share the documented equipment minimum',()=>{
  assert.equal(a.run('heatPumpPolicy(29,95,true).safe'),false);
 });
 test('away transitions require available controls, with a departure instant exception',()=>{
- const a=scenario();a.run(`r.occupancy='leaving';r.departure=new Date(+r.start+600000);r.returnTime=new Date(+r.start+7200000);off=planSetup('passive',false);cool=planSetup('ac',false);vent=planSetup('maxxfan',false,{fanZone:0,gaps:[0,0,0,4,0,0]});`);
+ const a=scenario('2026-10-24T00:00Z');a.run(`r.occupancy='leaving';r.departure=new Date(+r.start+600000);r.returnTime=new Date(+r.start+7200000);off=planSetup('passive',false);cool=planSetup('ac',false);vent=planSetup('maxxfan',false,{fanZone:0,gaps:[0,0,0,4,0,0]});`);
  assert.equal(a.run('setupChangeAllowed(vent,cool,+r.departure,r)'),true);
  assert.equal(a.run('setupChangeAllowed(vent,cool,+r.departure+1,r)'),false);
  a.run('r.remote=true');assert.equal(a.run('setupChangeAllowed(vent,cool,+r.departure+1,r)'),false);
