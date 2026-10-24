@@ -63,6 +63,24 @@ function weather(url){
   await page.locator('#occupancyMode').selectOption('leaving');assert.equal(await page.locator('#departureFields').isVisible(),true);assert.equal(await page.locator('#returnFields').isVisible(),true);
   await page.locator('#departureTime').fill('2026-10-22T06:50');await page.locator('#returnTime').fill('2026-10-22T08:30');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:180000});
+  // Departure/return plan: the absence crosses 10 PM, so sleep starts on return.
+  await page.locator('#futureStart').fill('2026-10-22T21:00');
+  await page.locator('#departureTime').fill('2026-10-22T21:15');await page.locator('#returnTime').fill('2026-10-22T23:30');
+  await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:300000});
+  const departureText=await page.locator('#results').innerText();
+  for(const title of ['Recommended current mode','Recommended departure mode','Recommended overnight mode'])assert.match(departureText,new RegExp(title));
+  assert.equal(await page.locator('[data-stage]').count(),3);
+  assert.equal(await page.locator('[data-stage] details[open]').count(),0);
+  assert.match(departureText,/11:30 PM/);assert.match(departureText,/Predicted conditions at return/);
+  assert.equal(await page.evaluate(()=>lastPlan.winner.phases.every(p=>p.time<=+lastPlan.request.departure||p.time>=+lastPlan.request.returnTime)),true);
+  assert.equal(await page.evaluate(()=>+lastPlan.bounds.sleepFrom===+lastPlan.request.returnTime),true);
+  await page.screenshot({path:path.join(screens,'departure-late-return.png'),fullPage:true});
+  await page.locator('#returnTime').fill('2026-10-23T07:00');
+  await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:300000});
+  assert.equal(await page.locator('[data-stage="overnight"]').count(),0);
+  assert.match(await page.locator('#results').innerText(),/No overnight recommendation/);
+  await page.locator('#futureStart').fill('2026-10-22T06:45');
+  await page.locator('#departureTime').fill('2026-10-22T06:50');await page.locator('#returnTime').fill('2026-10-22T08:30');
   await page.locator('#remoteAccess').check();assert.equal(await page.locator('#awayOption').evaluate(e=>e.disabled),false);
   await page.locator('#occupancyMode').selectOption('away');assert.equal(await page.locator('#actualSetup').isVisible(),true);
   await page.locator('#analyzeBtn').click();assert.match(await page.locator('#resultStatus').innerText(),/Confirm/);
@@ -161,12 +179,12 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.1.0'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.2.0'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
   await oldContext.close();}
-  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.1.0','6.0.0 → 6.1.0'],errors},null,2));
+  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.2.0','6.0.0 → 6.2.0'],errors},null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
 

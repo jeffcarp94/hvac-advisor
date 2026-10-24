@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.1.0 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.2.0 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -97,7 +97,7 @@
         .sensor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;} .sensor-title{font-size:14px;font-weight:800;margin:7px 0;}
         .hint{font-size:12px;line-height:1.5;color:var(--text-secondary);margin:7px 0;} details>summary{cursor:pointer;font-size:13px;font-weight:700;padding:8px 0;} details .diag-title{margin-top:8px;}
         .minor-btn{background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:12px;cursor:pointer;}
-        .plan-step{border-left:3px solid var(--accent-blue);padding:0 0 16px 12px;margin:12px 0;} .plan-time{font-family:var(--font-mono);font-size:12px;color:var(--accent-blue);margin-bottom:5px;} .plan-step p{font-size:13px;line-height:1.55;margin:5px 0;} .plan-metrics{font-size:12px;line-height:1.6;color:var(--text-secondary);margin-top:10px;}
+        .plan-stage{margin:18px 0;padding-top:14px;border-top:1px solid var(--border);}.plan-stage h3{font-size:15px;margin-bottom:8px;}.plan-stage .result-primary{font-size:20px;} .plan-step{border-left:3px solid var(--accent-blue);padding:0 0 16px 12px;margin:12px 0;} .plan-time{font-family:var(--font-mono);font-size:12px;color:var(--accent-blue);margin-bottom:5px;} .plan-step p{font-size:13px;line-height:1.55;margin:5px 0;} .plan-metrics{font-size:12px;line-height:1.6;color:var(--text-secondary);margin-top:10px;}
         .result-card-header{gap:8px;flex-wrap:wrap;} .diag-row{gap:12px;} .diag-row span:last-child{text-align:right;} .result-detail-label{min-width:76px;} .setpoint-display{line-height:1.65;margin-top:12px;color:var(--text-secondary);}
         button:disabled{opacity:.6;cursor:default;} :focus-visible{outline:2px solid var(--accent-blue);outline-offset:3px;} .input-unit{color:var(--text-secondary);} .result-card-title{font-size:13px;}
     </style>
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.1.0</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.2.0</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -206,7 +206,7 @@
     <div id="resultStatus" role="status" aria-live="polite" style="font-size:12px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px;"></div>
     <div class="results" id="results"></div>
 
-    <div class="footer-note">Coach House Platinum III 250 DT · Day heat/cool 70/72°F · Sleep heat/cool 66/68°F · Bedtime readiness at 10 PM.</div>
+    <div class="footer-note">Coach House Platinum III 250 DT · Day heat/cool 70/72°F · Sleep heat/cool 66/68°F · Sleep starts at 10 PM or a later return.</div>
 </div>
 
 <script>
@@ -460,7 +460,7 @@ function forecastPeriodsFor(start,end){
 function applyForecast(period){
     if(state.weatherMode!=='forecast'||!forecast.fetched)return;
     let preview=new Date();if(period==='plan'&&document.getElementById('planningMode').value==='future'){try{preview=parseLocalInput(document.getElementById('futureStart').value,'planning start');}catch{}}
-    const win=period==='plan'?{start:preview,end:planBounds(preview).end}:period==='current'?currentTransitionWindow(new Date()):computeWindow(period==='night');
+    const win=period==='plan'?{start:preview,end:planningBounds(preview).end}:period==='current'?currentTransitionWindow(new Date()):computeWindow(period==='night');
     const start=period==='current'?Date.now():win.start.getTime(),end=period==='current'?(win.windowEnd?.getTime()||start+1):win.end.getTime();
     const periods=forecast.periods.filter(p=>p.end>start&&p.start<end);
     const temps=forecast.intervals.temperature.filter(v=>v.end>start&&v.start<end&&v.value!==null),rhs=forecast.intervals.humidity.filter(v=>v.end>start&&v.start<end&&v.value!==null);
@@ -1189,6 +1189,7 @@ function scheduleWeather(envelope,start,end,maxStepMin=.5){
 }
 function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,options={}){
     const {start,end}=simulationBounds(envelope),rows=options.rows||scheduleWeather(envelope,start,end,options.maxStepMin||.5);
+    if(!rows.length||rows.some(row=>!Number.isFinite(row.dt)||row.dt<=0))throw new Error('The calculation needs positive-duration intervals. Rebuild the plan with valid times.');
     const scenario=options.scenario||AIR_SCENARIOS[0];let config=mode==='maxxfan'?(options.config||{fanZone:1,fanName:'Mid-coach MaxxFan',gaps:[0,0,0,4,0,0]}):null;
     let sp={...setpoints,fan:setpoints.fan??setpoints.cool},maxFan=options.fanSetting||(isOvernight?'Low':'Auto');
     const initialRH=Math.max(5,Math.min(100,(state.indoorRH??rhFromRatio(startIndoor,humidityRatio(rows[0].tOut,rows[0].rh))*.85)+scenario.rhOffset));
@@ -1201,6 +1202,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     const unsafe=[],warnings=new Set(),trace=[],segments=[],mass=M.fraction.map(f=>UA_BASE*C.tau*f),airMass=M.volumeFt3.map(v=>v*.075);
     let band={low:Math.max(65,sp.heat-2),high:sp.cool+1};const floor=C.comfortFloor;let lastSetup='';
     const record=(time,elapsed)=>{
+        if([...t,...w].some(v=>!Number.isFinite(v)))throw new Error('Indoor prediction is not finite. Check the inputs and rebuild the plan.');
         const comfortT=isOvernight?t[0]:Math.max(...t),rh=t.map((v,z)=>rhFromRatio(v,w[z]));
         trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],dewPoint:dpFromRatio(w[0]),midDewPoint:dpFromRatio(w[1]),water:w.slice(),sleep:isOvernight});
         return{comfortT,rh};
@@ -1473,10 +1475,26 @@ function parseLocalInput(text,label,timeZone=analysisTimeZone()){
     if(p.year!==year||p.month!==month||p.day!==day||p.hour!==hour||p.minute!==minute)throw new Error(label+' is not a valid local time.');
     return result;
 }
-function planBounds(start){
+function planBounds(start,request=null){
     const p=localParts(start),sleep=p.hour<7||p.hour>=22;
-    const bedtime=sleep?null:localDateTime(p,22),end=localDateTime(p,7,p.hour<7?0:1);
-    return{start,end,bedtime,sleep};
+    let bedtime=sleep?null:localDateTime(p,22),end=localDateTime(p,7,p.hour<7?0:1);
+    let sleepFrom=bedtime||start,hasSleep=true,delayed=false;
+    if(request?.occupancy!=='staying'&&request?.returnTime&&request?.departure&&+request.departure<+end&&+request.returnTime>+sleepFrom){
+        delayed=true;
+        if(+request.returnTime>=+end){hasSleep=false;sleepFrom=null;bedtime=null;end=new Date(+request.returnTime);}
+        else{sleepFrom=new Date(+request.returnTime);bedtime=sleepFrom;}
+    }
+    return{start,end,bedtime,sleep:hasSleep&&+sleepFrom<=+start,sleepFrom,hasSleep,delayed};
+}
+function planningBounds(start){
+    // Weather preview can be refreshed while schedule fields are incomplete.
+    try{
+        const occupancy=document.getElementById('occupancyMode').value;
+        if(occupancy!=='leaving'&&occupancy!=='away')return planBounds(start);
+        const departure=occupancy==='away'?start:parseLocalInput(document.getElementById('departureTime').value,'departure');
+        const returnTime=parseLocalInput(document.getElementById('returnTime').value,'return');
+        return planBounds(start,{occupancy,departure,returnTime});
+    }catch{return planBounds(start);}
 }
 function isAwayAt(request,time){return request.occupancy!=='staying'&&time>=+request.departure&&time<+request.returnTime;}
 function planSetup(type,sleep,config=null,fan=null){
@@ -1487,15 +1505,13 @@ function planSetup(type,sleep,config=null,fan=null){
 function setupPhysicalKey(setup){return setup.config?'windows:'+setup.config.gaps.join(',')+';vent:'+(setup.type==='maxxfan'?setup.config.fanZone:'off'):'closed';}
 function sameSetup(a,b){return a.type===b.type&&setupPhysicalKey(a)===setupPhysicalKey(b)&&(a.type==='passive'||JSON.stringify(a.setpoints)===JSON.stringify(b.setpoints)&&a.fan===b.fan);}
 function setupChangeAllowed(from,to,time,request){
-    // At bedtime is the final awake action. No later change, even via remote access.
-    const b=planBounds(request.start),hour=localParts(new Date(time)).hour;
-    if(time>+request.start&&(hour<7||hour>=22)&&time!==+b.bedtime)return sameSetup(from,to);
-    // The departure instant represents a last action BEFORE leaving.
+    const b=planBounds(request.start,request);
+    // Departure is an occupied final adjustment, including a late-night departure.
     if(request.occupancy==='leaving'&&time===+request.departure)return true;
+    if(time>+request.start&&b.hasSleep&&time>=+b.sleepFrom&&time!==+b.bedtime)return sameSetup(from,to);
     if(!isAwayAt(request,time))return true;
     if(sameSetup(from,to))return true;
     if(!request.remote||setupPhysicalKey(from)!==setupPhysicalKey(to))return false;
-    // No remote window, roof lid, fan selection, or MaxxFan setpoint controls.
     return from.type!=='maxxfan'&&to.type!=='maxxfan';
 }
 function validatePlanRequest(request){
@@ -1530,7 +1546,7 @@ function readPlanRequest(){
         const type=value('actualMode'),gaps=WINDOW_SECTIONS.map((_,i)=>Number(value('actualWindow'+i))),fanZone=Number(value('actualVent'));
         const config=gaps.some(Boolean)?{gaps,fanZone,fanName:fanZone===0?'Bedroom MaxxFan':'Mid-coach MaxxFan'}:null;
         if(type==='maxxfan'&&!config)throw new Error('A MaxxFan exhaust setup needs at least one intake window open.');
-        const actual=planSetup(type,planBounds(start).sleep,config,value('actualFan')),sp=number('actualSetpoint');
+        const actual=planSetup(type,planBounds(start,request).sleep,config,value('actualFan')),sp=number('actualSetpoint');
         if(!Number.isFinite(sp)||sp<55||sp>85)throw new Error('Enter the current setpoint from 55–85°F.');
         actual.setpoints={heat:sp,cool:sp,auto:sp,fan:sp};actual.key+='|actual|'+sp;
         request.actual=actual;request.actualConfirmed=!!document.getElementById('setupConfirmed').checked;
@@ -1538,25 +1554,25 @@ function readPlanRequest(){
     validatePlanRequest(request);return request;
 }
 function planRows(envelope,request,step=.5,extra=[]){
-    const bounds=planBounds(request.start),base=scheduleWeather(envelope,request.start,bounds.end,step);
+    const bounds=planBounds(request.start,request),base=scheduleWeather(envelope,request.start,bounds.end,step);
     const boundaries=[bounds.bedtime,request.departure,request.returnTime,...extra].filter(Boolean).map(Number);
     if(bounds.bedtime)for(let t=+bounds.bedtime-PLAN.searchMinutes*60000;t>+request.start;t-=PLAN.searchMinutes*60000)boundaries.push(t);
     const rows=[];
     for(const row of base){
-        const cuts=[row.from,...boundaries.filter(t=>t>row.from&&t<row.to),row.to].sort((a,b)=>a-b);
+        const cuts=[...new Set([row.from,...boundaries.filter(t=>t>row.from&&t<row.to),row.to])].sort((a,b)=>a-b);
         for(let i=1;i<cuts.length;i++){
             const from=cuts[i-1],to=cuts[i],hour=localParts(new Date((from+to)/2)).hour;
-            rows.push({...row,from,to,dt:(to-from)/3600000,sleeping:hour<7||hour>=22,occupants:isAwayAt(request,from)?0:2});
+            rows.push({...row,from,to,dt:(to-from)/3600000,sleeping:bounds.hasSleep&&from>=+bounds.sleepFrom&&from<+bounds.end,occupants:isAwayAt(request,from)?0:2});
         }
     }
     return rows;
 }
 function phaseControl(phases){return time=>{let current=phases[0].setup;for(const phase of phases){if(phase.time>time)break;current=phase.setup;}return current;};}
 function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=null,resume=null,capture=false,diagnostic=false){
-    const bounds=planBounds(request.start),timeline=rows||planRows(envelope,request,.5,phases.map(p=>p.time));
+    const bounds=planBounds(request.start,request),timeline=rows||planRows(envelope,request,.5,phases.map(p=>p.time));
     // Split even a partial final step exactly at each equipment/target change.
     const split=[];
-    for(const row of timeline){const cuts=[row.from,...phases.map(p=>p.time).filter(t=>t>row.from&&t<row.to),row.to].sort((a,b)=>a-b);
+    for(const row of timeline){const cuts=[...new Set([row.from,...phases.map(p=>p.time).filter(t=>t>row.from&&t<row.to),row.to])].sort((a,b)=>a-b);
         for(let i=1;i<cuts.length;i++)split.push({...row,from:cuts[i-1],to:cuts[i],dt:(cuts[i]-cuts[i-1])/3600000});}
     const first=phases[0].setup;
     const activeRows=resume?split.filter(row=>row.from>=resume.time):split;
@@ -1572,7 +1588,7 @@ function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=nul
     const ready=!bounds.bedtime||!!atBedtime&&cooled&&atBedtime.bedroom>=lower-1e-6&&atBedtime.bedroom<=high+1e-6;
     const unavailable=phases.find((p,i)=>i>0&&!setupChangeAllowed(phases[i-1].setup,p.setup,p.time,request));
     if(unavailable){sim.unsafe.push({time:new Date(unavailable.time),reason:'This setup change requires an unavailable action during sleep or absence.',issueCode:'unavailable-action'});sim.suitable=false;sim.equipmentEligible=false;}
-    const bedtimeReason=ready?'':!atBedtime?'Conditions fail before bedtime.':'Bedroom is '+atBedtime.bedroom.toFixed(1)+'°F at 10 PM; the '+(atBedtime.bedroom>68.5?'68°F cooling':'66°F heating')+' target is not reached.';
+    const bedtimeReason=ready?'':!atBedtime?'Conditions fail before bedtime.':'Bedroom is '+atBedtime.bedroom.toFixed(1)+'°F at '+(localParts(bounds.bedtime).hour===22&&localParts(bounds.bedtime).minute===0?'10 PM':formatTime(bounds.bedtime))+'; the '+(atBedtime.bedroom>68.5?'68°F cooling':'66°F heating')+' target is not reached.';
     return{...sim,ready,bedtimeReason,atBedtime};
 }
 function planTrialReason(trial){return trial.unsafe[0]?.reason||trial.moistureReason||trial.comfortReason||trial.bedtimeReason||'';}
@@ -1591,6 +1607,9 @@ function evaluatePlan(phases,envelope,request,rows){
         }
         return simulatePlan(phases,envelope,request,s,rows,{time,carry:checkpoint,prefix});
     });
+    return planFromTrials(phases,trials,envelope,request);
+}
+function planFromTrials(phases,trials,envelope,request){
     const failed=trials.find(t=>!t.suitable),late=trials.find(t=>!t.ready);
     const suitable=!failed,ready=!late,first=phases[0].setup,last=phases.at(-1).setup;
     const natural=naturalRecovery(trials,request,first);
@@ -1599,8 +1618,7 @@ function evaluatePlan(phases,envelope,request,rows){
         setup:first,nightSetup:last,envelope,request,prepareAt:phases.find((p,i)=>i>0&&p.setup.sleepComfort)?.time??null};
 }
 function naturalRecovery(trials,request,setup){
-    const hour=localParts(request.start).hour;
-    if(hour<7||hour>=22||!['passive','ac'].includes(setup.type)||setup.config)return null;
+    if(planBounds(request.start,request).sleep||!['passive','ac'].includes(setup.type)||setup.config)return null;
     const times=trials.map(t=>{
         const point=t.trace.find(p=>p.elapsedMin<=30&&Math.min(p.bedroom,p.midCoach)>=68&&Math.max(p.bedroom,p.midCoach)<=73);
         if(!point)return null;
@@ -1620,7 +1638,7 @@ function comparePlans(a,b){
     return rank(a)-rank(b)||duration||Number(!!b.natural)-Number(!!a.natural)||a.score-b.score||modePreference(a)-modePreference(b);
 }
 function currentRecommendation(envelope,request,plans){
-    const bounds=planBounds(request.start);
+    const bounds=planBounds(request.start,request);
     // A departure is a required review point: a short current recommendation
     // never certifies the subsequent absence or schedules unavailable intervention.
     const reviewAt=Math.min(+request.start+30*60000,+bounds.end,request.occupancy==='leaving'?+request.departure:Infinity);
@@ -1650,7 +1668,7 @@ function currentRecommendation(envelope,request,plans){
 function planSetups(sleep,vents=[]){return ['passive','ac','hp','furnace','auto'].map(t=>planSetup(t,sleep)).concat(vents.map(c=>planSetup('maxxfan',sleep,c)));}
 function shortlistVents(envelope,request,sleep){
     if(request.occupancy==='away')return request.actual.type==='maxxfan'?[request.actual.config]:[];
-    const bounds=planBounds(request.start),limit=!sleep&&bounds.bedtime?+bounds.bedtime:Infinity;
+    const bounds=planBounds(request.start,request),limit=!sleep&&bounds.bedtime?+bounds.bedtime:Infinity;
     const rows=planRows(envelope,request,3).filter(row=>row.to<=limit),ranked=[];
     // Equal panes on the same side have identical modeled pressure/area and
     // draft exposure. Evaluate one representative of each exact symmetry.
@@ -1683,9 +1701,161 @@ function repairPlanFans(plan,envelope,request,rows){
     }
     return plan;
 }
+function stageSetups(sleep,vents){
+    return planSetups(sleep,vents).flatMap(base=>['ac','auto','hp'].includes(base.type)?
+        ['Auto','Low','Medium','High'].map(fan=>planSetup(base.type,sleep,base.config,fan)):[base]);
+}
+function stageSummary(plan,from,to){
+    return{setup:plan.setup,suitable:plan.suitable,reason:plan.reason,ready:plan.ready,
+        bedroom:traceRange(plan,from,to,'bedroom'),front:traceRange(plan,from,to,'midCoach'),
+        humidity:traceRange(plan,from,to,'rh'),frontRH:traceRange(plan,from,to,'midRH')};
+}
+function stageGroup(plans,from,to){
+    const modes=new Map();for(const p of plans.slice().sort(comparePlans))if(!modes.has(p.type))modes.set(p.type,stageSummary(p,from,to));
+    return [...modes.values()];
+}
+function stagePlan(prefix,setup,from,to,envelope,request,rows){
+    const phases=[...prefix.filter(p=>p.time<from),{time:from,setup}],stageRows=rows.filter(row=>row.to<=to);
+    const p=evaluatePlan(phases,envelope,request,stageRows),failed=p.trials.find(t=>!t.suitable||+t.trace.at(-1).time!==to);
+    const available=request.occupancy!=='away'||setupChangeAllowed(request.actual,phases[0].setup,+request.start,request);
+    const idleHeat=['hp','furnace'].includes(setup.type)&&p.trials.every(t=>!t.segments.some(s=>s.startMs>=from&&s.startMs<to&&['hp','furnace'].includes(s.operation)&&s.duty>0));
+    const bedtime=planBounds(request.start,request).bedtime;
+    return{...p,setup,type:setup.type,suitable:available&&!failed&&!idleHeat,ready:bedtime&&to===+bedtime?p.ready:true,
+        reason:!available?'This setup requires an unavailable physical adjustment while you are away.':failed?planTrialReason(failed):idleHeat?'Heating is not needed during this interval; this heating mode would remain idle.':''};
+}
+function* departureOvernight(prefix,nights,envelope,request,rows){
+    const bounds=planBounds(request.start,request),bed=+bounds.bedtime,earliest=Math.max(+request.returnTime,+request.start);
+    const cached=AIR_SCENARIOS.map(s=>simulatePlan(prefix,envelope,request,s,rows,null,true));
+    const attempt=(time,setup,cool=null)=>{
+        const phases=[...prefix.filter(p=>p.time<time),{time,setup:cool||setup}];
+        if(cool)phases.push({time:bed,setup});
+        const trials=AIR_SCENARIOS.map((s,i)=>{
+            const checkpoint=cached[i].checkpoints.find(p=>p.time===time);
+            return checkpoint?simulatePlan(phases,envelope,request,s,rows,{time,carry:checkpoint,prefix:cached[i]}):simulatePlan(phases,envelope,request,s,rows);
+        });
+        return planFromTrials(phases,trials,envelope,request);
+    };
+    const times=new Set([bed,earliest]);
+    for(let t=bed-PLAN.searchMinutes*60000;t>earliest;t-=PLAN.searchMinutes*60000)times.add(t);
+    const ordered=[...times].sort((a,b)=>b-a),plans=[];
+    for(const night of nights){
+        let best=null;
+        for(const time of ordered){
+            const p=attempt(time,night);if(!best||comparePlans(p,best)<0)best=p;
+            yield{overnight:time};if(p.suitable&&p.ready){best=p;break;}
+        }
+        if(!(best?.suitable&&best.ready)&&['hp','furnace'].includes(night.type)){
+            let found=false;
+            for(const fan of ['Low','Medium','High']){
+                for(const time of ordered.filter(t=>t<bed)){
+                    const p=attempt(time,night,planSetup('ac',true,null,fan));
+                    if(!best||comparePlans(p,best)<0)best=p;
+                    yield{preparing:time};if(p.suitable&&p.ready){best=p;found=true;break;}
+                }
+                if(found)break;
+            }
+        }
+        if(best)plans.push(best);
+    }
+    annotateAutoPlans(plans);plans.sort(comparePlans);
+    return{winner:plans[0],plans};
+}
+function* searchDeparturePlans(envelope,request){
+    const bounds=planBounds(request.start,request),rows=planRows(envelope,request,.5,[+request.departure,+request.returnTime]);
+    const vents=shortlistVents(envelope,request,false),nightVents=bounds.hasSleep?shortlistVents(envelope,request,true):[];
+    const days=stageSetups(false,vents),nights=stageSetups(true,nightVents);
+    const from=+request.start,departure=+request.departure,back=+request.returnTime;
+    const stages={current:null,departure:null,night:null,preparation:[],returnConditions:null};
+    let currents=[];
+    if(departure>from){
+        const currentSetups=back===+bounds.bedtime?[...days,...stageSetups(true,vents).filter(s=>s.type==='ac')]:days;
+        for(const setup of currentSetups){currents.push(stagePlan([],setup,from,departure,envelope,request,rows));yield{current:currents.length};}
+        currents.sort(comparePlans);
+        stages.current={from,to:departure,recommended:null,options:stageGroup(currents,from,departure)};
+    }else currents=[{suitable:true,ready:true,phases:[],setup:days[0],score:0,type:days[0].type}];
+    let selectedCurrent=null,selectedDeparture=null,departurePlans=[];
+    // Try another occupied setup if its predicted departure state is needed to
+    // obtain a fixed setup that covers the absence. No resets at departure.
+    const depSetups=back===+bounds.bedtime?[...days,...stageSetups(true,vents)]:days.slice();
+    if(request.occupancy==='away')depSetups.push(request.actual);
+    for(const current of currents.filter(p=>p.suitable)){
+        const prefix=departure>from?current.phases:[],tested=[];
+        for(const setup of depSetups){tested.push(stagePlan(prefix,setup,departure,back,envelope,request,rows));yield{departure:tested.length};}
+        tested.sort((a,b)=>comparePlans(a,b)||Number(sameSetup(current.setup,b.setup))-Number(sameSetup(current.setup,a.setup)));
+        const viable=tested.find(p=>p.suitable);
+        if(!selectedCurrent){selectedCurrent=current;departurePlans=tested;selectedDeparture=viable||null;}
+        if(viable&&(back!==+bounds.bedtime||viable.ready)){selectedCurrent=current;selectedDeparture=viable;departurePlans=tested;break;}
+    }
+    if(stages.current&&selectedCurrent)stages.current.recommended=stageSummary(selectedCurrent,from,departure);
+    stages.departure={from:departure,to:back,recommended:selectedDeparture?stageSummary(selectedDeparture,departure,back):null,
+        options:stageGroup(departurePlans,departure,back),blocked:!selectedCurrent?'No current setup passes continuously through departure. Refresh readings before projecting the absence.':!selectedDeparture?'No single departure setup passes continuously through return. Refresh readings and revise the absence plan.':''};
+    let winner=selectedDeparture||(selectedCurrent?.trials?selectedCurrent:departurePlans[0])||currents[0],plans=winner?[winner]:[];
+    if(selectedDeparture){
+        stages.returnConditions={bedroom:readingAt(selectedDeparture,back,'bedroom'),front:readingAt(selectedDeparture,back,'midCoach'),
+            humidity:readingAt(selectedDeparture,back,'rh'),frontRH:readingAt(selectedDeparture,back,'midRH')};
+        if(bounds.hasSleep){
+            const continuation=yield* departureOvernight(selectedDeparture.phases,nights,envelope,request,rows);
+            winner=continuation.winner;plans=continuation.plans;
+            if(winner?.suitable&&winner.ready){
+                const result={winner,plans,bounds,envelope,request,current:null};
+                stages.night=periodComparisons(result,[],nights,rows).night;
+                stages.night.recommendation=stageSummary({...winner,setup:winner.nightSetup},+bounds.sleepFrom,+bounds.end);
+                stages.preparation=winner.phases.filter(p=>p.time>=back&&p.time<+bounds.sleepFrom&&!sameSetup(selectedDeparture.setup,p.setup));
+            }else stages.night={from:+bounds.sleepFrom,to:+bounds.end,projected:true,recommended:null,recommendation:null,
+                options:stageGroup(plans.map(p=>({...p,setup:p.nightSetup,type:p.nightType,suitable:p.suitable&&p.ready})),+bounds.sleepFrom,+bounds.end)};
+        }
+    }
+    if(winner&&(!selectedDeparture||bounds.hasSleep&&!stages.night?.recommendation)){
+        const previous=winner;winner={...previous,suitable:false};plans=[winner,...plans.filter(p=>p!==previous)];
+    }
+    return{winner,plans,bounds,envelope,request,current:null,stages,comparisons:{day:null,night:stages.night}};
+}
+function renderDeparturePlan(result){
+    const {stages,bounds,request,winner}=result;
+    const passed=!!stages.departure.recommended&&(!bounds.hasSleep||!!stages.night?.recommendation);
+    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+policyBadge(passed,true)+'</div>';
+    const interval=(from,to)=>escapeHTML(formatStamp(new Date(from))+' → '+formatStamp(new Date(to)));
+    const metrics=p=>'<p class="plan-metrics">Bedroom: '+escapeHTML(p.bedroom)+'°F · '+escapeHTML(p.humidity)+'% RH.<br>Front: '+escapeHTML(p.front)+'°F · '+escapeHTML(p.frontRH)+'% RH.</p>';
+    const section=(title,stage,kind)=>{
+        if(!stage)return '';
+        const recommended=stage.recommendation||stage.recommended;
+        let out='<section class="plan-stage" data-stage="'+kind+'"><h3>'+escapeHTML(title)+'</h3><p class="plan-time">'+interval(stage.from,stage.to)+'</p>';
+        if(recommended?.setup){
+            const keep=kind==='departure'&&stages.current?.recommended&&sameSetup(stages.current.recommended.setup,recommended.setup);
+            out+='<div class="result-primary">'+escapeHTML(setupName(recommended.setup))+'</div>';
+            out+='<p class="hint">'+(keep?'Keep this setup when you leave. ':'')+escapeHTML(setupInstructions(recommended.setup))+'</p>'+metrics(recommended);
+        }else out+='<p class="hint">'+escapeHTML(stage.blocked||'No verified setup for this period. Refresh both readings and rebuild the plan before following this stage.')+'</p>';
+        const options=stage.options.filter(p=>p.setup.type!==recommended?.setup?.type);
+        for(const suitable of [true,false]){
+            const list=options.filter(p=>p.suitable===suitable);
+            out+='<details class="diag-panel"><summary>'+(suitable?'Other viable '+kind+' options':'Unsuitable or unnecessary '+kind+' modes')+'</summary>';
+            out+=list.length?list.map(p=>'<div class="comparison-row"><div class="comparison-name">'+escapeHTML(setupName(p.setup))+'</div><p class="comparison-text">'+escapeHTML(suitable?'Passes this entire interval in all three scenarios. '+(kind==='current'?'Choosing this alternative changes the departure projection; rebuild the plan with fresh readings before leaving.':kind==='departure'?'Uses the recommended current plan’s predicted departure conditions. Choosing it changes the overnight projection; rebuild the plan on return.':'Uses the same predicted sleep-start conditions after the displayed preparation.'):p.reason||'Does not pass the checks for this period.')+'</p>'+(suitable?'<p class="comparison-range">'+escapeHTML(setupInstructions(p.setup))+'</p>':'')+'</div>').join(''):'<p class="hint">None for this interval.</p>';
+            out+='</details>';
+        }
+        return out+'</section>';
+    };
+    html+=section('Recommended current mode',stages.current,'current');
+    html+=section(request.occupancy==='away'?'Recommended mode while away':'Recommended departure mode',stages.departure,'departure');
+    if(stages.returnConditions){
+        const c=stages.returnConditions;
+        html+='<p class="hint"><strong>Predicted conditions at return — '+escapeHTML(formatStamp(request.returnTime))+':</strong><br>Bedroom '+escapeHTML(c.bedroom)+'°F · '+escapeHTML(c.humidity)+'% RH; front '+escapeHTML(c.front)+'°F · '+escapeHTML(c.frontRH)+'% RH. Refresh both readings and rerun the app when you return.</p>';
+    }
+    if(bounds.hasSleep){
+        if(bounds.delayed)html+='<p class="hint">Sleep starts at your return, '+escapeHTML(formatTime(bounds.sleepFrom))+', rather than 10 PM. The absence remains unoccupied until then.</p>';
+        if(stages.preparation.length)html+='<p class="hint"><strong>Preparation assumed by the overnight projection:</strong> '+stages.preparation.map(p=>escapeHTML(formatTime(new Date(p.time))+': '+setupInstructions(p.setup))).join(' ')+' Confirm this preparation with fresh readings when you return.</p>';
+        html+=section('Recommended overnight mode',stages.night||{from:+bounds.sleepFrom,to:+bounds.end,recommended:null,options:[],blocked:'Overnight alternatives need reassessment after the departure plan is verified.'},'overnight');
+        if(stages.night?.recommendation)html+='<p class="hint">The overnight setup runs through 7 AM without manual changes or automatic furnace backup.</p>';
+    }else html+='<p class="hint">No overnight recommendation: your return is at or after 7 AM. The departure setup is evaluated through your return time.</p>';
+    html+='<p class="hint">No occupant heat or moisture between departure and return. No away setback. The departure setup remains fixed throughout your absence, even if remote controls are available.</p>';
+    html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+interval(+bounds.start,+bounds.end)+' · '+escapeHTML(analysisTimeZone())+'. Temperature, water content, dehumidifier heat and exposure history carry continuously across departure, return and sleep preparation. Overnight alternatives share the displayed preparation.</p></details>';
+    if(winner?.trials)html+=surfaceOutlook(winner.trials);
+    return html+'</div>';
+}
+
 function* searchPlans(envelope,request){
     validatePlanRequest(request);envelope.planCache=new Map();
-    const bounds=planBounds(request.start),rows=planRows(envelope,request),vents=shortlistVents(envelope,request,bounds.sleep);
+    if(request.occupancy==='leaving'||request.occupancy==='away')return yield* searchDeparturePlans(envelope,request);
+    const bounds=planBounds(request.start,request),rows=planRows(envelope,request),vents=shortlistVents(envelope,request,bounds.sleep);
     const nightVents=bounds.bedtime?shortlistVents(envelope,request,true):vents;
     let days=planSetups(bounds.sleep,vents),nights=planSetups(true,nightVents),results=[];
     if(request.occupancy==='away'){
@@ -1823,7 +1993,7 @@ function annotateAutoPlans(plans){
     }
 }
 function runUnifiedPlan(request,envelope=null){
-    validatePlanRequest(request);const bounds=planBounds(request.start);
+    validatePlanRequest(request);const bounds=planBounds(request.start,request);
     envelope=envelope||makeEnvelope(request.start,bounds.end,'HVAC Plan',THERMAL_STEP_MIN*60000);
     const iterator=searchPlans(envelope,request);let step;do{step=iterator.next();}while(!step.done);return step.value;
 }
@@ -1887,7 +2057,7 @@ function renderPeriodComparisons(period,night=false){
     const interval=formatStamp(new Date(period.from))+' → '+formatStamp(new Date(period.to));
     const options=period.options.filter(p=>p.setup.type!==period.recommended?.type);
     let html='<div class="period-comparisons" data-period="'+(night?'night':'day')+'"><p class="hint">'+escapeHTML(interval)+'. '+
-        (night?(period.projected?'Overnight alternatives assume you follow the recommended daytime and bedtime preparation steps. Each is tested from the same predicted 10 PM conditions. ':'')+'Each listed setup must work through 7 AM without further adjustments or automatic furnace backup.':
+        (night?(period.projected?'Overnight alternatives assume you follow the recommended daytime and bedtime preparation steps. Each is tested from the same predicted sleep-start conditions. ':'')+'Each listed setup must work through 7 AM without further adjustments or automatic furnace backup.':
         'Each option is tested continuously until the next recommended adjustment. If you choose an alternative, refresh readings and rebuild the plan at that time; the overnight projection below assumes the recommended daytime plan.')+'</p>';
     for(const viable of [true,false]){
         const title=viable?'Other viable '+label+' options':night?'Unsuitable '+label+' modes':'Unsuitable or unnecessary daytime modes';
@@ -1936,6 +2106,7 @@ function currentOutlook(current,bounds){
     return html+surfaceOutlook(p.trials);
 }
 function renderPlan(result){
+    if(result.stages)return renderDeparturePlan(result);
     const {winner:p,bounds,request}=result,initial=p.phases[0],sleepFrom=bounds.bedtime?+bounds.bedtime:+bounds.start;
     const step=(title,time,body)=>'<div class="plan-step"><div class="plan-time">'+escapeHTML(time)+'</div><strong>'+escapeHTML(title)+'</strong><p>'+body+'</p></div>';
     const safe=p.suitable,current=!safe&&result.current;
@@ -1999,7 +2170,9 @@ function updatePlanUI(){
     get('gpsBtn').textContent=mode==='away'?'Use the RV’s ZIP code while away':gpsRequestActive?'◎ Locating…':'◎ Use My Location';
     get('departureFields').hidden=mode!=='leaving';get('returnFields').hidden=mode==='staying';get('actualSetup').hidden=mode!=='away';
     get('futureFields').hidden=get('planningMode').value!=='future';
-    get('setpointDisplay').textContent='Day: heat 70°F / cool 72°F · Sleep: heat 66°F / cool 68°F · Ready by 10 PM';
+    let start=new Date();if(get('planningMode').value==='future'){try{start=parseLocalInput(get('futureStart').value,'start');}catch{}}
+    const bounds=planningBounds(start);
+    get('setpointDisplay').textContent='Day: heat 70°F / cool 72°F · Sleep: heat 66°F / cool 68°F · '+(bounds.hasSleep?'Sleep starts '+(bounds.bedtime?formatTime(bounds.bedtime):'now'):'No sleep period before return');
     get('tempLabel').textContent=state.weatherMode==='manual'?'Outdoor temperature':'Forecast temperature';
     get('manualWeather').open=state.weatherMode==='manual';
     if(get('readingTime').value){try{const age=Math.max(0,Math.floor((Date.now()-parseLocalInput(get('readingTime').value,'reading time'))/60000));
@@ -2051,7 +2224,7 @@ async function analyze(){
     invalidateResults('Checking the connected daytime and overnight plan…');const revision=planRevision;
     try{
         await new Promise(resolve=>setTimeout(resolve,0));
-        const bounds=planBounds(request.start),envelope=makeEnvelope(request.start,bounds.end,'HVAC Plan',THERMAL_STEP_MIN*60000);
+        const bounds=planBounds(request.start,request),envelope=makeEnvelope(request.start,bounds.end,'HVAC Plan',THERMAL_STEP_MIN*60000);
         let result;
         if(typeof Worker!=='undefined')result=await calculateInWorker(request,envelope);
         else{

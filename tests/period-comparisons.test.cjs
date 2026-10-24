@@ -32,7 +32,7 @@ test('projected alternatives retain identical preparation and exact carried bedt
  assert.equal(a.run('comparisons.night.options.length'),5);
  assert.equal(a.run(`records.every(p=>JSON.stringify(p.phases.filter(x=>x.time<+result.bounds.bedtime))===JSON.stringify(result.winner.phases.filter(x=>x.time<+result.bounds.bedtime)))`),true);
  assert.equal(a.run(`records.every(p=>p.trials.every((t,i)=>JSON.stringify(t.atBedtime)===JSON.stringify(result.winner.trials[i].atBedtime)))`),true);
- assert.match(a.run('html'),/projected overnight options/);assert.match(a.run('html'),/same predicted 10 PM conditions/);
+ assert.match(a.run('html'),/projected overnight options/);assert.match(a.run('html'),/same predicted sleep-start conditions/);
  // Comparison summaries survive the exact worker payload pruning.
  a.run(`delete result.envelope.planCache;for(const p of result.plans)for(const t of p.trials){delete t.checkpoints;if(p!==result.winner){t.trace=[];t.segments=[];}};serialized=structuredClone(result);workerHTML=renderPlan(serialized)`);
  assert.match(a.run('workerHTML'),/projected overnight options/);
@@ -52,10 +52,9 @@ test('night run compares remaining overnight period with no daytime or future-ni
  assert.equal(a.run('result.comparisons.night.from'),a.run('+r.start'));
  assert.match(a.run('html'),/Other viable overnight options/);assert.doesNotMatch(a.run('html'),/Other viable daytime|projected overnight options/);
 });
-test('projected overnight mode cannot require an unavailable bedtime action while away',()=>{
+test('an absence past 7 AM is covered through return without inventing an overnight stage',()=>{
  const a=scenario();a.run(`r.occupancy='leaving';r.departure=new Date('2026-10-24T02:55Z');r.returnTime=new Date('2026-10-24T13:00Z');r.remote=false;
- result=runUnifiedPlan(r,e);html=renderPlan(result)`);
- if(a.run('!!result.comparisons.night')){
-  assert.equal(a.run(`result.comparisons.night.options.filter(p=>p.suitable).every(p=>setupChangeAllowed(result.winner.phases.filter(x=>x.time<+result.bounds.bedtime).at(-1)?.setup||result.winner.setup,p.setup,+result.bounds.bedtime,r))`),true);
- }else assert.match(a.run('html'),/alternatives need reassessment/);
+ e=makeEnvelope(r.start,planBounds(r.start,r).end,'Test',300000);result=runUnifiedPlan(r,e);html=renderPlan(result)`);
+ assert.equal(a.run('result.bounds.hasSleep'),false);assert.equal(a.run('result.stages.night'),null);
+ assert.match(a.run('html'),/No overnight recommendation/);
 });

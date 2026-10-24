@@ -1,5 +1,12 @@
 # HVAC Advisor
 
+## v6.2.0 — occupied, departure and sleep stages
+
+- Leaving plans evaluate one occupied setup from the run time to departure, then a separate fixed setup from departure through return. Current and departure alternatives are collapsed and have explicit intervals. If a different initial setup is needed to make the absence feasible, it is evaluated with continuous state; alternatives never reset departure conditions.
+- The departure setup stays unchanged throughout the absence, including when remote controls exist. It can be physically configured immediately before departure. Predicted bedroom/front temperature and RH at return are shown, followed by a request to rerun with fresh readings. No separate return-mode recommendation is presented.
+- Sleep begins at the later of 10 PM and a return that overlaps the sleep period, and ends at 7 AM. An absence through or beyond 7 AM is evaluated through return and omits that night's sleep recommendation. Occupant sources are zero while away and resume at return; sleep metabolism starts at the adjusted sleep time. Earlier returns retain the 10 PM preparation deadline.
+- Projected overnight modes and collapsed alternatives retain the recommended occupied/departure trajectory and any explicitly shown post-return preparation. A fixed departure mode that cannot cover the absence is never presented as verified. Preparation cannot require an adjustment during the absence. Thermodynamic constants and equipment operating limits are unchanged.
+
 ## v6.1.0 — daytime and overnight comparisons
 
 - Two planning periods: awake 7 AM–10 PM and unattended sleep 10 PM–7 AM. No 7–10 AM or 7–10 PM transition gate. Natural recovery is checked throughout awake hours; preparation is calculated against the 10 PM deadline.
