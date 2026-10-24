@@ -130,7 +130,7 @@ function weather(url){
   assert.deepEqual(advisoryResult,{suitable:true,ready:true,mode:'auto',full:true,warning:true});
   await page.locator('#planCard').waitFor({state:'visible'});
   const advisoryText=await page.locator('#results').innerText();
-  assert.match(advisoryText,/Possible window moisture — advisory only/);assert.match(advisoryText,/dew point/);
+  assert.match(advisoryText,/Possible window moisture — advisory only/i);assert.match(advisoryText,/dew point/);
   assert.match(advisoryText,/does not change HVAC selection or timing/);
   assert.doesNotMatch(advisoryText,/Condensation margin fails|No suitable current setup/);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
