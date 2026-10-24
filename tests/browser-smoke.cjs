@@ -89,6 +89,7 @@ function weather(url){
   await page.emulateMedia({colorScheme:'dark'});await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-dark.png'),fullPage:true});
   // The owner's reported Winterset evening: real inputs, NWS parsing and Worker.
   wintersetWeather=true;await page.clock.setFixedTime(new Date(savedWinterset.request.start));
+  await page.locator('#planningOptions').evaluate(e=>e.open=true);
   await page.locator('#dehumidifierMode').selectOption('enabled');
   for(const id of ['bedTemp','frontTemp'])await page.locator('#'+id).fill('72');
   await page.locator('#bedRH').fill('54');await page.locator('#frontRH').fill('52');
