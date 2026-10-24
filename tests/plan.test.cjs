@@ -97,9 +97,11 @@ test('reading validation rejects missing data, mismatched schedule and impossibl
  a.run(`r.initial.rh[1]=40;r.occupancy='leaving';r.departure=new Date(+r.start+3600000);r.returnTime=r.start`);assert.throws(()=>a.run('validatePlanRequest(r)'),/Return/);
  assert.throws(()=>a.run("parseLocalInput('2026-03-08T02:30','test time')"),/valid local time/);
 });
-test('real end-to-end overnight planning has no unsafe prescription and keeps fixed settings',()=>{
+test('real end-to-end overnight planning has no unsafe prescription and keeps its selected controls fixed',()=>{
  const a=scenario('2026-10-24T11:45Z');a.run(`result=runUnifiedPlan(r,e);html=renderPlan(result)`);
- assert.ok(a.run('result.plans.length')>=5);assert.equal(a.run('result.winner.nightSetup.setpoints.cool'),68);assert.equal(a.run('result.winner.nightSetup.setpoints.heat'),66);
+ assert.ok(a.run('result.plans.length')>=5);
+ assert.equal(a.run('result.winner.phases.length'),1);
+ assert.equal(a.run('result.winner.trials.every(t=>t.segments.every(s=>s.mode===result.winner.nightSetup.type))'),true);
  assert.match(a.run('html'),/Your HVAC plan/);assert.match(a.run('html'),/Other viable overnight options/);assert.match(a.run('html'),/Unsuitable overnight modes/);
  if(!a.run('result.winner.suitable')&&!a.run('result.current'))assert.doesNotMatch(a.run('html'),/Select FURNACE at|Select COOL at|Use the .*MaxxFan in AUTO/);
 });
