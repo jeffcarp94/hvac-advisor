@@ -103,10 +103,12 @@ function weather(url){
   assert.doesNotMatch(wintersetText,/No suitable complete plan|No suitable current setup|Select COOL at 68°F/);
   assert.equal(await page.evaluate(()=>lastPlan.current.trials.every(t=>t.suitable&&t.trace.every(p=>Math.min(p.bedroom,p.midCoach)>=65-1e-6)&&+t.trace.at(-1).time===lastPlan.current.reviewAt)),true);
   assert.equal(await page.evaluate(()=>resultContext.expires===lastPlan.current.reviewAt),true);
+  await page.waitForFunction(()=>document.getElementById('planCard').getBoundingClientRect().top>=document.querySelector('.header').getBoundingClientRect().bottom);
+  await page.screenshot({path:path.join(screens,'winterset-current-screen.png')});
   fs.writeFileSync(path.join(screens,'winterset-result.txt'),wintersetText);
   for(const scheme of ['light','dark']){
    await page.emulateMedia({colorScheme:scheme});await page.setViewportSize({width:390,height:950});
-   await page.locator('#planCard').evaluate(e=>e.scrollIntoView({behavior:'instant'}));
+   await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
    await page.screenshot({path:path.join(screens,'winterset-'+scheme+'.png'),fullPage:true});
   }
