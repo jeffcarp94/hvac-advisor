@@ -95,13 +95,13 @@ function weather(url){
   for(const id of ['bedTemp','frontTemp'])await page.locator('#'+id).fill('68');for(const id of ['bedRH','frontRH'])await page.locator('#'+id).fill('35');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:180000});assert.match(await page.locator('#results').innerText(),/Your HVAC plan/i);
   await context.setOffline(false);
-  // Real evening calculation: no 9 PM target switch, fixed thermostat settings,
+  // Real evening calculation: no 9 PM target switch, selected thermostat settings,
   // a computed preparation time or an explicit complete-plan failure.
   await page.clock.setFixedTime(new Date('2026-10-22T04:30Z'));
   await page.evaluate(()=>{step('temp',-18);step('rh',-45);step('wind',-3);state.cloud=0;freshReadings();});
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:180000});
-  assert.match(await page.locator('#setpointDisplay').innerText(),/Thermostat: day heat\/cool 70\/72°F/);
-  assert.equal(await page.evaluate(()=>!lastPlan.winner.suitable||lastPlan.winner.trials.every(t=>t.trace.every(p=>Math.min(p.bedroom,p.midCoach)>=65-1e-6))),true,'accepted plans enforce the temperature floor at every point');
+  assert.match(await page.locator('#setpointDisplay').innerText(),/Bed-area targets: awake\/away 71°F/);
+  assert.equal(await page.evaluate(()=>!lastPlan.winner.suitable||lastPlan.winner.trials.every(t=>t.trace.every(p=>p.bedroom>=65-1e-6))),true,'accepted plans enforce the temperature floor at every point');
   const text=await page.locator('#results').innerText();assert.match(text,/Next action|No suitable current setup/i);assert.doesNotMatch(text,/Preparing for Sleep from 9|Not chosen|weighted/);
   await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-evening-plan.png'),fullPage:true});
   const widths=[];for(const width of [390,448,480]){await page.setViewportSize({width,height:950});widths.push(await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})));}
@@ -117,7 +117,9 @@ function weather(url){
   await page.locator('#readingTime').fill('2026-10-23T18:47');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:300000});
   const wintersetText=await page.locator('#results').innerText();
-  assert.match(wintersetText,/Select COOL at 72°F/);assert.match(wintersetText,/Select AUTO at 67°F/);
+  assert.match(wintersetText,/Select (COOL|AUTO|HEAT PUMP|FURNACE) at \d+°F/);
+  assert.match(wintersetText,/Bed-area comfort takes priority/);
+  assert.match(wintersetText,/70% rear \/ 30% front/);
   assert.doesNotMatch(wintersetText,/No suitable current setup|Overnight needs reassessment/);
   assert.equal(await page.evaluate(()=>lastPlan.winner.suitable&&lastPlan.winner.ready&&lastPlan.current===null),true);
   assert.equal(await page.evaluate(()=>lastPlan.winner.trials.every(t=>t.suitable&&t.moisture.humidMax===0&&+t.trace.at(-1).time===+lastPlan.bounds.end)),true);
@@ -182,12 +184,12 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.3.0'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.4.0'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
   await oldContext.close();}
-  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.3.0','6.0.0 → 6.3.0'],errors},null,2));
+  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.4.0','6.0.0 → 6.4.0'],errors},null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
 

@@ -73,12 +73,11 @@ test('Winterset evening regression verifies a complete plan through 7 AM with fi
  // Full window/fan search is exercised in browser CI; isolate closed-coach guidance here.
  const a=setup();a.run('shortlistVents=()=>[];result=runUnifiedPlan(r,e);html=renderPlan(result)');
  assert.equal(a.run('result.winner.suitable'),true);assert.equal(a.run('result.winner.ready'),true);
- assert.equal(a.run('result.current'),null);assert.equal(a.run('result.winner.setup.type'),'ac');
- assert.equal(a.run('result.winner.setup.setpoints.cool'),72);
- assert.equal(a.run('result.winner.nightType'),'auto');assert.equal(a.run('result.winner.nightSetup.setpoints.auto'),67);
- assert.equal(a.run('result.winner.nightSetup.fan'),'Low');
+ assert.equal(a.run('result.current'),null);
+ assert.ok(a.run('Number.isFinite(result.winner.targetRank)'));
+ assert.ok(a.run('result.winner.phases.every(p=>p.setup.type===\"passive\"||settingValues(p.setup).includes(p.setup.setpoints[p.setup.type===\"auto\"?\"auto\":p.setup.type===\"ac\"?\"cool\":p.setup.type===\"maxxfan\"?\"fan\":\"heat\"]))'));
  assert.equal(a.run('result.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+result.bounds.end&&t.moisture.humidMax===0)'),true);
- assert.match(a.run('html'),/Select COOL at 72°F/);assert.match(a.run('html'),/Select AUTO at 67°F/);assert.match(a.run('html'),/dew point/);
+ assert.match(a.run('html'),/Select (COOL|AUTO|HEAT PUMP|FURNACE) at \d+°F/);assert.match(a.run('html'),/Bed-area comfort takes priority/);assert.match(a.run('html'),/dew point/);
  assert.doesNotMatch(a.run('html'),/No suitable current setup|Overnight needs reassessment/);
 });
 test('a future extreme-cold shortfall still provides bounded current guidance',()=>{

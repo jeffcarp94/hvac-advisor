@@ -1,5 +1,14 @@
 # HVAC Advisor
 
+## v6.4.0 — bedroom priority, duct distribution and selected control settings
+
+- The bed area determines comfort and target fit during awake, unoccupied and sleeping periods. The front sensor remains the thermostat input. Plans that also keep the dinette within its band rank first among bedroom-qualified plans; otherwise the output identifies the dinette miss.
+- Each current, departure, preparation and overnight setup searches thermostat settings along with mode and fan. The old settings are starting candidates, not fixed requirements. No universal furnace offset is applied. Every selected setting is checked in all three scenarios and remains fixed during an absence or overnight interval. AUTO retains its actual ±2°F triggers and returns to its selected setpoint.
+- The supplied scale drawing and 73-inch beds establish approximate served volumes: 431 ft³ rear and 533 ft³ front, including the open Ford cab. Overhead delivery follows those volumes (about 44.7% rear / 55.3% front); furnace delivery follows the owner’s 70% rear / 30% front instruction. Cab envelope losses and solar gains are assigned to the front separately from the insulated RV body.
+- Total closed-coach UA remains 136.57 BTU/(hr·°F). Historical manufacturer advertising cites R-18 insulation lining, but does not establish an assembly rating for this model or the Ford cab. See [model-assumptions.md](model-assumptions.md) for sources, geometry, relative cab-loss assumptions, sensitivity cases and search limitations. Magneshades receive solar reduction only. Cabinet-void thermostat isolation defaults to planned; marking it installed adds no invented temperature offset or coach-insulation credit.
+
+Earlier release notes below describe historical behavior and are superseded by this section where they differ.
+
 ## v6.3.0 — independent comfort bands and preferred targets
 
 - Exactly two comfort policies: occupied sleep uses 65–69°F with a 67°F target; awake and unoccupied periods use 68–73°F with a 71°F target. Sleep/preparation thermostat settings cannot change the applicable band. Sleep ends at exactly 7 AM.

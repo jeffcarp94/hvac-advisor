@@ -44,12 +44,19 @@ test('one coach moisture balance conserves water and preserves both measured ini
  near(a.run('p.moisture.initialWaterLb+p.moisture.totals.occupants+p.moisture.totals.outside-p.moisture.totals.ac-p.moisture.totals.dehumidifier-p.moisture.condensedLb-p.moisture.finalWaterLb'),0);
  assert.ok(a.run('p.moisture.dehumRuntimeMinutes')>0);
 });
-test('dehumidifier effect has no front/rear transport bottleneck or fan-mixing dependence',()=>{
+test('dehumidifier removal uses one shared volume without a front/rear transport bottleneck',()=>{
  const a=app();a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;
  e={windowStart:new Date('2026-10-24T03:00Z'),windowEnd:new Date('2026-10-24T03:15Z'),wind:0,cloud:0,points:[{time:new Date('2026-10-24T03:00Z'),tOut:68,rh:50,wind:0,cloud:0}]};
  M.mixCFM=0;M.ductMixCFM=0;slow=zoneProfile('passive',e,true,confirmedSetpoints(true),C.metaSleep,68,{initialZones:{temperature:[68,68],rh:[60,60]}});
  M.mixCFM=1000;M.ductMixCFM=1000;fast=zoneProfile('passive',e,true,confirmedSetpoints(true),C.metaSleep,68,{initialZones:{temperature:[68,68],rh:[60,60]}});`);
- near(a.run('slow.finalZones.water[0]'),a.run('fast.finalZones.water[0]'));near(a.run('slow.moisture.totals.dehumidifier'),a.run('fast.moisture.totals.dehumidifier'));
+ // Thermal mixing may change front temperature and thus humidistat duty. It
+ // cannot restrict moisture transfer: each result has shared water and exact
+ // whole-coach mass balance even with zero interzone mixing.
+ for(const p of ['slow','fast']){
+  near(a.run(`${p}.finalZones.water[0]`),a.run(`${p}.finalZones.water[1]`));
+  assert.ok(a.run(`${p}.moisture.totals.dehumidifier`)>0);
+  near(a.run(`${p}.moisture.initialWaterLb+${p}.moisture.totals.occupants+${p}.moisture.totals.outside-${p}.moisture.totals.dehumidifier-${p}.moisture.condensedLb-${p}.moisture.finalWaterLb`),0);
+ }
 });
 test('cached handoffs preserve moisture totals, prior heat and accumulated dehumidifier runtime',()=>{
  const a=app();a.run(`forecast.timeZone='America/Chicago';state.temp=60;state.rh=70;state.wind=2;state.cloud=0;
@@ -70,3 +77,4 @@ test('active AC and dehumidifier coupling converges as the timestep is refined',
   assert.ok(a.run(`${p}.moisture.totals.ac`)>0);assert.ok(a.run(`${p}.moisture.totals.dehumidifier`)>0);
  }
 });
+
