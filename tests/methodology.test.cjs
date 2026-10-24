@@ -72,7 +72,8 @@ test('dynamic indoor moisture responds to occupants and removal without treating
     const a=setup({temp:68,rh:45,indoorRH:60});
     a.run(`state.dehumidifierEnabled=false;off=zoneProfile('passive',e,true,sp,1000,72);state.dehumidifierEnabled=true;on=zoneProfile('passive',e,true,sp,1000,72)`);
     assert.ok(a.run('on.trace.at(-1).midRH')<a.run('off.trace.at(-1).midRH'));
-    assert.ok(Math.abs(a.run('on.trace.at(-1).rh')-50)>1);
+    near(a.run('on.trace[0].rh'),60);assert.ok(a.run('on.trace[1].rh')>50);
+    assert.ok(a.run('on.moisture.dehumRuntimeMinutes')>0);
     assert.equal(a.run('on.moisture.estimated'),false);
     a.run(`state.indoorRH=null;unknown=zoneProfile('passive',e,true,sp,1000,72)`);assert.equal(a.run('unknown.moisture.estimated'),true);
 });

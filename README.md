@@ -1,5 +1,10 @@
 # HVAC Advisor
 
+The v6.0.1 humidity repair treats the small coach as one mixed moisture volume, per the owner's instruction. Paired temperature/RH inputs initialize the prediction; both temperature forecasts remain, with one predicted dew point and RH derived at each local temperature. A front/rear moisture bottleneck cannot disqualify equipment.
+
+The established 20-pint/day dehumidifier rating is reproduced at 65°F/60% RH using the published NREL generic capacity/energy-factor curves, with separate finite-capacity humidistat runtime and actual operating heat. Occupant sensible and latent loads use a consistent activity budget. Roof-AC latent availability counts its single evaporator airflow once. These assumptions and primary sources are documented in [model-assumptions.md](model-assumptions.md). Condensation remains advisory-only; existing comfort and equipment policies remain enforced.
+
+
 Phone-focused single-file HVAC advisor for the Coach House Platinum III 250 DT. Hosted as a static PWA; `index.html`, `sw.js`, the manifest, and the icons are the deployment files.
 
 ## v6.0.1 — useful current guidance when the overnight outlook has a shortfall

@@ -97,12 +97,12 @@ function weather(url){
   await page.locator('#readingTime').fill('2026-10-23T18:47');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:300000});
   const wintersetText=await page.locator('#results').innerText();
-  assert.match(wintersetText,/Select COOL at 72°F/);assert.match(wintersetText,/7:18 PM/);
-  assert.match(wintersetText,/Overnight needs reassessment/i);assert.match(wintersetText,/Surface RH is not a room humidity reading/);
-  assert.match(wintersetText,/Overnight outlook assumes Air Conditioner at 68°F/);
-  assert.doesNotMatch(wintersetText,/No suitable complete plan|No suitable current setup|Select COOL at 68°F/);
-  assert.equal(await page.evaluate(()=>lastPlan.current.trials.every(t=>t.suitable&&t.trace.every(p=>Math.min(p.bedroom,p.midCoach)>=65-1e-6)&&+t.trace.at(-1).time===lastPlan.current.reviewAt)),true);
-  assert.equal(await page.evaluate(()=>resultContext.expires===lastPlan.current.reviewAt),true);
+  assert.match(wintersetText,/Select COOL at 72°F/);assert.match(wintersetText,/Select AUTO at 67°F/);
+  assert.doesNotMatch(wintersetText,/No suitable current setup|Overnight needs reassessment/);
+  assert.equal(await page.evaluate(()=>lastPlan.winner.suitable&&lastPlan.winner.ready&&lastPlan.current===null),true);
+  assert.equal(await page.evaluate(()=>lastPlan.winner.trials.every(t=>t.suitable&&t.moisture.humidMax===0&&+t.trace.at(-1).time===+lastPlan.bounds.end)),true);
+  assert.equal(await page.evaluate(()=>lastPlan.winner.trials.every(t=>t.trace.slice(1).every(p=>p.water[0]===p.water[1]))),true);
+  assert.equal(await page.evaluate(()=>resultContext.expires<=Date.now()+30*60000),true);
   await page.waitForFunction(()=>document.getElementById('planCard').getBoundingClientRect().top>=document.querySelector('.header').getBoundingClientRect().bottom);
   await page.screenshot({path:path.join(screens,'winterset-current-screen.png')});
   fs.writeFileSync(path.join(screens,'winterset-result.txt'),wintersetText);
@@ -127,7 +127,7 @@ function weather(url){
     full:result.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+end),
     warning:result.winner.trials.some(t=>t.condensationConcern)};
   },moistureFixture);
-  assert.deepEqual(advisoryResult,{suitable:true,ready:true,mode:'auto',full:true,warning:true});
+  assert.deepEqual(advisoryResult,{suitable:true,ready:true,mode:'hp',full:true,warning:true});
   await page.locator('#planCard').waitFor({state:'visible'});
   const advisoryText=await page.locator('#results').innerText();
   assert.match(advisoryText,/Possible window moisture — advisory only/i);assert.match(advisoryText,/dew point/);

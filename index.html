@@ -213,7 +213,19 @@
 let state={dehumidifierEnabled:true,indoorRH:null,weatherMode:'manual',period:'plan',temp:78,rh:65,cloud:1.0,wind:5,precip:'none',indoor:72,indoorCurrent:72};
 let forecast={day:null,night:null,location:null,fetched:false,tempVals:null,humVals:null};
 
-const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:1000,metaAwake:1400,dehumWaste:640,solarPeak:250,
+const M={volumeFt3:[440,660],fraction:[.4,.6],mixCFM:60,ductMixCFM:120,
+    discharge:.6,screenFactor:.65,fanShutoffPa:40,interzoneArea:.8,
+    surfaceFactor:.8,dewpointMargin:2,surfaceRHLimit:80,surfaceMinutes:30,
+    humidLimit:65,humidMinutes:30,recoveryMinutes:30,warmMinutes:30,
+    severeWarmMinutes:15,moistureLbPerPint:1.043,latentBTUPerLb:1060,
+    occupantGramsSleep:40,occupantGramsAwake:55,bodyAreaM2:1.8,sleepMet:.7,awakeMet:1,baseACH:.25};
+function occupantLoad(sleeping,people=2){
+    const moistureLbHr=(sleeping?M.occupantGramsSleep:M.occupantGramsAwake)*people/453.59237;
+    const totalBTU=(sleeping?M.sleepMet:M.awakeMet)*58.2*M.bodyAreaM2*people*3.412141633;
+    const latentBTU=moistureLbHr*M.latentBTUPerLb;
+    return{moistureLbHr,totalBTU,latentBTU,sensibleBTU:Math.max(0,totalBTU-latentBTU)};
+}
+const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:41,heatPumpFrostThresh:50,metaSleep:occupantLoad(true).sensibleBTU,metaAwake:occupantLoad(false).sensibleBTU,dehumWaste:640,solarPeak:250,
     shellSHGC:0.035,
     // Engineering estimates for glass + deployed shade, not certified product ratings.
     // Cab share uses dimensioned Transit accessories/photo inventory within the
@@ -548,7 +560,7 @@ function heatPumpPolicy(tOut,rh,isOvernight){
         warning:safe&&tOut<=C.heatPumpFrostThresh?'Frost/defrost performance is uncertain in the '+C.heatPumpMinTemp+'–'+C.heatPumpFrostThresh+'°F range.':''};
 }
 function overnightHeatSystem(tOut,rh){const p=heatPumpPolicy(tOut,rh,true);return{sys:p.safe?'Heat Pump':'LP Furnace',reason:p.reason};}
-function dehumidifierHeat(){return state.dehumidifierEnabled?C.dehumWaste:0;}
+function dehumidifierHeat(runtime=0,onPower=C.dehumWaste){return state.dehumidifierEnabled?onPower*Math.max(0,Math.min(1,runtime)):0;}
 function autoFanSpeed(tRet,setpoint){const delta=Math.abs(tRet-setpoint);return delta>=8?'High':delta>=5?'Medium':'Low';}
 function indoorMoisture(tOut,rh,knownDP){
     return{dewPoint:knownDP??dewPt(tOut,rh)-3,source:knownDP==null?'outdoor dew point minus 3°F proxy':'entered starting indoor RH; constant dew point assumed'};
@@ -1047,12 +1059,7 @@ function selectChip(g,v,el){manualWeatherEdited();el.parentElement.querySelector
 
 // v5: owner-approved geometry and comfort policies. Unmeasured coefficients
 // are sensitivity assumptions, not product ratings or calibrated probabilities.
-const M={volumeFt3:[440,660],fraction:[.4,.6],mixCFM:60,ductMixCFM:120,
-    discharge:.6,screenFactor:.65,fanShutoffPa:40,interzoneArea:.8,
-    surfaceFactor:.8,dewpointMargin:2,surfaceRHLimit:80,surfaceMinutes:30,
-    humidLimit:65,humidMinutes:30,recoveryMinutes:30,warmMinutes:30,
-    severeWarmMinutes:15,moistureLbPerPint:1.043,latentBTUPerLb:1060,
-    occupantPintsSleep:.45,occupantPintsAwake:.55,baseACH:.25};
+
 const WINDOW_SECTIONS=[
     {id:'jeff1',name:'Jeff’s bedside window, first section',zone:0,side:-1,width:21.625,height:10.5,bed:'Jeff'},
     {id:'jeff2',name:'Jeff’s bedside window, second section',zone:0,side:-1,width:21.625,height:10.5,bed:'Jeff'},
@@ -1131,10 +1138,42 @@ function coupledAdvance(values,capacity,ua,incoming,bulk,mix,source,outside,dt,h
     const rhs=values.map((v,z)=>capacity[z]/dt*v+ua[z]*outside+heatFactor*incoming[z]*outside+source[z]);
     return solvePair(diagonal,off,rhs);
 }
-function moistureRemoval(t,rh,enabled){
-    if(!enabled||rh<=50||t<=45)return 0;
-    // 20 pint/day nameplate, derated for cool air; not a certified performance map.
-    return Math.min(20/24,(20/24)*Math.min(1,(t-45)/35)*Math.min(1.5,(rh-50)/15))*M.moistureLbPerPint;
+// NREL/TP-5500-52791, Table 10 (T in Celsius, RH in percentage points).
+// Re-normalize its generic shape at the owner's current DOE 65°F / 60% rating.
+const DEHUM={ratedPintsDay:20,ratedF:65,ratedRH:60,
+    water:[-1.1625,.022715,-.00011321,.021111,-.000069303,.00037884],
+    energy:[-1.9022,.063467,-.00062284,.039540,-.00012564,-.00017672]};
+function dehumidifierCurve(coeff,tF,rh){
+    const t=(tF-32)*5/9,[a,b,c,d,e,f]=coeff;
+    return a+b*t+c*t*t+d*rh+e*rh*rh+f*t*rh;
+}
+function dehumidifierPerformance(tF,rh){
+    if(tF<41||tF>95)return{capacityLbHr:0,powerBTU:0};
+    // Bound the generic fit, rather than extrapolate a polynomial indefinitely.
+    const t=Math.max(59,Math.min(91.4,tF)),h=Math.max(35,Math.min(90,rh));
+    const water=Math.max(0,dehumidifierCurve(DEHUM.water,t,h)/dehumidifierCurve(DEHUM.water,DEHUM.ratedF,DEHUM.ratedRH));
+    const energy=Math.max(.1,dehumidifierCurve(DEHUM.energy,t,h)/dehumidifierCurve(DEHUM.energy,DEHUM.ratedF,DEHUM.ratedRH));
+    return{capacityLbHr:DEHUM.ratedPintsDay/24*M.moistureLbPerPint*water,powerBTU:C.dehumWaste*water/energy};
+}
+function moistureRemoval(t,rh,enabled){return enabled&&rh>50?dehumidifierPerformance(t,rh).capacityLbHr:0;}
+function mixedHumidityRatio(w){const v=M.volumeFt3,total=v[0]+v[1];return(w[0]*v[0]+w[1]*v[1])/total;}
+function acMoistureRemoval(w,duty){
+    const latent=Math.max(0,C.acCapacity-C.acSensibleCapacity)/M.latentBTUPerLb*duty;
+    const available=4.5*C.evapCFM*duty*Math.max(0,w-humidityRatio(50,100));
+    return Math.min(latent,available);
+}
+function mixedMoistureStep(w,tFront,sourceLbHr,outdoorCFM,outdoorW,dt,enabled){
+    const airMass=M.volumeFt3.reduce((a,b)=>a+b)*.075,denominator=airMass/dt+4.5*outdoorCFM;
+    const rhs=airMass/dt*w+sourceLbHr+4.5*outdoorCFM*outdoorW;
+    const uncontrolled=rhs/denominator,performance=dehumidifierPerformance(tFront,rhFromRatio(tFront,w));
+    const requested=Math.max(0,(uncontrolled-humidityRatio(tFront,50))*denominator);
+    const removal=enabled?Math.min(requested,performance.capacityLbHr):0;
+    const partLoad=performance.capacityLbHr>0?removal/performance.capacityLbHr:0;
+    // EnergyPlus generic cycling loss: PLF = .95 + .05*PLR; water meets PLR,
+    // electrical runtime includes the cycling loss, rather than weakening capacity.
+    const runtime=partLoad/(.95+.05*partLoad),electricalBTU=enabled?performance.powerBTU*runtime:0;
+    return{water:Math.max(0,(rhs-removal)/denominator),removal,partLoad,runtime,electricalBTU,
+        heatBTU:electricalBTU+removal*M.latentBTUPerLb,capacityLbHr:performance.capacityLbHr};
 }
 function circulationFraction(mode,fan,operation,duty){
     // CCC2 fixed roof-fan speeds run between compressor calls (manual p.10).
@@ -1163,6 +1202,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     const initialRH=Math.max(5,Math.min(100,(state.indoorRH??rhFromRatio(startIndoor,humidityRatio(rows[0].tOut,rows[0].rh))*.85)+scenario.rhOffset));
     let t=options.initialZones?options.initialZones.temperature.slice():[startIndoor,startIndoor],w=options.initialZones?t.map((v,z)=>humidityRatio(v,Math.max(1,Math.min(100,options.initialZones.rh[z]+scenario.rhOffset)))):t.map(v=>humidityRatio(v,initialRH)),phase='off',score=0,hoursOut=0,draftScore=0;
     let didCool=false,didHeat=false,heatMinutes=0,coolMinutes=0,capacityCool=false,capacityHeat=false,heatingFloorLimited=false;
+    let priorDehumHeat=0,dehumRuntimeMinutes=0,moistureTotals={occupants:0,dehumidifier:0,ac:0,outside:0},initialWaterLb=w.reduce((sum,v,z)=>sum+v*M.volumeFt3[z]*.075,0);
     let condensedLb=0,humidRun=0,humidMax=0,surfaceRun=[0,0],surfaceMax=0,minMargin=Infinity,maxRH=0,minRH=100,maxSurfaceRH=0;
     let warmRun=0,warmMax=0,coldRun=0,coldMax=0,severeRun=0,severeMax=0,recovery=null,freezeRisk=null,condensationConcern=null,failureTime=null,comfortProblem=null,surfaceConcern=null;
     const unsafe=[],warnings=new Set(),trace=[],segments=[],mass=M.fraction.map(f=>UA_BASE*C.tau*f),airMass=M.volumeFt3.map(v=>v*.075);
@@ -1175,10 +1215,10 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     const checkpoints=[],carry=options.carry;let runningMin=Math.min(...t);
     if(carry){
         t=carry.t.slice();w=carry.w.slice();phase=carry.phase;
-        ({score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,condensedLb,humidRun,humidMax,surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern}=carry);
-        surfaceRun=carry.surfaceRun.slice();unsafe.push(...carry.unsafe);carry.warnings.forEach(w=>warnings.add(w));
+        ({score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern}=carry);
+        moistureTotals={...carry.moistureTotals};surfaceRun=carry.surfaceRun.slice();unsafe.push(...carry.unsafe);carry.warnings.forEach(w=>warnings.add(w));
     }
-    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),w:w.slice(),phase,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,condensedLb,humidRun,humidMax,surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin)});};
+    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),w:w.slice(),phase,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin)});};
     record(carry?rows[0].from:start.getTime(),carry?(rows[0].from-start.getTime())/60000:0);
     // Surface estimates are output-only observations, including at the initial state.
     const moistureCheck=(weather,elapsed,dt,rh)=>{
@@ -1202,6 +1242,8 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             if(lastSetup!==scheduled.key){phase='off';lastSetup=scheduled.key;}
             meta=(row.sleeping?C.metaSleep:C.metaAwake)*(row.occupants/2);
         }
+        // Owner-approved small-coach assumption: shared water content; retain both temperatures.
+        const sharedW=mixedHumidityRatio(w);w=[sharedW,sharedW];
         const out=row.tOut+scenario.tempOffset,dt=row.dt,elapsed=(row.to-start.getTime())/60000,previous=isOvernight?t[0]:Math.max(...t);
         const sensed=config&&mode==='maxxfan'?t[config.fanZone]:options.frontControl?t[1]:isOvernight?t[0]:t[0]*.4+t[1]*.6;
         const uaTotal=UA_BASE*(1+.02*row.wind),bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
@@ -1212,7 +1254,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             if(phase==='off'){if(sensed>=sp.auto+2-1e-6)phase='ac';else if(sensed<=sp.auto-2+1e-6)phase='hp';}operation=phase;
         }else if(mode==='ac'&&sensed>=sp.cool-.01)operation='ac';
         else if((mode==='hp'||mode==='furnace')&&sensed<=sp.heat+.01)operation=mode;
-        const initialGains=meta+dehumidifierHeat()+row.solar;
+        const initialGains=meta+priorDehumHeat+row.solar;
         if(operation==='ac'||operation==='hp'||operation==='furnace'){
             const target=mode==='auto'?sp.auto:operation==='ac'?sp.cool:sp.heat;
             const capacity=operation==='ac'?C.acSensibleCapacity:operation==='furnace'?C.furnaceOutput:out>C.heatPumpFrostThresh?C.hpCapacityWarm:C.hpCapacityCold;
@@ -1231,15 +1273,13 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         if(config&&speed>0)operation='maxxfan';
         const circulation=circulationFraction(mode,maxFan,operation,duty);
         const mix=(M.mixCFM+M.ductMixCFM*circulation)*scenario.mix;
-        const rh=t.map((v,z)=>rhFromRatio(v,w[z])),dehum=moistureRemoval(t[1],rh[1],state.dehumidifierEnabled);
         const sleeping=options.controlAt?row.sleeping:isOvernight;
-        const occupant=(sleeping?M.occupantPintsSleep:M.occupantPintsAwake)*M.moistureLbPerPint*(options.controlAt?row.occupants/2:1);
-        const moistureSource=sleeping?[occupant,0]:[occupant*.4,occupant*.6];moistureSource[1]-=dehum;
-        if(operation==='ac'&&duty>0){const maxLatent=Math.max(0,C.acCapacity-C.acSensibleCapacity)/M.latentBTUPerLb*duty;
-            const possible=w.map(v=>Math.max(0,v-humidityRatio(50,100))*.075*C.evapCFM*60*duty);
-            const removal=Math.min(maxLatent,possible.reduce((a,b)=>a+b));moistureSource[0]-=removal*.4;moistureSource[1]-=removal*.6;}
-        const gains=sleeping?[meta,0]:[meta*.4,meta*.6];
-        gains[0]+=row.solar*.4+q*.4;gains[1]+=row.solar*.6+q*.6+dehumidifierHeat()+dehum*M.latentBTUPerLb;
+        const occupant=occupantLoad(sleeping,options.controlAt?row.occupants:2).moistureLbHr;
+        const acRemoval=operation==='ac'&&duty>0?acMoistureRemoval(sharedW,duty):0;
+        const outdoorCFM=air.incoming.reduce((sum,q)=>sum+q,0),outdoorW=humidityRatio(out,row.rh);
+        const moisture=mixedMoistureStep(sharedW,t[1],occupant-acRemoval,outdoorCFM,outdoorW,dt,state.dehumidifierEnabled);
+        // Internal sensible gains share the small coach; location creates no bottleneck.
+        const internal=meta+row.solar+moisture.heatBTU+q,gains=M.fraction.map(f=>internal*f);
         const nextT=coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,dt,1.08);
         if(mode==='auto'&&dt>1/60000){
             const sense=values=>options.frontControl?values[1]:isOvernight?values[0]:values[0]*.4+values[1]*.6;
@@ -1253,12 +1293,15 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             }
         }
         t=nextT;
-        w=coupledAdvance(w,airMass,[0,0],air.incoming,air.bulk,mix,moistureSource,humidityRatio(out,row.rh),dt,4.5).map(v=>Math.max(0,v));
-        for(let z=0;z<2;z++){
-            const saturated=humidityRatio(t[z],100);
-            if(w[z]>saturated){const condensed=(w[z]-saturated)*airMass[z];condensedLb+=condensed;w[z]=saturated;t[z]+=condensed*M.latentBTUPerLb/mass[z];
-                if(!condensationConcern)condensationConcern={time:new Date(row.to),zone:z,source:'air',margin:0};}
-        }
+        priorDehumHeat=moisture.heatBTU;dehumRuntimeMinutes+=moisture.runtime*dt*60;
+        moistureTotals.occupants+=occupant*dt;moistureTotals.ac+=acRemoval*dt;moistureTotals.dehumidifier+=moisture.removal*dt;
+        moistureTotals.outside+=4.5*outdoorCFM*(outdoorW-moisture.water)*dt;
+        let nextW=moisture.water;
+        const coldZone=t[0]<=t[1]?0:1,saturated=humidityRatio(t[coldZone],100);
+        if(nextW>saturated){const condensed=(nextW-saturated)*(airMass[0]+airMass[1]);condensedLb+=condensed;nextW=saturated;
+            t[coldZone]+=condensed*M.latentBTUPerLb/mass[coldZone];
+            if(!condensationConcern)condensationConcern={time:new Date(row.to),zone:coldZone,source:'air',margin:0};}
+        w=[nextW,nextW];
         const now=record(row.to,elapsed),comfortT=now.comfortT,coldT=isOvernight?t[0]:Math.min(...t);
         moistureCheck(out,elapsed,dt,now.rh);
         const outside=comfortT>band.high||coldT<band.low;
@@ -1294,7 +1337,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     return{start,end,trace,segments,unsafe,maxFan,freezeRisk,isOvernight,warnings:[...warnings],score:score+draftScore,draftScore,hoursOut,didCool,didHeat,heatMinutes,coolMinutes,
         finalIndoor,capacityCool,capacityHeat,heatingFloorLimited,config,comfortLow:band.low,comfortHigh:band.high,floorCompliant:min>=floor-1e-6,
         endInBand:finalIndoor>=floor&&finalIndoor<=band.high,comfortEligible,comfortReason,moistureEligible,moistureReason,equipmentEligible,suitable,
-        moisture:{condensedLb,maxRH,minRH,minMargin,maxSurfaceRH,surfaceMax,humidMax,estimated:options.initialZones?false:state.indoorRH==null},surfaceWarning,surfaceConcern,condensationConcern,comfortProblem,recoveryMinutes:recovery,finalZones:{temperature:t.slice(),water:w.slice()},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
+        moisture:{condensedLb,initialWaterLb,finalWaterLb:w.reduce((sum,v,z)=>sum+v*airMass[z],0),totals:{...moistureTotals},dehumRuntimeMinutes,maxRH,minRH,minMargin,maxSurfaceRH,surfaceMax,humidMax,estimated:options.initialZones?false:state.indoorRH==null},surfaceWarning,surfaceConcern,condensationConcern,comfortProblem,recoveryMinutes:recovery,finalZones:{temperature:t.slice(),water:w.slice()},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
 }
 function profileCandidate(type,sim,setpoints){
     const first=sim.unsafe[0],values=sim.trace.map(p=>p.indoor),min=sim.isOvernight?Math.min(...values):Math.min(...sim.trace.map(p=>Math.min(p.bedroom,p.midCoach))),max=Math.max(...values);
@@ -1813,7 +1856,7 @@ function renderPlan(result){
         html+='<details class="diag-panel"><summary>'+title+'</summary>'+(list.length?list.map(c=>'<div class="comparison-row"><div class="comparison-name">'+escapeHTML(setupName(c.setup))+'</div><div class="comparison-text">'+escapeHTML(c.suitable?'Also provides acceptable conditions. '+(c.natural?'Natural morning recovery is sufficient. ':'')+(c.ready?'Bedtime readiness passes. ':'Bedtime preparation takes longer. '):c.reason)+'</div>'+(c.suitable?'<div class="comparison-range">'+escapeHTML(setupInstructions(c.setup))+(c.phases.length>1?' Then at '+formatTime(new Date(c.phases[1].time))+': '+escapeHTML(setupInstructions(c.nightSetup)):'')+'</div>':'')+'</div>').join(''):'<p class="hint">None for this plan.</p>')+'</details>';
     }
     const e=result.envelope;
-    html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+escapeHTML(formatStamp(bounds.start)+' → '+formatStamp(bounds.end)+' · '+analysisTimeZone())+'</p><p class="hint">'+(e.singlePoint?'Manual weather remains constant. Solar elevation changes when location is known.':'Changing NWS temperature, humidity, wind and sky conditions are evaluated throughout.')+'</p><p class="hint">Front temperature governs HVAC calls. Bedroom temperature governs sleep comfort. Both zones are initialized from entered readings; moisture is carried continuously between stages.</p><p class="hint">MCD day shades down throughout. Bamboo bedding receives no invented cooling credit. Airflow, surface and equipment performance use the documented engineering assumptions.</p></details>';
+    html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+escapeHTML(formatStamp(bounds.start)+' → '+formatStamp(bounds.end)+' · '+analysisTimeZone())+'</p><p class="hint">'+(e.singlePoint?'Manual weather remains constant. Solar elevation changes when location is known.':'Changing NWS temperature, humidity, wind and sky conditions are evaluated throughout.')+'</p><p class="hint">Front temperature governs HVAC calls. Bedroom temperature governs sleep comfort. Both temperatures are initialized from entered readings. Humidity uses one mixed coach air volume; RH can differ with temperature, while predicted dew point is shared. Moisture and dehumidifier runtime carry continuously between stages.</p><p class="hint">MCD day shades down throughout. Bamboo bedding receives no invented cooling credit. Airflow, surface and equipment performance use the documented engineering assumptions.</p></details>';
     if(!safe&&p.trials.some(t=>t.unsafe.some(u=>u.issueCode==='cooling-ice')))html+='<p class="hint">The AC may ice up. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.</p>';
     return html+'</div>';
 }

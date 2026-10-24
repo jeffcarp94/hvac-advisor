@@ -8,7 +8,7 @@ function setup(){
  e={...saved.envelope,windowStart:new Date(saved.envelope.windowStart),windowEnd:new Date(saved.envelope.windowEnd),points:saved.envelope.points.map(p=>({...p,time:new Date(p.time)}))};`);
  return a;
 }
-test('fixed roof fan mixes air and moisture between compressor calls; Auto cycles with duty',()=>{
+test('fixed roof fan circulates between calls; coach moisture is mixed with either fan setting',()=>{
  const a=setup();a.run(`state.dehumidifierEnabled=false;
  short={...e,windowEnd:new Date(+r.start+15*60000),singlePoint:true,points:[{time:r.start,tOut:68,rh:40}],wind:0};
  sp={heat:60,cool:80,auto:68,fan:80};zones={temperature:[66,68],rh:[60,40]};
@@ -17,13 +17,15 @@ test('fixed roof fan mixes air and moisture between compressor calls; Auto cycle
  assert.equal(a.run("fixed.segments.every(s=>s.operation==='off'&&s.circulation===1)"),true);
  assert.equal(a.run("cycling.segments.every(s=>s.operation==='off'&&s.circulation===0)"),true);
  assert.ok(a.run('Math.abs(fixed.finalZones.temperature[0]-fixed.finalZones.temperature[1])')<a.run('Math.abs(cycling.finalZones.temperature[0]-cycling.finalZones.temperature[1])'));
- assert.ok(a.run('Math.abs(fixed.finalZones.water[0]-fixed.finalZones.water[1])')<a.run('Math.abs(cycling.finalZones.water[0]-cycling.finalZones.water[1])'));
+ assert.equal(a.run('fixed.finalZones.water[0]'),a.run('fixed.finalZones.water[1]'));
+ assert.equal(a.run('cycling.finalZones.water[0]'),a.run('cycling.finalZones.water[1]'));
  for(const mode of ['ac','hp','auto'])for(const fan of ['Low','Medium','High'])assert.equal(a.run(`circulationFraction('${mode}','${fan}','off',0)`),1);
  assert.equal(a.run("circulationFraction('ac','Auto','ac',.25)"),.25);
  assert.equal(a.run("circulationFraction('furnace','Low','off',0)"),0);
 });
 test('surface and condensation warnings cannot set a room-air humidity rejection',()=>{
  const a=setup();a.run(`ph=[{time:+r.start,setup:planSetup('ac',false)},{time:Date.parse('2026-10-24T02:30Z'),setup:planSetup('ac',true)}];
+ surfaceAssessment=()=>({surface:50,margin:1,surfaceRH:90,condensation:true});
  p=simulatePlan(ph,e,r,AIR_SCENARIOS[2],null,null,false,true);`);
  assert.ok(a.run('p.surfaceConcern'));assert.match(a.run('p.surfaceWarning'),/surface RH, not room-air RH/);
  assert.equal(a.run('p.moistureEligible'),true);assert.equal(a.run('p.moisture.condensedLb'),0);
@@ -36,10 +38,11 @@ test('rejected plans are ranked by acceptable duration before comparing truncate
  assert.equal(a.run('ranked[0].type'),'ac');
 });
 test('a diagnostic continuation keeps the original comfort threshold and failure time across handoffs',()=>{
- const a=setup();a.run(`ph=[{time:+r.start,setup:planSetup('passive',false)},{time:Date.parse('2026-10-24T03:00Z'),setup:planSetup('ac',true)}];
+ const a=setup();a.run(`e.points=e.points.map(p=>({...p,tOut:82,rh:40,wind:2}));ph=[{time:+r.start,setup:planSetup('passive',false)},{time:Date.parse('2026-10-24T03:00Z'),setup:planSetup('ac',true)}];
  p=simulatePlan(ph,e,r,AIR_SCENARIOS[0],null,null,false,true)`);
  assert.ok(a.run('p.comfortProblem.time')<new Date('2026-10-24T03:00Z'));
- assert.match(a.run('p.comfortReason'),/73°F|74°F/);
+ assert.match(a.run('p.comfortProblem.reason'),/73°F|74°F/);assert.equal(a.run('p.comfortReason'),a.run('p.comfortProblem.reason'));
+ assert.ok(a.run('p.comfortProblem.time')<new Date('2026-10-24T03:00Z'));
 });
 test('current guidance ends at departure and never certifies an unvalidated absence',()=>{
  const a=setup();a.run(`r.occupancy='leaving';r.departure=new Date(+r.start+15*60000);r.returnTime=new Date(+r.start+8*3600000);
@@ -64,15 +67,22 @@ test('currently-away guidance preserves the verified physical arrangement and av
  if(a.run('c'))assert.equal(a.run('sameSetup(c.setup,r.actual)'),true);
  assert.equal(a.run("setupChangeAllowed(r.actual,planSetup('ac',false),+r.start,r)"),false);
 });
-test('Winterset evening regression returns verified current cooling and a separate overnight outlook',()=>{
+test('Winterset evening regression verifies a complete plan through 7 AM with finite humidity control',()=>{
  const a=setup();a.run('result=runUnifiedPlan(r,e);html=renderPlan(result)');
- assert.equal(a.run('result.winner.suitable'),false);
- assert.equal(a.run('result.current.type'),'ac');assert.equal(a.run('result.current.setup.setpoints.cool'),72);
- assert.equal(a.run('result.current.reviewAt'),Date.parse('2026-10-24T00:18Z'));
+ assert.equal(a.run('result.winner.suitable'),true);assert.equal(a.run('result.winner.ready'),true);
+ assert.equal(a.run('result.current'),null);assert.equal(a.run('result.winner.setup.type'),'ac');
+ assert.equal(a.run('result.winner.setup.setpoints.cool'),72);
+ assert.equal(a.run('result.winner.nightType'),'auto');assert.equal(a.run('result.winner.nightSetup.setpoints.auto'),67);
+ assert.equal(a.run('result.winner.nightSetup.fan'),'Low');
+ assert.equal(a.run('result.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+result.bounds.end&&t.moisture.humidMax===0)'),true);
+ assert.match(a.run('html'),/Select COOL at 72°F/);assert.match(a.run('html'),/Select AUTO at 67°F/);assert.match(a.run('html'),/dew point/);
+ assert.doesNotMatch(a.run('html'),/No suitable current setup|Overnight needs reassessment/);
+});
+test('a future extreme-cold shortfall still provides bounded current guidance',()=>{
+ const a=setup();a.run(`e.points=e.points.map(p=>+p.time>+r.start+3*3600000?{...p,tOut:-50,wind:20,rh:30}:p);
+ result=runUnifiedPlan(r,e);html=renderPlan(result)`);
+ assert.equal(a.run('result.winner.suitable'),false);assert.ok(a.run('result.current'));
+ assert.equal(a.run('result.current.reviewAt'),+new Date(winterset.request.start)+30*60000);
  assert.equal(a.run('result.current.trials.every(t=>t.suitable&&+t.trace.at(-1).time===result.current.reviewAt)'),true);
- assert.match(a.run('html'),/Select COOL at 72°F/);assert.match(a.run('html'),/Next action — refresh readings/);
- assert.match(a.run('html'),/Overnight needs reassessment/);assert.match(a.run('html'),/Surface RH is not a room humidity reading/);
- assert.equal(a.run('result.current.outlook.nightType'),'ac');assert.match(a.run('html'),/Overnight outlook assumes Air Conditioner at 68°F/);
- assert.doesNotMatch(a.run('html'),/No suitable complete plan|No suitable current setup|Select COOL at 68°F|This preparation time passes/);
- assert.equal(a.run('result.current.outlook.trials.every(t=>+t.trace.at(-1).time===+result.bounds.end)'),true);
+ assert.match(a.run('html'),/Next action — refresh readings/);assert.match(a.run('html'),/Overnight needs reassessment/);
 });

@@ -34,11 +34,11 @@ test('away occupancy removes respiration and metabolism but retains appliance he
  r.occupancy='away';r.departure=r.start;r.returnTime=new Date('2026-10-24T14:00Z');absent=simulatePlan(ph,e,r)`);
  assert.ok(a.run('absent.trace.at(-1).bedroom')<a.run('present.trace.at(-1).bedroom'));
  assert.ok(a.run('absent.finalZones.water[0]')<a.run('present.finalZones.water[0]'));
- assert.equal(a.run('dehumidifierHeat()'),640);
+ assert.equal(a.run('dehumidifierHeat()'),0);assert.equal(a.run('dehumidifierHeat(1)'),640);
 });
 test('unattended daytime applies the conservative heat pump rule',()=>{
- const a=scenario('2026-10-23T13:00Z');a.run(`state.temp=45;state.rh=95;r.initial={temperature:[68,68],rh:[25,25]};e=makeEnvelope(r.start,planBounds(r.start).end,'Test',300000);ph=[{time:+r.start,setup:planSetup('hp',false)}];present=simulatePlan(ph,e,r);
- r.occupancy='leaving';r.departure=r.start;r.returnTime=new Date(+r.start+3600000);away=simulatePlan(ph,e,r)`);
+ const a=scenario('2026-10-23T13:00Z');a.run(`state.temp=45;state.rh=95;r.initial={temperature:[68,68],rh:[25,25]};e=makeEnvelope(r.start,planBounds(r.start).end,'Test',300000);ph=[{time:+r.start,setup:planSetup('hp',false)}];rows=planRows(e,r).filter(row=>row.to<=+r.start+3600000);present=simulatePlan(ph,e,r,AIR_SCENARIOS[0],rows);
+ r.occupancy='leaving';r.departure=r.start;r.returnTime=new Date(+r.start+3600000);awayRows=planRows(e,r).filter(row=>row.to<=+r.start+3600000);away=simulatePlan(ph,e,r,AIR_SCENARIOS[0],awayRows)`);
  assert.equal(a.run('present.equipmentEligible'),true);assert.equal(a.run('away.equipmentEligible'),false);
  assert.equal(a.run('away.unsafe[0].minimum'),50);
 });
@@ -139,8 +139,8 @@ test('future planning displays weather for the selected future start rather than
  const a=app();fixture(a);a.run(`forecast.intervals.temperature=[{start:Date.parse('2026-10-21T00:00Z'),end:Date.parse('2026-10-22T00:00Z'),value:50},{start:Date.parse('2026-10-22T00:00Z'),end:Date.parse('2026-10-24T00:00Z'),value:70}];updatePlanUI();document.getElementById('planningMode').value='future';document.getElementById('futureStart').value='2026-10-22T06:45';planInputsChanged()`);
  assert.equal(a.run('state.temp'),70);assert.equal(a.run("makeEnvelope(parseLocalInput('2026-10-22T06:45','start'),parseLocalInput('2026-10-22T07:00','end'),'Test',300000).points[0].tOut"),70);
 });
-test('full-night search finds a robust ventilation arrangement and verifies bedtime plus the entire night',()=>{
- const a=scenario('2026-10-24T02:30Z');a.run(`state.temp=60;state.rh=20;r.initial={temperature:[70,70],rh:[35,35]};e=makeEnvelope(r.start,planBounds(r.start).end,'Full night',300000);result=runUnifiedPlan(r,e)`);
+test('full-night search verifies bedtime and the entire night after passive cooldown',()=>{
+ const a=scenario('2026-10-24T02:30Z');a.run(`state.temp=60;state.rh=20;r.initial={temperature:[69,69],rh:[35,35]};e=makeEnvelope(r.start,planBounds(r.start).end,'Full night',300000);result=runUnifiedPlan(r,e)`);
  assert.equal(a.run('result.winner.suitable'),true);assert.equal(a.run('result.winner.ready'),true);
  assert.equal(a.run('result.winner.trials.every(t=>t.suitable&&t.ready&&+t.trace.at(-1).time===+result.bounds.end)'),true);
  assert.equal(a.run('result.winner.nightSetup.setpoints.cool'),68);assert.equal(a.run('result.winner.nightSetup.setpoints.heat'),66);

@@ -87,9 +87,10 @@ test('Current ventilation uses thermostat-controlled recovery instead of full-fl
     assert.ok(a.run("r.segments.some(s=>s.operation==='maxxfan')"));
 });
 
-test('dehumidifier on/off changes heat on all predictor paths and invalidates forecast results',()=>{
+test('enabled alone adds no assumed heat; operating duty and input changes are explicit',()=>{
     const a=scenario();const on=a.run('thermalEnvironment(80,0,0,false,1400).gains');
-    a.run('state.dehumidifierEnabled=false');assert.equal(on-a.run('thermalEnvironment(80,0,0,false,1400).gains'),640);
+    a.run('state.dehumidifierEnabled=false');assert.equal(on-a.run('thermalEnvironment(80,0,0,false,1400).gains'),0);
+    a.run('state.dehumidifierEnabled=true');assert.equal(a.run('dehumidifierHeat(.5)'),320);a.run('state.dehumidifierEnabled=false');assert.equal(a.run('dehumidifierHeat(1)'),0);
     assert.equal(a.run('passiveEqAt(80,0,0,false,1400)'),a.run('80+1400/UA_BASE'));
     fixture(a);a.element('results').innerHTML='old';a.element('indoorRH').value='55';a.element('dehumidifierMode').value='enabled';
     a.run('equipmentInputsChanged()');assert.equal(a.run('state.weatherMode'),'forecast');
