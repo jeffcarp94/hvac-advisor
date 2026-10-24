@@ -98,7 +98,8 @@ function weather(url){
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:300000});
   const wintersetText=await page.locator('#results').innerText();
   assert.match(wintersetText,/Select COOL at 72°F/);assert.match(wintersetText,/7:18 PM/);
-  assert.match(wintersetText,/Overnight needs reassessment/);assert.match(wintersetText,/Surface RH is not a room humidity reading/);
+  assert.match(wintersetText,/Overnight needs reassessment/i);assert.match(wintersetText,/Surface RH is not a room humidity reading/);
+  assert.match(wintersetText,/Overnight outlook assumes Air Conditioner at 68°F/);
   assert.doesNotMatch(wintersetText,/No suitable complete plan|No suitable current setup|Select COOL at 68°F/);
   assert.equal(await page.evaluate(()=>lastPlan.current.trials.every(t=>t.suitable&&t.trace.every(p=>Math.min(p.bedroom,p.midCoach)>=65-1e-6)&&+t.trace.at(-1).time===lastPlan.current.reviewAt)),true);
   assert.equal(await page.evaluate(()=>resultContext.expires===lastPlan.current.reviewAt),true);

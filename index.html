@@ -1572,11 +1572,12 @@ function currentRecommendation(envelope,request,plans){
         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,setup,+request.start,request))continue;
         const trials=AIR_SCENARIOS.map(s=>simulatePlan([{time:+request.start,setup}],envelope,request,s,rows));
         if(!trials.every(t=>t.suitable&&+t.trace.at(-1).time===reviewAt))continue;
-        candidates.push({setup,trials,reviewAt,type:setup.type,score:trials.reduce((n,t)=>n+t.score,0)/trials.length});
+        candidates.push({setup,trials,reviewAt,type:setup.type,natural:morningRecovery(trials,request,setup),score:trials.reduce((n,t)=>n+t.score,0)/trials.length});
     }
-    candidates.sort((a,b)=>a.score-b.score||modePreference(a)-modePreference(b));
+    candidates.sort((a,b)=>Number(!!b.natural)-Number(!!a.natural)||a.score-b.score||modePreference(a)-modePreference(b));
     const current=candidates[0];if(!current)return null;
-    const template=plans.find(p=>p.type===current.type&&setupPhysicalKey(p.setup)===setupPhysicalKey(current.setup));
+    const matching=plans.filter(p=>p.type===current.type&&setupPhysicalKey(p.setup)===setupPhysicalKey(current.setup));
+    const template=matching.find(p=>p.nightType===current.type)||matching[0];
     if(template){
         // Continue for explanation only. A later failed sequence is not prescribed.
         const phases=template.phases.map((p,i)=>i===0?{...p,setup:current.setup}:p);
@@ -1758,6 +1759,9 @@ function currentOutlook(current,bounds){
     let html='<div class="mitigation-box severity-amber"><strong>Overnight needs reassessment</strong>The current recommendation passes through '+escapeHTML(formatTime(new Date(current.reviewAt)))+'. A complete overnight plan has not passed the checks.';
     if(reasons.length){const first=new Date(Math.min(...problems.map(p=>+p.time)));html+=' A temperature concern is predicted by '+escapeHTML(formatTime(first))+': '+escapeHTML(reasons.join(' '));}
     html+='</div>';
+    const assumed=p.phases.at(-1),s=assumed.setup,target=s.type==='auto'?s.setpoints.auto:s.type==='ac'?s.setpoints.cool:s.type==='maxxfan'?s.setpoints.fan:s.setpoints.heat;
+    html+='<p class="hint">Overnight outlook assumes '+escapeHTML(setupName(s))+(s.type==='passive'?'':' at '+target+'°F')+' from '+escapeHTML(formatTime(new Date(assumed.time)))+'. This overnight sequence has not been verified for use.</p>';
+    if(bounds.bedtime)html+='<p class="hint">Bedroom at 10 PM in this outlook: '+readingAt(p,+bounds.bedtime,'bedroom')+'°F. '+(p.trials.every(t=>t.ready)?'The bedtime temperature target is reached; later concerns still need reassessment.':'Bedtime preparation still needs reassessment to reach the sleep target.')+'</p>';
     const temperatures=p.trials.flatMap(t=>t.trace.filter(v=>+v.time>=sleepFrom).map(v=>v.bedroom));
     if(temperatures.length)html+='<p class="hint">Overnight temperature outlook: bedroom '+Math.min(...temperatures).toFixed(1)+'–'+Math.max(...temperatures).toFixed(1)+'°F; acceptable sleep band 65–69°F. A predicted comfort miss is separate from an equipment operating limit.</p>';
     const protection=[...new Set(p.trials.map(t=>t.unsafe[0]?.reason||t.moistureReason).filter(Boolean))];
@@ -1772,6 +1776,7 @@ function renderPlan(result){
     let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+badge+'</div>';
     if(current){
         html+='<div class="result-primary">'+escapeHTML(setupName(current.setup))+'</div>';
+        if(current.natural)html+='<div class="mitigation-box"><strong>Active heating is not needed</strong>'+(current.natural.minutes===0?'Both zones are already in the acceptable daytime comfort band.':'Natural recovery is expected to reach the acceptable daytime comfort band within '+current.natural.minutes+' minutes, by approximately '+escapeHTML(formatTime(current.natural.time))+'.')+'</div>';
         html+=step('What to do '+(request.future?'at the start':'now'),formatStamp(bounds.start),planActionText({time:+bounds.start,setup:current.setup},request));
         html+=step('Next action — refresh readings',formatTime(new Date(current.reviewAt)),'Refresh both temperature and humidity readings and build a new plan. This setup passes the temperature, moisture and equipment checks until this review time in all three scenarios.'+(request.occupancy==='leaving'&&current.reviewAt===+request.departure?' Reassess before leaving; this current recommendation does not cover your absence.':''));
         html+=currentOutlook(current,bounds);

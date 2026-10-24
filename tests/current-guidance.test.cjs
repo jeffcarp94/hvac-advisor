@@ -47,6 +47,13 @@ test('current guidance ends at departure and never certifies an unvalidated abse
  assert.ok(a.run('c'));assert.equal(a.run('c.reviewAt'),Date.parse(winterset.request.start)+15*60000);
  assert.equal(a.run('c.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+r.departure)'),true);
 });
+test('morning current guidance still favors verified natural recovery over active heating',()=>{
+ const a=setup();a.run(`r.start=new Date('2026-10-23T12:30Z');r.reading=r.start;r.initial={temperature:[67,67],rh:[30,30]};
+ state.temp=70;state.rh=25;state.wind=2;state.cloud=1;state.weatherMode='manual';e=makeEnvelope(r.start,planBounds(r.start).end,'Morning',300000);
+ c=currentRecommendation(e,r,[])`);
+ assert.ok(['passive','ac'].includes(a.run('c.type')));assert.ok(a.run('c.natural.minutes')>0);assert.ok(a.run('c.natural.minutes')<=30);
+ assert.equal(a.run("c.trials.every(t=>t.suitable&&!t.segments.some(s=>s.operation==='hp'||s.operation==='furnace'))"),true);
+});
 test('current guidance cannot bypass an initially cold coach or a condensation failure',()=>{
  for(const change of ['r.initial.temperature=[64,72]','r.initial.rh=[98,98]']){
   const a=setup();a.run(`${change};c=currentRecommendation(e,r,[])`);assert.equal(a.run('c'),null,change);
@@ -67,6 +74,7 @@ test('Winterset evening regression returns verified current cooling and a separa
  assert.equal(a.run('result.current.trials.every(t=>t.suitable&&+t.trace.at(-1).time===result.current.reviewAt)'),true);
  assert.match(a.run('html'),/Select COOL at 72°F/);assert.match(a.run('html'),/Next action — refresh readings/);
  assert.match(a.run('html'),/Overnight needs reassessment/);assert.match(a.run('html'),/Surface RH is not a room humidity reading/);
+ assert.equal(a.run('result.current.outlook.nightType'),'ac');assert.match(a.run('html'),/Overnight outlook assumes Air Conditioner at 68°F/);
  assert.doesNotMatch(a.run('html'),/No suitable complete plan|No suitable current setup|Select COOL at 68°F|This preparation time passes/);
  assert.equal(a.run('result.current.outlook.trials.every(t=>+t.trace.at(-1).time===+result.bounds.end)'),true);
 });
