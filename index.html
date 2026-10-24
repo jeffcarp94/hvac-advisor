@@ -2018,6 +2018,7 @@ function* searchPlans(envelope,request){
     const nightVents=bounds.bedtime?shortlistVents(envelope,request,true):vents;
     let days=planSetups(bounds.sleep,vents),nights=planSetups(true,nightVents),results=[];
     if(bounds.bedtime){
+        const nightSeeds=nights.slice();
         // Learn controls before searching transition times. An unsuitable default
         // (especially a rear-biased furnace) must not trigger hundreds of timing
         // attempts before its setting has even been considered. These are seeds;
@@ -2037,6 +2038,10 @@ function* searchPlans(envelope,request){
             return fans.map(fan=>stagePlan(prefix,{...setup,fan,key:setup.key+'|'+fan},+bounds.bedtime,+bounds.end,envelope,request,rows))
                 .sort(comparePlans)[0].setup;
         });
+        // A control that cannot start at bedtime may work when preparation
+        // begins earlier, under different weather. Keep the original controls
+        // alongside learned settings instead of pruning that valid sequence.
+        for(const setup of nightSeeds)if(!nights.some(s=>sameSetup(s,setup)))nights.push(setup);
     }
     if(request.occupancy==='away'){
         days=days.filter(s=>setupChangeAllowed(request.actual,s,+request.start,request));
