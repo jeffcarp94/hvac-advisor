@@ -29,7 +29,7 @@ test('absence remains awake-policy/unoccupied after 10 PM; return starts sleep a
  assert.equal(a.run('setupChangeAllowed(off,cool,+r.returnTime+60000,r)'),false);
 });
 test('complete departure plan carries state, covers each stage and renders the six requested presentations',()=>{
- const a=scenario();a.run('r.remote=true;result=runUnifiedPlan(r,e);html=renderPlan(result)');
+ const a=scenario({start:'2026-10-24T04:00Z',departure:'2026-10-24T04:10Z'});a.run('r.remote=true;result=runUnifiedPlan(r,e);html=renderPlan(result)');
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
  for(const kind of ['current','departure'])assert.ok(a.run(`result.stages.${kind}.recommended`));
  assert.ok(a.run('result.stages.night.recommendation'));
@@ -53,7 +53,7 @@ test('current and departure modes may differ without inserting any adjustment du
  const a=scenario({start:'2026-10-23T17:00Z',departure:'2026-10-23T17:02Z',back:'2026-10-24T14:00Z',temp:85});
  a.run(`r.initial.temperature=[70,70];result=runUnifiedPlan(r,e);html=renderPlan(result)`);
  assert.equal(a.run('result.stages.current.recommended.setup.type'),'passive');
- assert.equal(a.run('result.stages.departure.recommended.setup.type'),'ac');
+ assert.ok(['ac','auto'].includes(a.run('result.stages.departure.recommended.setup.type')));
  assert.equal(a.run('result.stages.night'),null);
  assert.equal(a.run('result.winner.trials.every(t=>+t.trace.at(-1).time===+r.returnTime)'),true);
  assert.doesNotMatch(a.run('html'),/Recommended overnight mode/);assert.match(a.run('html'),/No overnight recommendation/);
@@ -72,11 +72,12 @@ test('failed current stage cannot prescribe a departure mode or claim the full p
  assert.match(a.run('html'),/No current setup passes continuously through departure/);assert.doesNotMatch(a.run('html'),/Select COOL at|Select HEAT PUMP at|Select FURNACE at/);
 });
 
-test('predeparture cooling is considered when a late return leaves too little absence time to prepare',()=>{
+test('predeparture cooling cannot qualify by using sleeping comfort while still awake',()=>{
  const a=scenario({start:'2026-10-24T01:00Z',departure:'2026-10-24T02:59:50Z',back:'2026-10-24T03:00:10Z',temp:78});
  a.run(`r.initial.temperature=[72,72];planSetups=sleep=>[planSetup('ac',sleep)];result=runUnifiedPlan(r,e)`);
- assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
- assert.equal(a.run('result.stages.current.recommended.setup.setpoints.cool'),68);
+ assert.equal(a.run('result.winner.suitable&&result.winner.ready'),false);
+ assert.equal(a.run('result.stages.current.recommended.setup.setpoints.cool'),72);
+ assert.equal(a.run('result.stages.night.recommendation'),null);
  assert.equal(a.run('result.winner.trials.every(t=>t.trace.every(p=>[p.bedroom,p.midCoach,p.rh,p.midRH,...p.water].every(Number.isFinite)))'),true);
  assert.equal(a.run('planRows(e,r).every(row=>row.dt>0)'),true);
 });

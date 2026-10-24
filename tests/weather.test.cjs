@@ -90,7 +90,7 @@ test('editing ZIP clears the previous forecast, location, recommendation and set
     const a=app();fixture(a);a.run('analyze()');a.element('weatherLocation').textContent='Old city';
     a.run('locationEdited()');assert.equal(a.run('forecast.fetched'),false);
     assert.equal(a.element('weatherLocation').textContent,'');assert.equal(a.element('results').innerHTML,'');
-    assert.match(a.element('setpointDisplay').textContent,/Day: heat 70/);
+    assert.match(a.element('setpointDisplay').textContent,/Thermostat: day heat\/cool 70\/72/);
     assert.throws(()=>a.run('buildEnvelope(false)'),/Retrieve a forecast/);
 });
 
@@ -166,4 +166,5 @@ test('a late successful request cannot restore forecast after a manual edit',asy
     await pending;assert.equal(a.run('state.weatherMode'),'manual');assert.equal(a.run('forecast.fetched'),false);
     assert.equal(a.run('state.temp'),79);
 });
+
 

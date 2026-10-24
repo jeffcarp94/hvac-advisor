@@ -50,12 +50,14 @@ test('current guidance ends at departure and never certifies an unvalidated abse
  assert.ok(a.run('c'));assert.equal(a.run('c.reviewAt'),Date.parse(winterset.request.start)+15*60000);
  assert.equal(a.run('c.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+r.departure)'),true);
 });
-test('morning current guidance still favors verified natural recovery over active heating',()=>{
+test('current guidance favors target fit over the former natural-recovery preference',()=>{
  const a=setup();a.run(`r.start=new Date('2026-10-23T12:30Z');r.reading=r.start;r.initial={temperature:[67,67],rh:[30,30]};
  state.temp=70;state.rh=25;state.wind=2;state.cloud=1;state.weatherMode='manual';e=makeEnvelope(r.start,planBounds(r.start).end,'Morning',300000);
  c=currentRecommendation(e,r,[])`);
- assert.ok(['passive','ac'].includes(a.run('c.type')));assert.ok(a.run('c.natural.minutes')>0);assert.ok(a.run('c.natural.minutes')<=30);
- assert.equal(a.run("c.trials.every(t=>t.suitable&&!t.segments.some(s=>s.operation==='hp'||s.operation==='furnace'))"),true);
+ assert.equal(a.run('c.trials.every(t=>t.suitable)'),true);
+ a.run(`rows=planRows(e,r,.5,[c.reviewAt]).filter(row=>row.to<=c.reviewAt);off=AIR_SCENARIOS.map(s=>simulatePlan([{time:+r.start,setup:planSetup('passive',false)}],e,r,s,rows));`);
+ assert.ok(a.run('c.targetRank<=targetMetrics(off).targetRank'));
+ assert.ok(a.run('c.trials.some(t=>t.didHeat)'));
 });
 test('current guidance cannot bypass an initially cold coach',()=>{
  const a=setup();a.run('r.initial.temperature=[64,72];c=currentRecommendation(e,r,[])');assert.equal(a.run('c'),null);
@@ -88,3 +90,4 @@ test('a future extreme-cold shortfall still provides bounded current guidance',(
  assert.equal(a.run('result.current.trials.every(t=>t.suitable&&+t.trace.at(-1).time===result.current.reviewAt)'),true);
  assert.match(a.run('html'),/Next action — refresh readings/);assert.match(a.run('html'),/Overnight needs reassessment/);
 });
+

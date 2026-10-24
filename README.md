@@ -1,5 +1,12 @@
 # HVAC Advisor
 
+## v6.3.0 — independent comfort bands and preferred targets
+
+- Exactly two comfort policies: occupied sleep uses 65–69°F with a 67°F target; awake and unoccupied periods use 68–73°F with a 71°F target. Sleep/preparation thermostat settings cannot change the applicable band. Sleep ends at exactly 7 AM.
+- Equipment, moisture, temperature and readiness checks qualify plans first. Among qualified plans, temperatures within ±0.5°F of target receive no target penalty. Heating favors cooler-side misses; cooling favors warmer-side misses. Closer temperatures on the preferred side rank better. OFF and idle AUTO use neutral distance; active AUTO follows the actual heating/cooling operation. Ventilation uses the cooling preference.
+- Target preference is integrated over time (both zones while non-sleeping; bedroom while sleeping), retaining the least favorable scenario result. Departure comparisons score only the departure interval. Cached continuations preserve all target history. Natural recovery, humidity/draft scores and existing mode preferences break target-fit ties.
+- Bedtime readiness uses the sleeping band for every mode; target fit ranks acceptable misses rather than disqualifying them. Thermostat settings, capacities, equipment limits and existing excursion-duration rules remain unchanged.
+
 ## v6.2.0 — occupied, departure and sleep stages
 
 - Leaving plans evaluate one occupied setup from the run time to departure, then a separate fixed setup from departure through return. Current and departure alternatives are collapsed and have explicit intervals. If a different initial setup is needed to make the absence feasible, it is evaluated with continuous state; alternatives never reset departure conditions.
