@@ -113,6 +113,26 @@ function weather(url){
    await page.screenshot({path:path.join(screens,'winterset-'+scheme+'.png'),fullPage:true});
   }
   await page.evaluate(()=>{resultContext.expires=Date.now();checkResultValidity();});assert.equal(await page.locator('#results').innerText(),'');
+  // Historical cold-surface warning must coexist with a complete Worker plan.
+  const moistureFixture=require('./fixtures/winterset-2026-03-24.json');
+  const advisoryResult=await page.evaluate(async job=>{
+   const start=new Date(job.start),end=new Date(job.end);state.dehumidifierEnabled=true;
+   const request={start,reading:start,initial:{temperature:[72,72],rh:[54,52]},occupancy:'staying',remote:false};
+   const points=job.points.map(p=>({...p,time:new Date(p.time),tOut:Math.round(p.tOut),rh:Math.round(p.rh)}));
+   const envelope={windowStart:start,windowEnd:end,timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,source:'historical-era5',singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
+   const result=await calculateInWorker(request,envelope);
+   document.getElementById('results').innerHTML=renderPlan(result);
+   return {suitable:result.winner.suitable,ready:result.winner.ready,mode:result.winner.nightType,
+    full:result.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+end),
+    warning:result.winner.trials.some(t=>t.condensationConcern)};
+  },moistureFixture);
+  assert.deepEqual(advisoryResult,{suitable:true,ready:true,mode:'auto',full:true,warning:true});
+  const advisoryText=await page.locator('#results').innerText();
+  assert.match(advisoryText,/Possible window moisture — advisory only/);assert.match(advisoryText,/dew point/);
+  assert.match(advisoryText,/does not change HVAC selection or timing/);
+  assert.doesNotMatch(advisoryText,/Condensation margin fails|No suitable current setup/);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
+  await page.screenshot({path:path.join(screens,'condensation-advisory-plan.png'),fullPage:true});
   assert.deepEqual(errors,[]);await context.close();
   // Upgrade an actual v5.0 cache under the GitHub Pages project scope.
   for(const version of ['v5','v6']){
