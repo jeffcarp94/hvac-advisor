@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.4.0 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.4.1 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.4.0</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.4.1</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -229,29 +229,62 @@ const GEOMETRY=(()=>{
         rearBodyFraction:rearFloor/(rearFloor+frontBodyFloor),
         cabExposedArea:2*cabFloor+(cabWidth+2*cabLength)*cabHeight});
 })();
-// Relative cab/body conductance is an uncertain allocation, not a measured R-value.
-// Preserve the approved aggregate UA; see model-assumptions.md for R-18 evidence.
+// Anchor the nominal component conductances to the retained working estimate.
+// Vary cab conduction independently: insulation uncertainty must change total UA.
+// These are effective engineering assumptions, not certified assembly R-values.
 function envelopeAllocation(cabFactor=3){
     const cabGlass=C.glassArea*C.cabGlassFraction,bodyGlass=C.glassArea-cabGlass;
     const cabOpaque=Math.max(0,GEOMETRY.cabExposedArea-cabGlass),bodyOpaque=C.shellArea-cabOpaque;
-    const cabWeight=cabOpaque/C.rShell*cabFactor,bodyWeight=bodyOpaque/C.rShell;
-    const shellUA=C.shellArea/C.rShell,cabUA=shellUA*cabWeight/(cabWeight+bodyWeight)+cabGlass/C.rGlass;
-    const bodyUA=shellUA*bodyWeight/(cabWeight+bodyWeight)+bodyGlass/C.rGlass;
-    const rear=bodyUA*GEOMETRY.rearBodyFraction;
-    return{rear,front:UA_BASE-rear,cab:cabUA,body:bodyUA,cabOpaque,bodyOpaque,
-        total:UA_BASE,proposedUnnormalizedUA:cabWeight+bodyWeight+C.glassArea/C.rGlass};
+    const shellUA=C.shellArea/C.rShell,anchorDenominator=bodyOpaque+3*cabOpaque;
+    const cabVolume=GEOMETRY.cabFloor*GEOMETRY.cabHeight,bodyVolume=M.volumeFt3.reduce((a,b)=>a+b)-cabVolume;
+    const cabLeak=1.08*cabVolume*M.baseACH/60,bodyLeak=1.08*bodyVolume*M.baseACH/60;
+    const bodyConduction=shellUA*bodyOpaque/anchorDenominator-bodyLeak;
+    const cabConduction=(shellUA*3*cabOpaque/anchorDenominator-cabLeak)*cabFactor/3;
+    const cabUA=cabConduction+cabGlass/C.rGlass+cabLeak;
+    const bodyUA=bodyConduction+bodyGlass/C.rGlass+bodyLeak;
+    const rear=bodyUA*GEOMETRY.rearBodyFraction,total=cabUA+bodyUA;
+    return{rear,front:total-rear,cab:cabUA,body:bodyUA,cabOpaque,bodyOpaque,total,
+        bodyConduction,cabConduction,bodyLeak,cabLeak,bodyGlass,cabGlass,
+        bodyEffectiveR:bodyOpaque/bodyConduction,cabEffectiveR:cabOpaque/cabConduction};
 }
-function solarAllocation(total){
-    const e=envelopeAllocation(),shell=C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac;
-    const cab=C.cabGlassFraction*C.glassArea*C.cabGlassSHGC*C.solarPeak*C.glassSunFrac;
-    const body=(1-C.cabGlassFraction)*C.glassArea*C.coachDayGlassSHGC*C.solarPeak*C.glassSunFrac;
-    const rear=(shell*e.bodyOpaque/C.shellArea+body)*GEOMETRY.rearBodyFraction;
-    const fraction=rear/(shell+cab+body);
-    return[total*fraction,total*(1-fraction)];
+function envelopeAudit(){
+    const e=envelopeAllocation(),floor=GEOMETRY.rearFloor+GEOMETRY.frontBodyFloor;
+    const length=(1484-490)*GEOMETRY.ftPerPixel,width=(550-90)*GEOMETRY.ftPerPixel,h=GEOMETRY.coachHeight;
+    const cabWidth=(505-155)*GEOMETRY.ftPerPixel;
+    const planBodyGross=2*floor+2*length*h+width*h+(width*h-cabWidth*GEOMETRY.cabHeight);
+    const planGross=planBodyGross+GEOMETRY.cabExposedArea,assumedGross=C.shellArea+C.glassArea;
+    // R-18 is a historical shell-lining claim. Floor, cab, glazing and leakage
+    // retain baseline assumptions in this optimistic diagnostic, not a plan trial.
+    const floorConduction=floor/e.bodyEffectiveR,wallRoofOpaque=e.bodyOpaque-floor;
+    const lining18UA=e.cab+e.bodyGlass/C.rGlass+e.bodyLeak+floorConduction+wallRoofOpaque/18;
+    return{nominalUA:e.total,lowCabUA:envelopeAllocation(1.5).total,highCabUA:envelopeAllocation(4.5).total,
+        bodyEffectiveR:e.bodyEffectiveR,cabEffectiveR:e.cabEffectiveR,leakUA:e.bodyLeak+e.cabLeak,
+        planGross,assumedGross,areaDifferencePct:100*(assumedGross/planGross-1),lining18UA,
+        lining18ReductionPct:100*(1-lining18UA/e.total),mass:UA_BASE*C.tau};
 }
-function zoneHeatGains(internal,solar,hvac,operation){
-    const sunlight=solarAllocation(solar),delivery=operation==='furnace'?[.7,.3]:M.fraction;
-    return M.fraction.map((f,z)=>internal*f+sunlight[z]+hvac*delivery[z]);
+function envelopeAuditText(){
+    const a=envelopeAudit();
+    return '<p class="hint">Envelope estimate: '+a.nominalUA.toFixed(1)+' BTU/hr per °F, before wind. Cab-conduction sensitivity: '+a.lowCabUA.toFixed(1)+'–'+a.highCabUA.toFixed(1)+'. '+
+        'The historical R-18 shell-lining claim is not a whole-RV assembly rating. Applying it to the RV walls/roof only would give '+a.lining18UA.toFixed(1)+' with the same floor, cab, glass and leakage assumptions. '+
+        'That is an optimistic comparison, not a calibrated prediction or a separate comfort test. Magneshades receive no insulation credit.</p>';
+}
+function solarAllocation(total,cabFactor=3){
+    const e=envelopeAllocation(cabFactor),nominal=envelopeAllocation();
+    const shell=C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac;
+    const cabGlass=C.cabGlassFraction*C.glassArea*C.cabGlassSHGC*C.solarPeak*C.glassSunFrac;
+    const bodyGlass=(1-C.cabGlassFraction)*C.glassArea*C.coachDayGlassSHGC*C.solarPeak*C.glassSunFrac;
+    const denominator=shell+cabGlass+bodyGlass;if(!denominator)return[0,0];
+    // Common effective sol-air exposure; poor insulation transmits more opaque
+    // solar heat. Retain nominal total gain and existing glazing/shade estimates.
+    const conductance=nominal.bodyConduction+nominal.cabConduction;
+    const body=bodyGlass+shell*e.bodyConduction/conductance;
+    const cab=cabGlass+shell*e.cabConduction/conductance;
+    const rear=body*GEOMETRY.rearBodyFraction;
+    return[total*rear/denominator,total*(body+cab-rear)/denominator];
+}
+function zoneHeatGains(internal,solar,hvac,operation,solarWeights=null){
+    const weights=solarWeights||solarAllocation(1),delivery=operation==='furnace'?[.7,.3]:M.fraction;
+    return M.fraction.map((f,z)=>internal*f+solar*weights[z]+hvac*delivery[z]);
 }
 
 const M={volumeFt3:GEOMETRY.volume,fraction:GEOMETRY.fraction,mixCFM:60,ductMixCFM:120,
@@ -1192,7 +1225,7 @@ function optimizeSequence(plan,envelope,request,rows,minTime=+request.start){
 function spatialModelText(detailed=false){
     if(!detailed)return '<p class="hint">Bed-area comfort takes priority. The front thermostat controls the equipment; its setting may differ from your indoor target.</p>';
     return '<p class="hint">'+
-        'Overhead delivery is uniform by volume; furnace delivery is 70% rear / 30% front. The open Ford cab contributes separate front-area heat loss and solar gain. Magneshades reduce solar gain only. Cabinet-void isolation is '+(state.thermostatIsolated?'installed':'planned')+'; no guessed sensor offset is applied.</p>';
+        'Overhead delivery is uniform by volume; furnace delivery is 70% rear / 30% front. The open Ford cab contributes separate front-area heat loss and solar gain. Magneshades reduce solar gain only. Cabinet-void isolation is '+(state.thermostatIsolated?'installed':'planned')+'; no guessed sensor offset is applied.</p>'+envelopeAuditText();
 }
 function frontOutlook(trials,from,to){
     const points=trials.flatMap(t=>t.trace.filter(p=>+p.time>=from&&+p.time<=to));
@@ -1328,7 +1361,9 @@ function scheduleWeather(envelope,start,end,maxStepMin=.5){
 function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,options={}){
     const {start,end}=simulationBounds(envelope),rows=options.rows||scheduleWeather(envelope,start,end,options.maxStepMin||.5);
     if(!rows.length||rows.some(row=>!Number.isFinite(row.dt)||row.dt<=0))throw new Error('The calculation needs positive-duration intervals. Rebuild the plan with valid times.');
-    const scenario=options.scenario||AIR_SCENARIOS[0];let config=mode==='maxxfan'?(options.config||{fanZone:1,fanName:'Mid-coach MaxxFan',gaps:[0,0,0,4,0,0]}):null;
+    const scenario=options.scenario||AIR_SCENARIOS[0];
+    const envelopeParts=envelopeAllocation(scenario.cabFactor??3),solarWeights=solarAllocation(1,scenario.cabFactor??3);
+    let config=mode==='maxxfan'?(options.config||{fanZone:1,fanName:'Mid-coach MaxxFan',gaps:[0,0,0,4,0,0]}):null;
     let sp={...setpoints,fan:setpoints.fan??setpoints.cool},maxFan=options.fanSetting||(isOvernight?'Low':'Auto');
     const initialRH=Math.max(5,Math.min(100,(state.indoorRH??rhFromRatio(startIndoor,humidityRatio(rows[0].tOut,rows[0].rh))*.85)+scenario.rhOffset));
     let t=options.initialZones?options.initialZones.temperature.slice():[startIndoor,startIndoor],w=options.initialZones?t.map((v,z)=>humidityRatio(v,Math.max(1,Math.min(100,options.initialZones.rh[z]+scenario.rhOffset)))):t.map(v=>humidityRatio(v,initialRH)),phase='off',score=0,hoursOut=0,draftScore=0;
@@ -1380,8 +1415,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const previousZones=t.slice();
         const out=row.tOut+scenario.tempOffset,dt=row.dt,elapsed=(row.to-start.getTime())/60000,previous=t[0];
         const sensed=config&&mode==='maxxfan'?t[config.fanZone]:options.frontControl?t[1]:isOvernight?t[0]:t[0]*.4+t[1]*.6;
-        const uaTotal=UA_BASE*(1+.02*row.wind),bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
-        const envelopeParts=envelopeAllocation(scenario.cabFactor??3);
+        const uaTotal=envelopeParts.total*(1+.02*row.wind),bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
         const ua=[envelopeParts.rear,envelopeParts.front].map((u,z)=>Math.max(0,u*(1+.02*row.wind)-1.08*M.volumeFt3[z]*M.baseACH/60));
         let operation='off',q=0,duty=0;
         if(mode==='auto'){
@@ -1396,7 +1430,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
                 workRows.splice(rowIndex,1,{...row,to:cut,dt:defrostRemaining/60},{...row,from:cut,dt:dt-defrostRemaining/60});rowIndex--;continue;}
             operation='defrost';
         }
-        const initialGains=meta+priorDehumHeat+row.solar;
+        const initialGains=meta+priorDehumHeat+row.solar*(solarWeights[0]+solarWeights[1]);
         if(operation==='ac'||operation==='hp'||operation==='furnace'){
             const target=mode==='auto'?sp.auto:operation==='ac'?sp.cool:sp.heat;
             const capacity=operation==='ac'?C.acSensibleCapacity:operation==='furnace'?C.furnaceOutput:heatPumpCapacity(out);
@@ -1428,7 +1462,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const outdoorCFM=air.incoming.reduce((sum,q)=>sum+q,0),outdoorW=humidityRatio(out,row.rh);
         const moisture=mixedMoistureStep(sharedW,t[1],occupant-acRemoval,outdoorCFM,outdoorW,dt,state.dehumidifierEnabled);
         // Internal sensible gains share the small coach; location creates no bottleneck.
-        const gains=zoneHeatGains(meta+moisture.heatBTU,row.solar,q,operation);
+        const gains=zoneHeatGains(meta+moisture.heatBTU,row.solar,q,operation,solarWeights);
         const nextT=coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,dt,1.08);
         if(mode==='auto'&&operation!=='defrost'&&dt>1/60000){
             const sense=values=>options.frontControl?values[1]:isOvernight?values[0]:values[0]*.4+values[1]*.6;

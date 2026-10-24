@@ -1,3 +1,49 @@
+# v6.4.1 construction-evidence audit and independent cab sensitivity
+
+This section supersedes the constant-total cab sensitivity and area-only opaque-solar allocation described in v6.4.0 below. The nominal estimate is retained; the uncertainty cases and spatial solar allocation are refined. This is a source-backed plausibility audit, not empirical calibration of this individual RV.
+
+## Evidence and confidence
+
+The supplied 2023–2024 Platinum III model-specific manual, PDF pages 4–6, confirms a one-piece fiberglass body reinforced with carbon fiber, an aluminum floor frame, frameless jalousie windows, 25 ft 6 in overall length, 8 ft width, 6 ft 4 in headroom, and heavy-duty insulation. Current [Coach House model specifications](https://coachhouserv.com/specs-and-options/) agree on the general construction. Confidence is high for those documented features; the model-specific manual governs over generic current equipment tables.
+
+A stronger historical source than the older ads is the manufacturer's own entry in the [2022 Florida RV SuperShow catalog](https://www.frvta.org/wp-content/uploads/SuperShow_2022-web.pdf), also reproduced in its [2022 RVers Guide, printed p.23](https://www.frvta.org/wp-content/uploads/2022-RVers-Guide-web-compressed.pdf). It explicitly includes the Ford Transit Platinum III and states an R-18 insulation factor for the shell interior. The 2020 catalog separately describes an R-18 lining. Confidence is medium that this is the intended historical shell-insulation specification for the Platinum line. It is not a model-year-specific assembly test report for this RV. Layer thickness, installation air spaces, thermal bridges, floor performance and Ford-cab conductance remain uncertain. The sources do not establish the installed insulation product or a certified effective R-value for each assembly. DOE's [insulation guidance](https://bsesc.energy.gov/energy-basics/types-insulation) explains that installation matters and reflective surfaces require adjacent air space; the audit does not assume a particular foil product is installed merely from an older description.
+
+The R-18 claim cannot be applied to the Ford cab, glass, leakage or an unverified floor assembly. No numerical cab assembly rating or measured coach heat-loss coefficient was found. Absolute UA confidence therefore remains low. Structural consistency and energy accounting can be tested with high confidence; mathematical consistency is not proof of physical accuracy. No new temperature offset or insulation benefit is assigned to the planned thermostat-cabinet isolation or the Magneshades.
+
+## Independent area check
+
+The scale drawing gives RV-body length L=16.704 ft, width W=7.730 ft, working height H=6.333 ft, cab width Wc=5.882 ft and working cab height Hc=5.5 ft. The body/cab boundary excludes the cab opening from exposed body-front area. Gross RV-body enclosure area is 2LW + 2LH + WH + (WH − WcHc) = 535.400 ft². Add the cab's previously documented roof/floor/front/sides estimate, 135.633 ft², to obtain 671.033 ft². The retained 641 ft² opaque + 45 ft² glass = 686 ft² is 2.23% higher. Curvature, actual interior height, drawing precision and exposure assumptions exceed this small difference, so replacing the area solely to chase that 2% would create false precision. This is an independent rough area check, not a 2%-accuracy claim. Working volume, supply delivery and actual thermostat location remain as documented in v6.4.0.
+
+## Component heat-loss accounting
+
+Use H = Kbody + Kcab + Gbody + Gcab + Lbody + Lcab, in BTU/(hr·°F), and Q = H × ΔT in BTU/hr. A is ft²; R is hr·ft²·°F/BTU; conductive K=A/R; glazing G=Ag/Rg. Background leakage L=1.08 × V × ACH/60, with V in ft³ and the retained 0.25 ACH assumption. Nominal components are:
+
+| Component | Nominal BTU/(hr·°F) |
+| --- | ---: |
+| RV-body opaque conduction | 53.1200 |
+| Cab opaque conduction | 34.1109 |
+| RV-body glazing | 18.0000 |
+| Cab glazing | 27.0000 |
+| RV-body background leakage | 3.6801 |
+| Cab background leakage | 0.6605 |
+| Total | 136.5714 |
+
+These are the previous nominal allocation with its already embedded background infiltration explicitly separated. The model removes that baseline leakage contribution before adding explicit air exchange, so it is counted once. With body/cab opaque areas 532.367/108.633 ft², the nominal *implied effective conductive* R-values are about 10.02/3.18. They are derived baseline assumptions, not manufacturer ratings or measured insulation values. The old R-7 parameter sets an aggregate working anchor; it does not mean every RV-body assembly is R-7. The effective conductances also absorb unmodeled film/installation/bridge effects. Floor, glass and infiltration assumptions are not independently verified by the R-18 advertisement.
+
+The former model renormalized every cab-factor case to H=136.57. That forced greater cab loss to be canceled by an artificial reduction in RV-body loss. The corrected model holds the RV-body, glazing and baseline leakage terms fixed and applies the existing 1.5/3/4.5 factors only to cab conduction relative to nominal factor 3. Total H now varies: 119.516 / 136.571 / 153.627. These are retained engineering sensitivity factors, not measured cab R-values, calibrated confidence bounds or all possible envelope/weather combinations. They remain part of the same three airflow/weather cases; the R-18 comparison below is not added as a fourth qualification scenario. Wind multiplies each selected case's H by the retained (1 + 0.02 × mph); the duty/capacity balance and coupled zone equations use that same selected total. No change to comfort, equipment operating limits or unattended-change rules is made to obtain a passing result.
+
+## R-18 shell comparison
+
+Hold the estimated 129.125 ft² RV floor, cab, glazing and leakage at baseline. Treat only the remaining RV opaque walls/roof area, 532.367 − 129.125 = 403.242 ft², as an ideal effective R-18 assembly. H18 = Hnom − Awallroof/Rbody,eff + Awallroof/18 = 118.738 BTU/(hr·°F), 13.06% below nominal. For a nighttime indoor/outdoor difference of 20°F before wind and other gains, Qnom=136.571×20=2,731 BTU/hr versus Q18=118.738×20=2,375 BTU/hr. This comparison is deliberately optimistic: a lining claim does not establish an effective wall/roof assembly value. It is displayed in calculation details and does not silently replace the nominal model, become a qualified HVAC plan, or claim that uncertainty has been calibrated. The previous estimate is plausible at this level of evidence; its absolute accuracy remains unvalidated. A wholesale R-18 substitution would incorrectly give insulation credit to components outside the claim.
+
+## Opaque solar gain and thermal storage
+
+A less-insulated cab should transmit more opaque solar heat under comparable exposure. The previous per-area allocation ignored that construction difference. The refined allocation weights opaque gains by the body/cab conductive terms while retaining the nominal aggregate solar gain. It assumes a common *mean effective sol-air exposure*, not measured equal paint absorptance or equal orientation. This is a compact engineering approximation supported by the [EnergyPlus exterior heat-balance formulation](https://bigladdersoftware.com/epx/docs/24-1/engineering-reference/outside-surface-heat-balance.html), which separates absorbed sunlight, exterior exchange and conduction. It is not a full surface-orientation/paint/sky radiation simulation. Baseline opaque peak S0 = 0.035 × 641 × 250 × 0.5 = 2,804.375 BTU/hr; K0 = Kbody,nom + Kcab,nom. For each case, Sbody = S0×Kbody/K0 and Scab = S0×Kcab/K0. Forecast solar scaling applies to both; glazing retains its separately shaded gains. About 39.1% of nominal opaque gain now enters the cab, rather than its 16.9% share of opaque area. Sensitivity changes to cab conduction also change cab opaque solar transmission, rather than redistributing a fixed total. No new paint property, absolute solar coefficient or shade R-value is invented.
+
+Total effective thermal storage remains 273.143 BTU/°F, divided by served volume. Insulation changes heat flow and response time, not the mass of the coach. The retained storage estimate is not newly validated by the construction advertising. Moisture capacity and equipment output assumptions remain independent. Tests verify component conservation, distinct cab/body effects, one-time leakage accounting, unchanged storage, nighttime cooling response, floor/cab/glass exclusion from the R-18 comparison, and separate shaded glazing versus opaque solar gain.
+
+---
+
 # v6.4.0 spatial delivery, comfort priority and thermostat search
 
 This section supersedes older fixed-setpoint, 40/60 allocation, volume-weighted awake comfort and uniform-envelope statements below. Historical sections remain for provenance.

@@ -1,5 +1,14 @@
 # HVAC Advisor
 
+## v6.4.1 — construction evidence and envelope sensitivity
+
+- Audited the source drawings, model-specific manual and manufacturer R-18 shell-insulation claim. The geometry supports the existing enclosure area within rough drawing precision; the sources do not establish a measured whole-coach UA. The retained nominal 136.57 BTU/(hr·°F) is a working estimate, not a certified R-value conversion.
+- Corrected the cab-loss sensitivity: it now changes total heat loss (119.52–153.63 before wind) while holding RV-body conductance fixed. The duty/capacity calculation uses the same scenario load as the zone temperatures, with baseline infiltration counted once and thermal storage held fixed.
+- Opaque solar gain now follows body/cab conductance under a common mean exposure assumption. The nominal aggregate gain and separate glazing/shade coefficients are retained; uncertain cab conduction also affects cab solar transmission.
+- Calculation details show an R-18 walls/roof-only comparison of 118.74 BTU/(hr·°F), keeping the floor, cab, glass and leakage assumptions. This is an optimistic sensitivity comparison rather than a qualified operating scenario. See [model-assumptions.md](model-assumptions.md) for variables, formulas, evidence, confidence and limitations.
+
+Earlier notes are historical where superseded below.
+
 ## v6.4.0 — bedroom priority, duct distribution and selected control settings
 
 - The bed area determines comfort and target fit during awake, unoccupied and sleeping periods. The front sensor remains the thermostat input. Plans that also keep the dinette within its band rank first among bedroom-qualified plans; otherwise the output identifies the dinette miss.

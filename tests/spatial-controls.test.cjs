@@ -15,10 +15,11 @@ test('scale geometry includes open cab and overhead output is uniform per served
  }
  a.run("q=zoneHeatGains(0,0,10000,'furnace')");close(a.run('q[0]'),7000);close(a.run('q[1]'),3000);
 });
-test('cab losses have their own area; spatial sensitivity preserves approved aggregate UA',()=>{
- const a=app();let previous;
+test('cab uncertainty changes total load while preserving nominal UA and RV-body conductance',()=>{
+ const a=app();const body=a.run('envelopeAllocation().body'),rear=a.run('envelopeAllocation().rear');let previous;
+ close(a.run('envelopeAllocation().total'),136.57142857142858);
  for(const ratio of [1.5,3,4.5]){
-  a.run(`e=envelopeAllocation(${ratio})`);close(a.run('e.front+e.rear'),136.57142857142858);close(a.run('e.cab+e.body'),a.run('e.total'));
+  a.run(`e=envelopeAllocation(${ratio})`);close(a.run('e.front+e.rear'),a.run('e.total'));close(a.run('e.body'),body);close(a.run('e.rear'),rear);close(a.run('e.cab+e.body'),a.run('e.total'));
   assert.ok(a.run('e.bodyOpaque>0&&e.cabOpaque>0&&e.front>e.rear'));
   if(previous!==undefined)assert.ok(a.run('e.front')>previous);previous=a.run('e.front');
  }
