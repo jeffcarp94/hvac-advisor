@@ -1,0 +1,125 @@
+{
+  "description": "Winterset reproduction of the October 23 2026 6:48 PM CDT report. Paired indoor readings and staying/dehumidifier settings are from owner screenshots. NWS data were retrieved during diagnosis with the same 5:32 PM CDT issue time; the exact original phone response was not preserved. Weather is compressed only by removing consecutive identical values.",
+  "weatherURL": "https://api.weather.gov/points/41.3358,-94.0136",
+  "issuedAt": "2026-10-23T22:32:35+00:00",
+  "request": {
+    "start": "2026-10-23T23:48:00Z",
+    "reading": "2026-10-23T23:47:00Z",
+    "initial": {
+      "temperature": [
+        72,
+        72
+      ],
+      "rh": [
+        54,
+        52
+      ]
+    },
+    "occupancy": "staying",
+    "remote": false
+  },
+  "dehumidifierEnabled": true,
+  "envelope": {
+    "lat": 41.3358,
+    "lon": -94.0136,
+    "windowLabel": "Reproduction",
+    "windowStart": "2026-10-23T23:48:00.000Z",
+    "windowEnd": "2026-10-24T12:00:00.000Z",
+    "timeZone": "America/Chicago",
+    "source": "forecast",
+    "points": [
+      {
+        "time": "2026-10-23T23:48:00.000Z",
+        "tOut": 73,
+        "rh": 46,
+        "cloud": 0.3,
+        "wind": 12,
+        "precip": "none"
+      },
+      {
+        "time": "2026-10-24T00:00:00.000Z",
+        "tOut": 68,
+        "rh": 54,
+        "cloud": 0.3,
+        "wind": 12,
+        "precip": "none"
+      },
+      {
+        "time": "2026-10-24T02:00:00.000Z",
+        "tOut": 67,
+        "rh": 59,
+        "cloud": 0.3,
+        "wind": 12,
+        "precip": "none"
+      },
+      {
+        "time": "2026-10-24T03:00:00.000Z",
+        "tOut": 67,
+        "rh": 56,
+        "cloud": 0.3,
+        "wind": 12,
+        "precip": "none"
+      },
+      {
+        "time": "2026-10-24T04:00:00.000Z",
+        "tOut": 66,
+        "rh": 56,
+        "cloud": 0.3,
+        "wind": 12,
+        "precip": "none"
+      },
+      {
+        "time": "2026-10-24T05:00:00.000Z",
+        "tOut": 65,
+        "rh": 58,
+        "cloud": 0.3,
+        "wind": 12,
+        "precip": "none"
+      },
+      {
+        "time": "2026-10-24T06:00:00.000Z",
+        "tOut": 64,
+        "rh": 60,
+        "cloud": 0.3,
+        "wind": 12,
+        "precip": "none"
+      },
+      {
+        "time": "2026-10-24T07:00:00.000Z",
+        "tOut": 62,
+        "rh": 62,
+        "cloud": 0.3,
+        "wind": 12,
+        "precip": "none"
+      },
+      {
+        "time": "2026-10-24T08:00:00.000Z",
+        "tOut": 61,
+        "rh": 65,
+        "cloud": 0.3,
+        "wind": 12,
+        "precip": "none"
+      },
+      {
+        "time": "2026-10-24T09:00:00.000Z",
+        "tOut": 60,
+        "rh": 64,
+        "cloud": 0.3,
+        "wind": 12,
+        "precip": "none"
+      },
+      {
+        "time": "2026-10-24T11:00:00.000Z",
+        "tOut": 59,
+        "rh": 64,
+        "cloud": 0.8,
+        "wind": 9,
+        "precip": "none"
+      }
+    ],
+    "singlePoint": false,
+    "cloud": 0.3,
+    "wind": 12,
+    "precip": "none"
+  }
+}

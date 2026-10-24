@@ -38,7 +38,9 @@ test('finite cooling agrees with the analytic heat balance and reaches target la
     assert.ok(mins>1&&mins<67);
     assert.equal(a.run('s.trace[0].indoor'),85);
     assert.equal(a.run('s.trace[0].time.getTime()'),a.run('start.getTime()'));
-    assert.ok(Math.abs(a.run('s.finalIndoor')-72)<.6); // two zones need not have equal temperatures
+    // This legacy component test senses a 40/60 average, not the warmest zone.
+    // With a cycling fan, the dehumidifier can leave the front warmer than it.
+    close(a.run('s.finalZones.temperature[0]*.4+s.finalZones.temperature[1]*.6'),72,1e-6);
 });
 
 test('heat recovery starts from actual cabin temperature even when passive equilibrium is warm',()=>{

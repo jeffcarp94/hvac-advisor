@@ -1,6 +1,21 @@
 # HVAC Advisor
 
+The preparation planner now checks missed five-minute intervals and can cool before selecting a heating-only overnight setup. Overnight plans require no manual changes or automatic furnace backup. Heat-pump operation follows the documented 30°F changeover, with explicit defrost pauses and a documented estimated capacity decline; humidity no longer invents a 45–50°F equipment lockout. AUTO bedtime readiness distinguishes normal cycling after reaching the cooling target from an actual preparation miss. See model-assumptions.md for equations and limitations.
+
+The v6.0.1 humidity repair treats the small coach as one mixed moisture volume, per the owner's instruction. Paired temperature/RH inputs initialize the prediction; both temperature forecasts remain, with one predicted dew point and RH derived at each local temperature. A front/rear moisture bottleneck cannot disqualify equipment.
+
+The established 20-pint/day dehumidifier rating is reproduced at 65°F/60% RH using the published NREL generic capacity/energy-factor curves, with separate finite-capacity humidistat runtime and actual operating heat. Occupant sensible and latent loads use a consistent activity budget. Roof-AC latent availability counts its single evaporator airflow once. These assumptions and primary sources are documented in [model-assumptions.md](model-assumptions.md). Condensation remains advisory-only; existing comfort and equipment policies remain enforced.
+
+
 Phone-focused single-file HVAC advisor for the Coach House Platinum III 250 DT. Hosted as a static PWA; `index.html`, `sw.js`, the manifest, and the icons are the deployment files.
+
+## v6.0.1 — useful current guidance when the overnight outlook has a shortfall
+
+- A failed overnight comfort forecast no longer suppresses a separately verified current setup. The fallback checks all three scenarios over the same next 30 minutes, or until departure/7 AM if earlier. It gives an exact review time and expires there. It does not prescribe a rejected overnight sequence or certify an upcoming absence. The separate overnight outlook names its assumed mode/setting and bedtime status. Verified natural morning recovery retains priority over active heating in current guidance.
+- Estimated elevated cold-surface RH is an advisory, distinct from room-air humidity. It shows estimated timing, predicted room RH, and a request to check readings/windows. Condensation and surface-RH estimates are warning-only: they cannot affect eligibility, ranking, early stopping or preparation timing. Equipment limits, the 65°F floor and the sustained room-RH limit remain enforced. Indoor dew point is derived from temperature/RH and displayed without an additional ranking penalty.
+- Fixed LOW/MED/HIGH roof fans circulate between compressor calls. AUTO fan circulation follows compressor duty; furnace circulation follows its blower call. Existing capacities, airflow coefficients, comfort targets and moisture-removal assumptions are retained.
+- Failed full plans are compared by how long they remain acceptable, before comparing truncated scores. Failure explanations retain the threshold/time that actually triggered the concern across setup changes. A daytime bridge search is used when no single daytime setup covers the daytime period; it does not repeat that search solely for an overnight failure.
+- The reported Winterset evening is a permanent regression fixture with source and input notes. Browser checks repeat its real form inputs, forecast parsing and Web Worker calculation, and exercise upgrades from v5.0.0 and v6.0.0.
 
 ## v6.0.0 — one connected HVAC plan
 
