@@ -101,7 +101,7 @@ test('real end-to-end overnight planning has no unsafe prescription and keeps fi
  const a=scenario('2026-10-24T11:45Z');a.run(`result=runUnifiedPlan(r,e);html=renderPlan(result)`);
  assert.ok(a.run('result.plans.length')>=5);assert.equal(a.run('result.winner.nightSetup.setpoints.cool'),68);assert.equal(a.run('result.winner.nightSetup.setpoints.heat'),66);
  assert.match(a.run('html'),/Your HVAC plan/);assert.match(a.run('html'),/Other Viable HVAC Options/);assert.match(a.run('html'),/Unsuitable HVAC Modes/);
- if(!a.run('result.winner.suitable'))assert.doesNotMatch(a.run('html'),/Select FURNACE at|Select COOL at|Use the .*MaxxFan in AUTO/);
+ if(!a.run('result.winner.suitable')&&!a.run('result.current'))assert.doesNotMatch(a.run('html'),/Select FURNACE at|Select COOL at|Use the .*MaxxFan in AUTO/);
 });
 test('a scheduled action expires the displayed plan and remote capability is off by default',()=>{
  const a=scenario();a.setNow('2026-10-24T02:00Z');a.run(`resultRecorded({windowEnd:new Date('2026-10-24T12:00Z')},Date.parse('2026-10-24T02:10Z'));`);a.element('results').innerHTML='old';
