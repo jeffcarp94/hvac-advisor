@@ -121,12 +121,14 @@ function weather(url){
    const points=job.points.map(p=>({...p,time:new Date(p.time),tOut:Math.round(p.tOut),rh:Math.round(p.rh)}));
    const envelope={windowStart:start,windowEnd:end,timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,source:'historical-era5',singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
    const result=await calculateInWorker(request,envelope);
-   document.getElementById('results').innerHTML=renderPlan(result);
+   const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
+   document.getElementById('resultStatus').textContent='Historical March 24 regression — paired readings and ERA5 weather';
    return {suitable:result.winner.suitable,ready:result.winner.ready,mode:result.winner.nightType,
     full:result.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+end),
     warning:result.winner.trials.some(t=>t.condensationConcern)};
   },moistureFixture);
   assert.deepEqual(advisoryResult,{suitable:true,ready:true,mode:'auto',full:true,warning:true});
+  await page.locator('#planCard').waitFor({state:'visible'});
   const advisoryText=await page.locator('#results').innerText();
   assert.match(advisoryText,/Possible window moisture — advisory only/);assert.match(advisoryText,/dew point/);
   assert.match(advisoryText,/does not change HVAC selection or timing/);
