@@ -235,9 +235,6 @@ const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:3
     shellSunFrac:0.50,glassSunFrac:0.50,
     tau: 2.0, // Still-air baseline; C_eff = UA_BASE * tau stays fixed as UA changes.
     dayCoolDefault:72,nightCoolDefault:68,dayHeatDefault:70,nightHeatDefault:66,comfortFloor:65,
-    nightBandLow:66,nightBandHigh:70,
-    dayHeatBandLow:68,dayHeatBandHigh:72,
-    dayCoolBandLow:70,dayCoolBandHigh:72,
     warmPenalty:2.0,coldPenalty:1.0,
     maxxFanMinOutdoor:65,  // Existing full-period open-window ventilation preference
     maxxFanSetNight:70,
@@ -622,13 +619,12 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
 }
 
 function simulationComfort(sim,isOvernight,current=false){
-    const low=current?C.currentHeatTarget:isOvernight?C.nightBandLow:C.dayHeatBandLow;
-    const high=current?C.currentCoolTarget:isOvernight?C.nightBandHigh:C.dayCoolBandHigh;
+    const {low,high}=comfortPolicy(isOvernight);
     const min=Math.min(...sim.trace.map(p=>p.indoor));
     const floorCompliant=min>=C.comfortFloor-1e-8;
-    const endInBand=sim.finalIndoor>=low-.5-1e-8&&sim.finalIndoor<=high+.5+1e-8;
+    const endInBand=sim.finalIndoor>=low-1e-8&&sim.finalIndoor<=high+1e-8;
     return{floorCompliant,endInBand,comfortLow:low,comfortHigh:high,
-        comfortReason:!floorCompliant?'Predicted below the '+C.comfortFloor+'°F comfort floor':!endInBand?'Finishes outside the '+low+'–'+high+'°F band (±0.5°F tolerance)':''};
+        comfortReason:!floorCompliant?'Predicted below the '+C.comfortFloor+'°F comfort floor':!endInBand?'Finishes outside the '+low+'–'+high+'°F band':''};
 }
 function operatingAssumptions(mode,fan){
     return 'Two connected cabin zones; indoor moisture is simulated. '+(state.indoorRH==null?'Starting indoor RH is estimated. ':'Starting indoor RH is entered. ')
@@ -737,7 +733,7 @@ function predictIndoor(candidateType,tOut,wind,cf,isDay,meta,setpoints,solarCtx,
 function predictIndoorTransient(mode,tOut,wind,cf,isDay,meta,setpoints,solarCtx,tInPrev,dtHours){
     return predictIndoor(mode,tOut,wind,cf,isDay,meta,setpoints,solarCtx,tInPrev,dtHours??.25);
 }
-function comfortBand(mode,isOvernight,env){return{low:isOvernight?C.nightBandLow:C.dayHeatBandLow,high:isOvernight?C.nightBandHigh:C.dayCoolBandHigh};}
+function comfortBand(mode,isOvernight,env){return comfortPolicy(isOvernight);}
 function segmentComfort(segment,band){
     const cuts=[0,segment.hours];
     for(const threshold of [band.low,band.high]){
