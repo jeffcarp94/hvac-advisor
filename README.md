@@ -1,3 +1,12 @@
+# v6.5.0 construction-based body envelope
+
+- Rebuilt the RV body behind the Ford cab from separate wall, roof, floor, door, roof-opening, window and leakage terms. The total is independently calculated rather than constrained to the legacy whole-vehicle UA.
+- The manufacturer R-18 shell claim is now a working simulation case. Floor R-8 and unverified door/opening values are explicitly engineering assumptions, with reduced and stronger assembly cases tested independently of the cab.
+- All three body cases are crossed with all three weather/airflow/cab cases. Selected plans must pass nine trajectories. Existing comfort, target, equipment and unattended-operation policies are unchanged.
+- Nominal body UA changes from 74.80 to 64.56 BTU/(hr·°F); nominal whole-vehicle UA changes from 136.57 to 126.33 before wind. These remain estimates, not measured accuracy claims.
+- Opaque solar transmission follows exposed component conductance; no direct underside solar gain or marine-vinyl insulation credit is invented. Fixed thermal storage remains 273.14 BTU/°F.
+- See [model-assumptions.md](model-assumptions.md) for the factory/patent evidence, dated contradictions, geometry, formulas, explicit assumptions, uncertainty cases and validation. Prior version notes below are historical.
+
 # HVAC Advisor
 
 ## v6.4.1 — construction evidence and envelope sensitivity

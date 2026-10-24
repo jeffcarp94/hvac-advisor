@@ -20,7 +20,7 @@ test('zero time preserves starting temperature for every equipment mode',()=>{
 
 test('cab exterior shades and coach interior day screens contribute separate solar gains',()=>{
     const a=setup();close(a.run('effectiveGlassSHGC()'),.32);
-    assert.equal(a.run('solarLoad(1,true)'),4604);
+    assert.equal(a.run('solarLoad(1,true)'),2912);
     assert.equal(a.run('solarLoad(1,false)'),0);
     a.run('C.cabGlassFraction=1');close(a.run('effectiveGlassSHGC()'),.20);
     a.run('C.cabGlassFraction=0');close(a.run('effectiveGlassSHGC()'),.50);
