@@ -61,11 +61,11 @@ test('moisture helpers preserve RH and surface condensation depends on dew point
     assert.equal(a.run('moistureRemoval(68,70,false)'),0);
     assert.ok(a.run('moistureRemoval(75,70,true)')>a.run('moistureRemoval(55,70,true)'));
 });
-test('condensation is a rejection even when temperature is comfortable, including initial conditions',()=>{
+test('initial condensation risk is advisory even in legacy candidate screening',()=>{
     const a=setup({temp:45,rh:30,indoor:68,indoorRH:70,hours:.25});
     a.run(`c=modelCandidate('furnace',e,true,sp,1000,68)`);
-    assert.equal(a.run('c.moistureEligible'),false);assert.equal(a.run('c.suitable'),false);
-    assert.match(a.run('c.moistureReason'),/Condensation/);
+    assert.equal(a.run('c.moistureEligible'),true);assert.equal(a.run('c.suitable'),true);
+    assert.ok(a.run('c.condensationConcern'));assert.equal(a.run('c.moistureReason'),'');
     assert.equal(a.run('c.equipmentEligible'),true);
 });
 test('dynamic indoor moisture responds to occupants and removal without treating 50% as measured RH',()=>{

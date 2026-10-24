@@ -1164,30 +1164,30 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     let t=options.initialZones?options.initialZones.temperature.slice():[startIndoor,startIndoor],w=options.initialZones?t.map((v,z)=>humidityRatio(v,Math.max(1,Math.min(100,options.initialZones.rh[z]+scenario.rhOffset)))):t.map(v=>humidityRatio(v,initialRH)),phase='off',score=0,hoursOut=0,draftScore=0;
     let didCool=false,didHeat=false,heatMinutes=0,coolMinutes=0,capacityCool=false,capacityHeat=false,heatingFloorLimited=false;
     let condensedLb=0,humidRun=0,humidMax=0,surfaceRun=[0,0],surfaceMax=0,minMargin=Infinity,maxRH=0,minRH=100,maxSurfaceRH=0;
-    let warmRun=0,warmMax=0,coldRun=0,coldMax=0,severeRun=0,severeMax=0,recovery=null,freezeRisk=null,firstMoisture=null,failureTime=null,comfortProblem=null,surfaceConcern=null;
+    let warmRun=0,warmMax=0,coldRun=0,coldMax=0,severeRun=0,severeMax=0,recovery=null,freezeRisk=null,condensationConcern=null,failureTime=null,comfortProblem=null,surfaceConcern=null;
     const unsafe=[],warnings=new Set(),trace=[],segments=[],mass=M.fraction.map(f=>UA_BASE*C.tau*f),airMass=M.volumeFt3.map(v=>v*.075);
     let band={low:Math.max(65,sp.heat-2),high:sp.cool+1};const floor=C.comfortFloor;let lastSetup='';
     const record=(time,elapsed)=>{
         const comfortT=isOvernight?t[0]:Math.max(...t),rh=t.map((v,z)=>rhFromRatio(v,w[z]));
-        trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],water:w.slice(),sleep:isOvernight});
+        trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],dewPoint:dpFromRatio(w[0]),midDewPoint:dpFromRatio(w[1]),water:w.slice(),sleep:isOvernight});
         return{comfortT,rh};
     };
     const checkpoints=[],carry=options.carry;let runningMin=Math.min(...t);
     if(carry){
         t=carry.t.slice();w=carry.w.slice();phase=carry.phase;
-        ({score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,condensedLb,humidRun,humidMax,surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,firstMoisture,freezeRisk,comfortProblem,surfaceConcern}=carry);
+        ({score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,condensedLb,humidRun,humidMax,surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern}=carry);
         surfaceRun=carry.surfaceRun.slice();unsafe.push(...carry.unsafe);carry.warnings.forEach(w=>warnings.add(w));
     }
-    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),w:w.slice(),phase,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,condensedLb,humidRun,humidMax,surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,firstMoisture,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin)});};
+    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),w:w.slice(),phase,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,condensedLb,humidRun,humidMax,surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin)});};
     record(carry?rows[0].from:start.getTime(),carry?(rows[0].from-start.getTime())/60000:0);
-    // Initial damp conditions cannot disappear merely because recovery is allowed.
+    // Surface estimates are output-only observations, including at the initial state.
     const moistureCheck=(weather,elapsed,dt,rh)=>{
         maxRH=Math.max(maxRH,...rh);minRH=Math.min(minRH,...rh);
         const checks=t.map((v,z)=>surfaceAssessment(v,weather,w[z],scenario));
         checks.forEach((c,z)=>{minMargin=Math.min(minMargin,c.margin);maxSurfaceRH=Math.max(maxSurfaceRH,c.surfaceRH);
             surfaceRun[z]=c.surfaceRH>=M.surfaceRHLimit?surfaceRun[z]+dt*60:0;surfaceMax=Math.max(surfaceMax,surfaceRun[z]);
             if(!surfaceConcern&&surfaceRun[z]>=M.surfaceMinutes)surfaceConcern={time:new Date(start.getTime()+elapsed*60000),zone:z,surfaceRH:c.surfaceRH,roomRH:rh[z]};
-            if(c.condensation&&!firstMoisture)firstMoisture={code:'condensation',time:new Date(start.getTime()+elapsed*60000),zone:z};});
+            if(c.condensation&&!condensationConcern)condensationConcern={time:new Date(start.getTime()+elapsed*60000),zone:z,source:'surface',margin:c.margin};});
         if(elapsed>M.recoveryMinutes){humidRun=Math.max(...rh)>M.humidLimit?humidRun+dt*60:0;humidMax=Math.max(humidMax,humidRun);}
     };
     if(!carry)moistureCheck(rows[0].tOut+scenario.tempOffset,0,0,t.map((v,z)=>rhFromRatio(v,w[z])));
@@ -1257,7 +1257,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         for(let z=0;z<2;z++){
             const saturated=humidityRatio(t[z],100);
             if(w[z]>saturated){const condensed=(w[z]-saturated)*airMass[z];condensedLb+=condensed;w[z]=saturated;t[z]+=condensed*M.latentBTUPerLb/mass[z];
-                if(!firstMoisture)firstMoisture={code:'condensation',time:new Date(row.to),zone:z};}
+                if(!condensationConcern)condensationConcern={time:new Date(row.to),zone:z,source:'air',margin:0};}
         }
         const now=record(row.to,elapsed),comfortT=now.comfortT,coldT=isOvernight?t[0]:Math.min(...t);
         moistureCheck(out,elapsed,dt,now.rh);
@@ -1279,13 +1279,14 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         heatingFloorLimited||=q>0&&out+(initialGains+q)/uaTotal<floor;
         segments.push({t0:previous,t1:comfortT,startMs:row.from,endMs:row.to,hours:dt,operation,duty,circulation,eq:comfortT,tau:0,airflow:air.exhaust,mode,occupied:options.controlAt?row.occupants:2});
         runningMin=Math.min(runningMin,...t);capture(row.to);
-        if(options.stopOnFailure&&(unsafe.length||firstMoisture||!options.surfaceAdvisory&&surfaceMax>=M.surfaceMinutes||humidMax>M.humidMinutes||comfortProblem)){
-            failureTime=unsafe[0]?.time?.getTime()??firstMoisture?.time?.getTime()??row.to;break;
+        if(options.stopOnFailure&&(unsafe.length||humidMax>M.humidMinutes||comfortProblem)){
+            failureTime=unsafe[0]?.time?.getTime()??row.to;break;
         }
     }
     const min=Math.min(carry?.min??Infinity,...trace.map(p=>isOvernight&&!options.controlAt?p.bedroom:Math.min(p.bedroom,p.midCoach))),finalIndoor=trace.at(-1).indoor;
     const surfaceWarning=surfaceConcern?'Estimated '+(surfaceConcern.zone===0?'bedroom':'front-zone')+' surface humidity reaches 80% for 30 minutes by '+formatTime(surfaceConcern.time)+'. This is surface RH, not room-air RH.':'';
-    const moistureReason=firstMoisture?'Condensation margin fails in the '+(firstMoisture.zone===0?'bedroom':'mid-coach')+' at '+formatTime(firstMoisture.time)+'.':!options.surfaceAdvisory&&surfaceMax>=M.surfaceMinutes?'Interior surfaces remain at or above 80% surface RH for '+Math.round(surfaceMax)+' minutes.':humidMax>M.humidMinutes?'Indoor RH exceeds 65% for '+Math.round(humidMax)+' consecutive minutes after recovery.':'';
+    // Condensation/surface warnings must never gate, stop, score or rank a setup.
+    const moistureReason=humidMax>M.humidMinutes?'Indoor RH exceeds 65% for '+Math.round(humidMax)+' consecutive minutes after recovery.':'';
     const recovered=recovery!==null&&recovery<=M.recoveryMinutes;
     const comfortReason=min<floor-1e-6?'Predicted temperature falls below 65°F.':comfortProblem?.reason||(!recovered?'Does not reach acceptable temperature within 30 minutes.':'');
     const comfortEligible=!comfortReason,moistureEligible=!moistureReason,equipmentEligible=!unsafe.length;
@@ -1293,7 +1294,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     return{start,end,trace,segments,unsafe,maxFan,freezeRisk,isOvernight,warnings:[...warnings],score:score+draftScore,draftScore,hoursOut,didCool,didHeat,heatMinutes,coolMinutes,
         finalIndoor,capacityCool,capacityHeat,heatingFloorLimited,config,comfortLow:band.low,comfortHigh:band.high,floorCompliant:min>=floor-1e-6,
         endInBand:finalIndoor>=floor&&finalIndoor<=band.high,comfortEligible,comfortReason,moistureEligible,moistureReason,equipmentEligible,suitable,
-        moisture:{condensedLb,maxRH,minRH,minMargin,maxSurfaceRH,surfaceMax,humidMax,estimated:options.initialZones?false:state.indoorRH==null},surfaceWarning,surfaceConcern,comfortProblem,recoveryMinutes:recovery,finalZones:{temperature:t.slice(),water:w.slice()},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
+        moisture:{condensedLb,maxRH,minRH,minMargin,maxSurfaceRH,surfaceMax,humidMax,estimated:options.initialZones?false:state.indoorRH==null},surfaceWarning,surfaceConcern,condensationConcern,comfortProblem,recoveryMinutes:recovery,finalZones:{temperature:t.slice(),water:w.slice()},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
 }
 function profileCandidate(type,sim,setpoints){
     const first=sim.unsafe[0],values=sim.trace.map(p=>p.indoor),min=sim.isOvernight?Math.min(...values):Math.min(...sim.trace.map(p=>Math.min(p.bedroom,p.midCoach))),max=Math.max(...values);
@@ -1356,7 +1357,7 @@ function assessModes(envelope,overnight,sp,start,context={}){
 function moistureSummary(c){
     if(!c?.moisture)return humidityDescription();
     const range=c.moistureRange||{min:c.moisture.minRH,max:c.moisture.maxRH};
-    return 'Estimated indoor RH '+Math.floor(range.min)+'–'+Math.min(100,Math.ceil(range.max))+'% across tested conditions. '+(c.moistureReason||'Condensation and damp-surface screens '+(c.scenarioResults?.some(s=>!s.moistureEligible)?'fail in a tested scenario.':'pass.'));
+    return 'Estimated indoor RH '+Math.floor(range.min)+'–'+Math.min(100,Math.ceil(range.max))+'% across tested conditions. '+(c.moistureReason||'Room-air humidity checks '+(c.scenarioResults?.some(s=>!s.moistureEligible)?'fail in a tested scenario.':'pass.'));
 }
 function methodologyProblem(c){
     if(!c.equipmentEligible)return temperatureIssueLegacy(c,c.setpoints,c.simulationEnd);
@@ -1504,7 +1505,7 @@ function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=nul
     const first=phases[0].setup;
     const activeRows=resume?split.filter(row=>row.from>=resume.time):split;
     const sim=zoneProfile(first.type,envelope,bounds.sleep,first.setpoints,C.metaAwake,request.initial.temperature[0],{
-        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,surfaceAdvisory:true,capture,carry:resume?.carry});
+        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry});
     if(resume){sim.trace=[...resume.prefix.trace.filter(p=>+p.time<resume.time),...sim.trace];sim.segments=[...resume.prefix.segments.filter(s=>s.endMs<=resume.time),...sim.segments];}
     const atBedtime=bounds.bedtime?sim.trace.find(p=>+p.time===+bounds.bedtime):null;
     const last=phases.at(-1).setup;
@@ -1748,9 +1749,11 @@ function planActionText(phase,request){
 function traceRange(plan,from,to,field){const v=plan.trials.flatMap(t=>t.trace.filter(p=>+p.time>=from&&+p.time<=to).map(p=>p[field]));return v.length?Math.min(...v).toFixed(1)+'–'+Math.max(...v).toFixed(1):'—';}
 function readingAt(plan,time,field){const values=plan.trials.map(t=>t.trace.find(p=>+p.time===time)?.[field]).filter(Number.isFinite);return values.length?Math.min(...values).toFixed(1)+'–'+Math.max(...values).toFixed(1):'—';}
 function surfaceOutlook(trials){
-    const concerns=trials.map(t=>t.surfaceConcern).filter(Boolean);if(!concerns.length)return '';
-    const first=new Date(Math.min(...concerns.map(c=>+c.time))),air=Math.max(...trials.map(t=>t.moisture.maxRH)),surface=Math.max(...trials.map(t=>t.moisture.maxSurfaceRH));
-    return '<div class="mitigation-box severity-amber"><strong>Check for damp windows</strong>Estimated surface humidity is elevated for 30 minutes by '+escapeHTML(formatTime(first))+'. Predicted room-air RH peaks at '+Math.ceil(air)+'%; estimated cold-surface RH reaches '+Math.ceil(surface)+'%. Surface RH is not a room humidity reading. '+(state.dehumidifierEnabled?'The dehumidifier at its 50% setting is included. ':'')+'Check indoor readings and windows when reassessing the plan.</div>';
+    const condensation=trials.map(t=>t.condensationConcern).filter(Boolean),surface=trials.map(t=>t.surfaceConcern).filter(Boolean);
+    const concerns=[...condensation,...surface].sort((a,b)=>+a.time-+b.time);if(!concerns.length)return '';
+    const earliest=concerns[0],first=new Date(earliest.time),air=Math.min(100,Math.ceil(Math.max(...trials.map(t=>t.moisture.maxRH))));
+    const reason=earliest.source==='air'?'Modeled indoor air reaches saturation':earliest.source==='surface'?'The estimated surface temperature approaches or falls below the indoor dew point':'Estimated cold-surface humidity stays elevated for 30 minutes';
+    return '<div class="mitigation-box severity-amber"><strong>Possible window moisture — advisory only</strong>'+reason+' by '+escapeHTML(formatTime(first))+'. Surface temperatures are estimates, not window measurements. This warning does not change HVAC selection or timing. Predicted room-air RH peaks at '+air+'%. Surface RH is not a room humidity reading. '+(state.dehumidifierEnabled?'The dehumidifier at its 50% setting is included. ':'')+'Check windows for visible dampness and wipe away moisture. This estimate does not predict mold growth or equipment damage.</div>';
 }
 function currentOutlook(current,bounds){
     const p=current.outlook;if(!p)return '<p class="hint">A complete overnight setup has not been verified. Recalculate at the review time below.</p>';
@@ -1782,6 +1785,7 @@ function renderPlan(result){
         html+=currentOutlook(current,bounds);
     }else if(!safe){
         html+='<div class="result-primary">No suitable current setup</div><p class="hint">'+escapeHTML(p.reason)+'</p><p class="hint">No current setup passes the checks. Refresh both readings and review the operating or moisture concerns below.</p>';
+        html+=surfaceOutlook(p.trials);
     }else{
         html+='<div class="result-primary">'+escapeHTML(setupName(initial.setup))+'</div>';
         if(p.natural){const text=p.natural.minutes===0?'Both zones are already in the acceptable daytime comfort band.':'Natural recovery is expected to reach the acceptable daytime comfort band within '+p.natural.minutes+' minutes, by approximately '+formatTime(p.natural.time)+'.';
@@ -1797,7 +1801,7 @@ function renderPlan(result){
                 html+='<div class="mitigation-box severity-amber"><strong>Bedtime target needs more time</strong>'+escapeHTML(p.reason)+(next?' Nominal forecast first reaches the bedtime range at '+formatTime(next.time)+'.':' The bedtime target is not reached in the modeled period.')+'</div>';}
         }
         html+=step('Overnight plan',bounds.bedtime?'From 10 PM':'Overnight in progress',planActionText({time:sleepFrom,setup:p.nightSetup},request));
-        html+='<div class="plan-metrics">Bedroom: '+traceRange(p,sleepFrom,+bounds.end,'bedroom')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'rh')+'% RH.<br>Front: '+traceRange(p,sleepFrom,+bounds.end,'midCoach')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'midRH')+'% RH.<br>Temperature, moisture and equipment checks pass in all three tested scenarios.</div>';
+        html+='<div class="plan-metrics">Bedroom: '+traceRange(p,sleepFrom,+bounds.end,'bedroom')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'rh')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'dewPoint')+'°F.<br>Front: '+traceRange(p,sleepFrom,+bounds.end,'midCoach')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'midRH')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'midDewPoint')+'°F.<br>Temperature, moisture and equipment checks pass in all three tested scenarios.</div>';
         if(p.autoExplanation)html+='<p class="hint">'+escapeHTML(p.autoExplanation)+'</p>';
         html+=surfaceOutlook(p.trials);
         if(request.occupancy!=='staying')html+='<p class="hint">Away '+formatTime(request.departure)+'–'+formatTime(request.returnTime)+': no occupant heat or moisture. No away setback. No physical setup changes while absent.</p>';

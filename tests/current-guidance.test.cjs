@@ -22,13 +22,13 @@ test('fixed roof fan mixes air and moisture between compressor calls; Auto cycle
  assert.equal(a.run("circulationFraction('ac','Auto','ac',.25)"),.25);
  assert.equal(a.run("circulationFraction('furnace','Low','off',0)"),0);
 });
-test('surface RH alone is advisory in the unified planner; condensation remains disqualifying',()=>{
+test('surface and condensation warnings cannot set a room-air humidity rejection',()=>{
  const a=setup();a.run(`ph=[{time:+r.start,setup:planSetup('ac',false)},{time:Date.parse('2026-10-24T02:30Z'),setup:planSetup('ac',true)}];
  p=simulatePlan(ph,e,r,AIR_SCENARIOS[2],null,null,false,true);`);
  assert.ok(a.run('p.surfaceConcern'));assert.match(a.run('p.surfaceWarning'),/surface RH, not room-air RH/);
  assert.equal(a.run('p.moistureEligible'),true);assert.equal(a.run('p.moisture.condensedLb'),0);
  a.run(`r.initial.rh=[98,98];wet=simulatePlan(ph,e,r)`);
- assert.equal(a.run('wet.suitable'),false);assert.match(a.run('wet.moistureReason'),/Condensation/);
+ assert.ok(a.run('wet.condensationConcern'));assert.doesNotMatch(a.run('wet.moistureReason'),/Condensation|surface/i);
 });
 test('rejected plans are ranked by acceptable duration before comparing truncated scores',()=>{
  const a=setup();a.run(`short={suitable:false,ready:false,score:0,type:'passive',trials:[{failureTime:100,trace:[]}]};
@@ -54,10 +54,8 @@ test('morning current guidance still favors verified natural recovery over activ
  assert.ok(['passive','ac'].includes(a.run('c.type')));assert.ok(a.run('c.natural.minutes')>0);assert.ok(a.run('c.natural.minutes')<=30);
  assert.equal(a.run("c.trials.every(t=>t.suitable&&!t.segments.some(s=>s.operation==='hp'||s.operation==='furnace'))"),true);
 });
-test('current guidance cannot bypass an initially cold coach or a condensation failure',()=>{
- for(const change of ['r.initial.temperature=[64,72]','r.initial.rh=[98,98]']){
-  const a=setup();a.run(`${change};c=currentRecommendation(e,r,[])`);assert.equal(a.run('c'),null,change);
- }
+test('current guidance cannot bypass an initially cold coach',()=>{
+ const a=setup();a.run('r.initial.temperature=[64,72];c=currentRecommendation(e,r,[])');assert.equal(a.run('c'),null);
 });
 test('currently-away guidance preserves the verified physical arrangement and available controls',()=>{
  const a=setup();a.run(`r.occupancy='away';r.remote=true;r.departure=r.start;r.returnTime=new Date(+r.start+3600000);

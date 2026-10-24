@@ -84,9 +84,9 @@ test('bedtime eligibility is separate from sustained overnight comfort and repor
  assert.equal(a.run('p.ready'),false);assert.match(a.run('p.bedtimeReason'),/10 PM/);
  assert.equal(a.run('p.atBedtime.time.toISOString()'),'2026-10-24T03:00:00.000Z');
 });
-test('severe initial condensation cannot be erased by a setup change',()=>{
+test('initial condensation warning persists through a setup change without rejecting the plan',()=>{
  const a=scenario();a.run(`r.initial.rh=[90,90];p=evaluatePlan([{time:+r.start,setup:planSetup('furnace',false)},{time:+r.start+60000,setup:planSetup('furnace',true)}],e,r,planRows(e,r))`);
- assert.equal(a.run('p.suitable'),false);assert.match(a.run('p.reason'),/Condensation/);
+ assert.ok(a.run('p.trials[0].condensationConcern'));assert.doesNotMatch(a.run('p.reason'),/Condensation|surface/i);
 });
 test('known location supplies solar elevation; no latitude invents dawn precision',()=>{
  const a=scenario('2026-10-23T12:30Z');a.run(`e.lat=41.3;e.lon=-94;e.cloud=1;e.points[0].cloud=1;rows=planRows(e,r)`);
