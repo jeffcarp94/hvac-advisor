@@ -36,11 +36,11 @@ test('away occupancy removes respiration and metabolism but retains appliance he
  assert.ok(a.run('absent.finalZones.water[0]')<a.run('present.finalZones.water[0]'));
  assert.equal(a.run('dehumidifierHeat()'),0);assert.equal(a.run('dehumidifierHeat(1)'),640);
 });
-test('unattended daytime applies the conservative heat pump rule',()=>{
+test('attended and away heating share the documented equipment minimum',()=>{
  const a=scenario('2026-10-23T13:00Z');a.run(`state.temp=45;state.rh=95;r.initial={temperature:[68,68],rh:[25,25]};e=makeEnvelope(r.start,planBounds(r.start).end,'Test',300000);ph=[{time:+r.start,setup:planSetup('hp',false)}];rows=planRows(e,r).filter(row=>row.to<=+r.start+3600000);present=simulatePlan(ph,e,r,AIR_SCENARIOS[0],rows);
  r.occupancy='leaving';r.departure=r.start;r.returnTime=new Date(+r.start+3600000);awayRows=planRows(e,r).filter(row=>row.to<=+r.start+3600000);away=simulatePlan(ph,e,r,AIR_SCENARIOS[0],awayRows)`);
- assert.equal(a.run('present.equipmentEligible'),true);assert.equal(a.run('away.equipmentEligible'),false);
- assert.equal(a.run('away.unsafe[0].minimum'),50);
+ assert.equal(a.run('present.equipmentEligible'),true);assert.equal(a.run('away.equipmentEligible'),true);
+ assert.equal(a.run('heatPumpPolicy(29,95,true).safe'),false);
 });
 test('away transitions require available controls, with a departure instant exception',()=>{
  const a=scenario();a.run(`r.occupancy='leaving';r.departure=new Date(+r.start+600000);r.returnTime=new Date(+r.start+7200000);off=planSetup('passive',false);cool=planSetup('ac',false);vent=planSetup('maxxfan',false,{fanZone:0,gaps:[0,0,0,4,0,0]});`);

@@ -1,5 +1,7 @@
 # HVAC Advisor
 
+The preparation planner now checks missed five-minute intervals and can cool before selecting a heating-only overnight setup. Overnight plans require no manual changes or automatic furnace backup. Heat-pump operation follows the documented 30°F changeover, with explicit defrost pauses and a documented estimated capacity decline; humidity no longer invents a 45–50°F equipment lockout. AUTO bedtime readiness distinguishes normal cycling after reaching the cooling target from an actual preparation miss. See model-assumptions.md for equations and limitations.
+
 The v6.0.1 humidity repair treats the small coach as one mixed moisture volume, per the owner's instruction. Paired temperature/RH inputs initialize the prediction; both temperature forecasts remain, with one predicted dew point and RH derived at each local temperature. A front/rear moisture bottleneck cannot disqualify equipment.
 
 The established 20-pint/day dehumidifier rating is reproduced at 65°F/60% RH using the published NREL generic capacity/energy-factor curves, with separate finite-capacity humidistat runtime and actual operating heat. Occupant sensible and latent loads use a consistent activity budget. Roof-AC latent availability counts its single evaporator airflow once. These assumptions and primary sources are documented in [model-assumptions.md](model-assumptions.md). Condensation remains advisory-only; existing comfort and equipment policies remain enforced.

@@ -7,40 +7,24 @@ function scenario({temp=80,rh=30,wind=0,cloud=0,startIndoor=72,hours=3}={}){
     return a;
 }
 
-test('heat-pump app minimum is inclusive at 41°F for both policy contexts',()=>{
-    const a=app();
-    for(const overnight of [false,true]){
-        assert.equal(a.run(`heatPumpPolicy(41,5,${overnight}).safe`),true);
-        assert.equal(a.run(`heatPumpPolicy(40.99,5,${overnight}).safe`),false);
-    }
+test('documented heat-pump minimum is 30°F with no humidity-based lockout',()=>{
+ const a=app();for(const overnight of [false,true])for(const rh of [5,50,95]){
+  assert.equal(a.run(`heatPumpPolicy(30,${rh},${overnight}).safe`),true);
+  assert.equal(a.run(`heatPumpPolicy(29.99,${rh},${overnight}).safe`),false);
+  assert.equal(a.run(`heatPumpPolicy(44,${rh},${overnight}).safe`),true);
+ }
+ assert.equal(a.run('heatPumpMinimum(45)'),30);
+ assert.match(a.run('heatPumpPolicy(40,95,true).warning'),/Defrost/);
 });
-
-test('unattended dew-point gates change at exactly 35°F and 38°F',()=>{
-    const a=app();
-    for(const [dp,expected] of [[34.99,41],[35,45],[37.99,45],[38,50],[45,50]])assert.equal(a.run(`heatPumpMinimum(${dp})`),expected);
-    a.run(`rhAtDP=(t,dp)=>{const c=(t-32)*5/9,d=(dp-32)*5/9;return 100*Math.exp(17.27*d/(237.3+d)-17.27*c/(237.3+c));}`);
-    for(const [temp,dp] of [[45,35],[50,38]]){
-        assert.equal(a.run(`heatPumpPolicy(${temp},rhAtDP(${temp},${dp}),true).safe`),true);
-        assert.equal(a.run(`heatPumpPolicy(${temp}-.01,rhAtDP(${temp}-.01,${dp}),true).safe`),false);
-    }
+test('heat-pump heating estimate falls with outdoor temperature independently of operating permission',()=>{
+ const a=app();assert.equal(a.run('heatPumpCapacity(50)'),15000);assert.equal(a.run('heatPumpCapacity(41)'),13000);
+ assert.ok(a.run('heatPumpCapacity(30)')<a.run('heatPumpCapacity(41)'));assert.equal(a.run('heatPumpCapacity(29)'),0);
 });
-
-test('humid 44°F heating passes monitored policy but fails unattended policy for HP and AUTO',()=>{
-    const a=scenario({temp:44,rh:95,startIndoor:60});
-    for(const mode of ['hp','auto']){
-        assert.equal(a.run(`simulateThermalProfile('${mode}',envelope,false,sp,1400,60).unsafe.length`),0);
-        assert.ok(a.run(`simulateThermalProfile('${mode}',envelope,true,sp,1000,60).unsafe.length`)>0);
-    }
-    assert.match(a.run('heatPumpPolicy(44,95,false).warning'),/uncertain/);
-    assert.doesNotMatch(a.run('heatPumpPolicy(44,95,true).reason'),/faster than|fail to heat|safe/);
-});
-
-test('an idle heat pump is not rejected, but AUTO cannot invent furnace fallback below 41°F',()=>{
-    const a=scenario({temp:40,startIndoor:80});
-    assert.equal(a.run("simulateThermalProfile('hp',envelope,true,sp,1000,80).segments[0].operation"),'off');
-    a.run("s=simulateThermalProfile('auto',envelope,true,sp,1000,50)");
-    assert.ok(a.run('s.unsafe.length')>0);
-    assert.equal(a.run("s.segments.some(s=>s.operation==='furnace')"),false);
+test('AUTO cannot invent furnace fallback below the documented changeover',()=>{
+ const a=scenario({temp:29,startIndoor:80});
+ assert.equal(a.run("simulateThermalProfile('hp',envelope,true,sp,1000,80).segments[0].operation"),'off');
+ a.run("s=simulateThermalProfile('auto',envelope,true,sp,1000,50)");assert.ok(a.run('s.unsafe.length')>0);
+ assert.equal(a.run("s.segments.some(s=>s.operation==='furnace')"),false);
 });
 
 test('CCC2 Auto fan uses Low at 4°F, Medium at 5–7°F, High at 8°F',()=>{

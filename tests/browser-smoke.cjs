@@ -135,6 +135,23 @@ function weather(url){
   assert.doesNotMatch(advisoryText,/Condensation margin fails|No suitable current setup/);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
   await page.screenshot({path:path.join(screens,'condensation-advisory-plan.png'),fullPage:true});
+  // Three-stage preparation must render every action in the actual Worker result.
+  const preparationJob=require('./fixtures/winterset-planning-regressions.json')[1];
+  const preparationResult=await page.evaluate(async job=>{
+   const start=new Date(job.start),end=new Date(job.end);
+   const request={start,reading:start,initial:{temperature:[72,72],rh:[54,52]},occupancy:'staying',remote:false};
+   const points=job.points.map(p=>({...p,time:new Date(p.time),tOut:Math.round(p.tOut),rh:Math.round(p.rh)}));
+   const envelope={windowStart:start,windowEnd:end,timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
+   const result=await calculateInWorker(request,envelope),p=result.winner;
+   const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
+   return {suitable:p.suitable,ready:p.ready,phases:p.phases.length,night:p.nightType,full:p.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+end)};
+  },preparationJob);
+  assert.deepEqual(preparationResult,{suitable:true,ready:true,phases:3,night:'hp',full:true});
+  const preparationText=await page.locator('#results').innerText();
+  assert.match(preparationText,/Select COOL at 68°F/);assert.match(preparationText,/Select HEAT PUMP at 66°F/);
+  assert.match(preparationText,/without manual changes or automatic furnace backup/);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
+  await page.screenshot({path:path.join(screens,'cooling-preparation-heat-pump.png'),fullPage:true});
   assert.deepEqual(errors,[]);await context.close();
   // Upgrade an actual v5.0 cache under the GitHub Pages project scope.
   for(const version of ['v5','v6']){
