@@ -100,7 +100,7 @@ function weather(url){
   await page.clock.setFixedTime(new Date('2026-10-22T04:30Z'));
   await page.evaluate(()=>{step('temp',-18);step('rh',-45);step('wind',-3);state.cloud=0;freshReadings();});
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:180000});
-  assert.match(await page.locator('#setpointDisplay').innerText(),/Day: heat 70°F \/ cool 72°F/);
+  assert.match(await page.locator('#setpointDisplay').innerText(),/Thermostat: day heat\/cool 70\/72°F/);
   assert.equal(await page.evaluate(()=>!lastPlan.winner.suitable||lastPlan.winner.trials.every(t=>t.trace.every(p=>Math.min(p.bedroom,p.midCoach)>=65-1e-6))),true,'accepted plans enforce the temperature floor at every point');
   const text=await page.locator('#results').innerText();assert.match(text,/Next action|No suitable current setup/i);assert.doesNotMatch(text,/Preparing for Sleep from 9|Not chosen|weighted/);
   await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-evening-plan.png'),fullPage:true});
