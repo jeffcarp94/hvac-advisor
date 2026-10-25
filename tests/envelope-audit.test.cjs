@@ -72,3 +72,15 @@ test('sol-air gain follows exposed conductance, excludes the floor, and preserve
  close(a.run('envelopeAllocation().total'),a.run('fixedUA'));
  close(a.run('solarPeakGains()[0]+solarPeakGains()[1]'),a.run('s[0]+s[1]-675'));
 });
+
+test('timing screening never promotes a nominal-only pass to an all-case qualification',()=>{
+ const a=app();a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;
+ r={start:new Date('2026-10-24T03:00Z'),initial:{temperature:[67,67],rh:[30,30]},occupancy:'staying',remote:false};
+ e={windowStart:r.start,windowEnd:new Date(+r.start+60*60000),wind:0,cloud:0,points:[{time:r.start,tOut:67,rh:30,wind:0,cloud:0}]};
+ rows=planRows(e,r).filter(row=>row.to<=+e.windowEnd);ph=[{time:+r.start,setup:withSetting(planSetup('ac',true,null,'Low'),67)}];p=screenPlan(ph,e,r,rows);`);
+ assert.equal(a.run('p.suitable&&p.ready'),true);assert.equal(a.run('p.trials.length'),9);
+ a.run('AIR_SCENARIOS[1].tempOffset=80;p=screenPlan(ph,e,r,rows)');
+ assert.equal(a.run('p.suitable'),false);assert.equal(a.run('p.trials.length'),9);
+ a.run('r.initial.temperature=[64,64];p=screenPlan(ph,e,r,rows)');
+ assert.equal(a.run('p.suitable'),false);assert.equal(a.run('p.trials.length'),1);
+});

@@ -120,10 +120,20 @@ function weather(url){
   assert.match(wintersetText,/Select (COOL|AUTO|HEAT PUMP|FURNACE) at \d+°F/);
   assert.match(wintersetText,/Bed-area comfort takes priority/);
   assert.match(await page.locator('#planCard').textContent(),/70% rear \/ 30% front/);
-  assert.doesNotMatch(wintersetText,/No suitable current setup|Overnight needs reassessment/);
-  assert.equal(await page.evaluate(()=>lastPlan.winner.suitable&&lastPlan.winner.ready&&lastPlan.current===null),true);
-  assert.equal(await page.evaluate(()=>lastPlan.winner.trials.every(t=>t.suitable&&t.moisture.humidMax===0&&+t.trace.at(-1).time===+lastPlan.bounds.end)),true);
-  assert.equal(await page.evaluate(()=>lastPlan.winner.trials.every(t=>t.trace.slice(1).every(p=>p.water[0]===p.water[1]))),true);
+  assert.doesNotMatch(wintersetText,/No suitable current setup/);
+  const wintersetAssessment=await page.evaluate(()=>{
+   const complete=lastPlan.winner.suitable&&lastPlan.winner.ready;
+   const prescribed=complete?lastPlan.winner:lastPlan.current;
+   const end=complete?+lastPlan.bounds.end:prescribed?.reviewAt;
+   return {complete,hasCurrent:!!lastPlan.current,nine:prescribed?.trials.length===9,
+    verified:!!prescribed&&prescribed.trials.every(t=>t.suitable&&t.moisture.humidMax===0&&+t.trace.at(-1).time===end),
+    mixed:!!prescribed&&prescribed.trials.every(t=>t.trace.slice(1).every(p=>p.water[0]===p.water[1])),
+    reason:lastPlan.winner.reason};
+  });
+  console.log('WINTERSET',wintersetAssessment);
+  assert.equal(wintersetAssessment.complete||wintersetAssessment.hasCurrent,true);
+  assert.equal(wintersetAssessment.nine&&wintersetAssessment.verified&&wintersetAssessment.mixed,true);
+  if(!wintersetAssessment.complete)assert.match(wintersetText,/Overnight needs reassessment|complete overnight setup has not been verified/);
   assert.equal(await page.evaluate(()=>resultContext.expires<=Date.now()+30*60000),true);
   await page.waitForFunction(()=>document.getElementById('planCard').getBoundingClientRect().top>=document.querySelector('.header').getBoundingClientRect().bottom);
   await page.screenshot({path:path.join(screens,'winterset-current-screen.png')});

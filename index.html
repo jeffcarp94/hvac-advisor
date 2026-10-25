@@ -1818,6 +1818,13 @@ function evaluatePlan(phases,envelope,request,rows){
     });
     return planFromTrials(phases,trials,envelope,request);
 }
+function screenPlan(phases,envelope,request,rows){
+    // A failed nominal trajectory cannot qualify across all cases. Screen timing
+    // proposals first; every accepted proposal still receives full verification.
+    const nominal=simulatePlan(phases,envelope,request,AIR_SCENARIOS[0],rows);
+    return nominal.suitable&&nominal.ready?evaluatePlan(phases,envelope,request,rows):
+        planFromTrials(phases,[nominal],envelope,request);
+}
 function planFromTrials(phases,trials,envelope,request){
     const failed=trials.find(t=>!t.suitable),late=trials.find(t=>!t.ready);
     const suitable=!failed,ready=!late,first=phases[0].setup,last=phases.at(-1).setup;
@@ -2073,7 +2080,7 @@ function* searchPlans(envelope,request){
     if(request.occupancy==='leaving'||request.occupancy==='away')return yield* searchDeparturePlans(envelope,request);
     const bounds=planBounds(request.start,request),rows=planRows(envelope,request),vents=shortlistVents(envelope,request,bounds.sleep);
     const nightVents=bounds.bedtime?shortlistVents(envelope,request,true):vents;
-    let days=planSetups(bounds.sleep,vents),nights=planSetups(true,nightVents),results=[];
+    let days=planSetups(bounds.sleep,vents),nights=planSetups(true,nightVents),results=[],daytimeCovered=false;
     if(bounds.bedtime){
         const nightSeeds=nights.slice();
         // Learn controls before searching transition times. An unsuitable default
@@ -2088,6 +2095,9 @@ function* searchPlans(envelope,request){
                 return optimizePhase(original,0,envelope,request,rows.filter(r=>r.to<=+bounds.bedtime),+request.start,+bounds.bedtime,changed=>{const p=stagePlanRaw([],changed,+request.start,+bounds.bedtime,envelope,request,rows);p.ready=true;return p;});
             }).sort(comparePlans)[0];
         });
+        // Cache eviction must not erase a verified daytime result and trigger
+        // an unnecessary exhaustive daytime-bridge search.
+        daytimeCovered=daytime.some(p=>p.suitable);
         days=daytime.map(p=>p.setup);
         const prefix=daytime.slice().sort(comparePlans)[0].phases;
         nights=nights.map(setup=>{
@@ -2131,7 +2141,7 @@ function* searchPlans(envelope,request){
                 if(!setupChangeAllowed(day,night,time,request))return null;
                 const phases=time===+request.start?[{time,setup:night}]:[{time:+request.start,setup:day},{time,setup:night}];
                 if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))return null;
-                let plan=evaluatePlan(phases,envelope,request,rows);
+                let plan=screenPlan(phases,envelope,request,rows);
                 if(plan.trials.some(t=>!t.equipmentEligible))plan=repairPlanFans(plan,envelope,request,rows);
                 if(!closest||comparePlans(plan,closest)<0)closest=plan;
                 return plan;
@@ -2170,7 +2180,7 @@ function* searchPlans(envelope,request){
                         const phases=time===+request.start?[{time,setup:cool},{time:+bounds.bedtime,setup:night}]:
                             [{time:+request.start,setup:day},{time,setup:cool},{time:+bounds.bedtime,setup:night}];
                         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))continue;
-                        const plan=evaluatePlan(phases,envelope,request,rows);
+                        const plan=screenPlan(phases,envelope,request,rows);
                         if(!closest||comparePlans(plan,closest)<0)closest=plan;
                         if(plan.suitable&&plan.ready){found=plan;break;}yield{searching:time};
                     }
@@ -2184,10 +2194,6 @@ function* searchPlans(envelope,request){
     // A single daytime mode can be insufficient even when a manual change is
     // available (e.g. furnace on a cold morning, COOL later). Try an explicit
     // daytime handoff rather than treating that feasible sequence as impossible.
-    const daytimeCovered=bounds.bedtime&&days.some(day=>AIR_SCENARIOS.every(s=>{
-        const prefix=envelope.planCache.get(day.key+'|'+s.name);
-        return prefix&&+prefix.trace.at(-1).time>=+bounds.bedtime&&(prefix.failureTime==null||prefix.failureTime>=+bounds.bedtime);
-    }));
     if(bounds.bedtime&&!daytimeCovered&&!results.some(p=>p.suitable&&p.ready)){
         for(const day of days){
             if(day.type==='maxxfan')continue;
@@ -2207,7 +2213,7 @@ function* searchPlans(envelope,request){
                     for(let time=+bounds.bedtime;time>handoff;time-=30*60000){
                         if(!setupChangeAllowed(bridge,night,time,request))continue;
                         const phases=[{time:+request.start,setup:day},{time:handoff,setup:bridge},{time,setup:night}];
-                        let p=evaluatePlan(phases,envelope,request,rows);
+                        let p=screenPlan(phases,envelope,request,rows);
                         if(p.trials.some(t=>!t.equipmentEligible))p=repairPlanFans(p,envelope,request,rows);
                         if(p.suitable&&p.ready){recovered=p;break;}
                         const earliest=Math.min(...p.trials.map(t=>t.failureTime??Infinity));if(earliest<time&&earliest<=handoff)break;
@@ -2220,11 +2226,13 @@ function* searchPlans(envelope,request){
     }
     const settingsGroups=new Map();
     for(const p of results.slice().sort(comparePlans)){const key=p.type+'|'+p.nightType;if(!settingsGroups.has(key))settingsGroups.set(key,p);}
-    results=[...settingsGroups.values()].map(p=>optimizeSequence(p,envelope,request,rows));
+    // Restore all cases for retained results, including rejected diagnostic
+    // plans, before ranking and presenting them.
+    results=[...settingsGroups.values()].map(p=>optimizeSequence(evaluatePlan(p.phases,envelope,request,rows),envelope,request,rows));
     annotateAutoPlans(results);
     results.sort(comparePlans);
     if(!results.length)throw new Error('No executable setup can be evaluated with the entered physical arrangement.');
-    const current=results[0].suitable?null:currentRecommendation(envelope,request,results);
+    const current=results[0].suitable&&results[0].ready?null:currentRecommendation(envelope,request,results);
     const result={winner:results[0],plans:results,bounds,envelope,request,current};
     result.comparisons=periodComparisons(result,days,nights,rows);
     return result;
