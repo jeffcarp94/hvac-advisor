@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.4.1 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.5.0 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.4.1</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.5.0</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -229,58 +229,78 @@ const GEOMETRY=(()=>{
         rearBodyFraction:rearFloor/(rearFloor+frontBodyFloor),
         cabExposedArea:2*cabFloor+(cabWidth+2*cabLength)*cabHeight});
 })();
-// Anchor the nominal component conductances to the retained working estimate.
-// Vary cab conduction independently: insulation uncertainty must change total UA.
-// These are effective engineering assumptions, not certified assembly R-values.
-function envelopeAllocation(cabFactor=3){
-    const cabGlass=C.glassArea*C.cabGlassFraction,bodyGlass=C.glassArea-cabGlass;
-    const cabOpaque=Math.max(0,GEOMETRY.cabExposedArea-cabGlass),bodyOpaque=C.shellArea-cabOpaque;
-    const shellUA=C.shellArea/C.rShell,anchorDenominator=bodyOpaque+3*cabOpaque;
+// Manufacturer R-18 shell claim plus explicit, uncalibrated assembly cases.
+// Floor, door and closed roof-opening R-values are engineering assumptions.
+const BODY_CASES=Object.freeze([
+    Object.freeze({id:'nominal',name:'reported shell / working floor',wall:18,roof:18,floor:8,door:5,opening:2}),
+    Object.freeze({id:'reduced',name:'reduced installed insulation',wall:9,roof:9,floor:4,door:2.5,opening:1}),
+    Object.freeze({id:'stronger',name:'reported shell / stronger floor',wall:18,roof:18,floor:18,door:8,opening:3})
+]);
+function bodySurfaces(){
+    const length=(1484-490)*GEOMETRY.ftPerPixel,width=(550-90)*GEOMETRY.ftPerPixel;
+    const cabWidth=(505-155)*GEOMETRY.ftPerPixel,h=GEOMETRY.coachHeight;
+    const floor=GEOMETRY.rearFloor+GEOMETRY.frontBodyFloor;
+    // Estimated 28 x 72-inch door; three 14-inch roof cutouts and an estimated
+    // 18 x 24-inch shower skylight. None of these assembly sizes was measured.
+    const door=28*72/144,opening=3*14*14/144+18*24/144;
+    const wallsGross=2*length*h+width*h+Math.max(0,width*h-cabWidth*GEOMETRY.cabHeight);
+    const glass=C.glassArea*(1-C.cabGlassFraction),wall=wallsGross-glass-door,roof=floor-opening;
+    const rearGlass=glass*.58,rearOpening=opening*.7;
+    const rear={wall:2*(1484-960)*GEOMETRY.ftPerPixel*h+width*h-rearGlass,
+        roof:GEOMETRY.rearFloor-rearOpening,floor:GEOMETRY.rearFloor,door:0,opening:rearOpening,glass:rearGlass};
+    return {wall,roof,floor,door,opening,glass,rear,gross:wallsGross+2*floor};
+}
+function envelopeAllocation(cabFactor=3,bodyCase=BODY_CASES[0]){
+    const areas=bodySurfaces(),parts={},rearParts={};
+    for(const key of ['wall','roof','floor','door','opening']){
+        parts[key]=areas[key]/bodyCase[key];rearParts[key]=areas.rear[key]/bodyCase[key];
+    }
+    const bodyConduction=Object.values(parts).reduce((a,b)=>a+b,0);
+    const cabGlass=C.glassArea*C.cabGlassFraction,bodyGlass=areas.glass;
+    const cabOpaque=Math.max(0,GEOMETRY.cabExposedArea-cabGlass),bodyOpaque=areas.gross-bodyGlass;
     const cabVolume=GEOMETRY.cabFloor*GEOMETRY.cabHeight,bodyVolume=M.volumeFt3.reduce((a,b)=>a+b)-cabVolume;
     const cabLeak=1.08*cabVolume*M.baseACH/60,bodyLeak=1.08*bodyVolume*M.baseACH/60;
-    const bodyConduction=shellUA*bodyOpaque/anchorDenominator-bodyLeak;
-    const cabConduction=(shellUA*3*cabOpaque/anchorDenominator-cabLeak)*cabFactor/3;
-    const cabUA=cabConduction+cabGlass/C.rGlass+cabLeak;
-    const bodyUA=bodyConduction+bodyGlass/C.rGlass+bodyLeak;
-    const rear=bodyUA*GEOMETRY.rearBodyFraction,total=cabUA+bodyUA;
-    return{rear,front:total-rear,cab:cabUA,body:bodyUA,cabOpaque,bodyOpaque,total,
-        bodyConduction,cabConduction,bodyLeak,cabLeak,bodyGlass,cabGlass,
+    // Retained cab assumption is independent of all RV-body component values.
+    const cabConduction=C.cabOpaqueUA*cabFactor/3;
+    const cabUA=cabConduction+cabGlass/C.rGlass+cabLeak,bodyUA=bodyConduction+bodyGlass/C.rGlass+bodyLeak;
+    const rear=Object.values(rearParts).reduce((a,b)=>a+b,0)+areas.rear.glass/C.rGlass+1.08*M.volumeFt3[0]*M.baseACH/60;
+    return{rear,front:bodyUA+cabUA-rear,cab:cabUA,body:bodyUA,cabOpaque,bodyOpaque,total:bodyUA+cabUA,
+        parts,rearParts,areas,bodyCase,bodyConduction,cabConduction,bodyLeak,cabLeak,bodyGlass,cabGlass,
         bodyEffectiveR:bodyOpaque/bodyConduction,cabEffectiveR:cabOpaque/cabConduction};
 }
 function envelopeAudit(){
-    const e=envelopeAllocation(),floor=GEOMETRY.rearFloor+GEOMETRY.frontBodyFloor;
-    const length=(1484-490)*GEOMETRY.ftPerPixel,width=(550-90)*GEOMETRY.ftPerPixel,h=GEOMETRY.coachHeight;
-    const cabWidth=(505-155)*GEOMETRY.ftPerPixel;
-    const planBodyGross=2*floor+2*length*h+width*h+(width*h-cabWidth*GEOMETRY.cabHeight);
-    const planGross=planBodyGross+GEOMETRY.cabExposedArea,assumedGross=C.shellArea+C.glassArea;
-    // R-18 is a historical shell-lining claim. Floor, cab, glazing and leakage
-    // retain baseline assumptions in this optimistic diagnostic, not a plan trial.
-    const floorConduction=floor/e.bodyEffectiveR,wallRoofOpaque=e.bodyOpaque-floor;
-    const lining18UA=e.cab+e.bodyGlass/C.rGlass+e.bodyLeak+floorConduction+wallRoofOpaque/18;
-    return{nominalUA:e.total,lowCabUA:envelopeAllocation(1.5).total,highCabUA:envelopeAllocation(4.5).total,
-        bodyEffectiveR:e.bodyEffectiveR,cabEffectiveR:e.cabEffectiveR,leakUA:e.bodyLeak+e.cabLeak,
-        planGross,assumedGross,areaDifferencePct:100*(assumedGross/planGross-1),lining18UA,
-        lining18ReductionPct:100*(1-lining18UA/e.total),mass:UA_BASE*C.tau};
+    const e=envelopeAllocation(),cases=BODY_CASES.map(b=>envelopeAllocation(3,b));
+    return{nominalUA:e.total,bodyUA:e.body,oldBodyUA:74.8000639518,oldUA:136.5714285714,
+        lowCabUA:envelopeAllocation(1.5).total,highCabUA:envelopeAllocation(4.5).total,
+        bodyCaseUA:cases.map(c=>c.body),bodyEffectiveR:e.bodyEffectiveR,cabEffectiveR:e.cabEffectiveR,
+        leakUA:e.bodyLeak+e.cabLeak,planGross:e.areas.gross+GEOMETRY.cabExposedArea,mass:C.thermalMass};
 }
 function envelopeAuditText(){
-    const a=envelopeAudit();
-    return '<p class="hint">Envelope estimate: '+a.nominalUA.toFixed(1)+' BTU/hr per °F, before wind. Cab-conduction sensitivity: '+a.lowCabUA.toFixed(1)+'–'+a.highCabUA.toFixed(1)+'. '+
-        'The historical R-18 shell-lining claim is not a whole-RV assembly rating. Applying it to the RV walls/roof only would give '+a.lining18UA.toFixed(1)+' with the same floor, cab, glass and leakage assumptions. '+
-        'That is an optimistic comparison, not a calibrated prediction or a separate comfort test. Magneshades receive no insulation credit.</p>';
+    const a=envelopeAudit(),cases=a.bodyCaseUA;
+    return '<p class="hint">Construction-based envelope: closed-coach UA '+a.nominalUA.toFixed(1)+' BTU/(hr·°F), before wind. '+
+        'The RV body is calculated separately from walls, roof, floor, entry door, roof openings and glass. The working shell case uses the reported R-18 claim; floor R-8 is an engineering assumption, not a verified specification. '+
+        'Body UA spans '+Math.min(...cases).toFixed(1)+'–'+Math.max(...cases).toFixed(1)+' with the cab held fixed. All nine weather/airflow and body-insulation combinations are tested. '+
+        'Assembly performance, floor layers and leakage remain uncertain; these are sensitivity cases, not calibrated accuracy bounds. Magneshades receive no insulation credit.</p>';
 }
-function solarAllocation(total,cabFactor=3){
-    const e=envelopeAllocation(cabFactor),nominal=envelopeAllocation();
-    const shell=C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac;
-    const cabGlass=C.cabGlassFraction*C.glassArea*C.cabGlassSHGC*C.solarPeak*C.glassSunFrac;
-    const bodyGlass=(1-C.cabGlassFraction)*C.glassArea*C.coachDayGlassSHGC*C.solarPeak*C.glassSunFrac;
-    const denominator=shell+cabGlass+bodyGlass;if(!denominator)return[0,0];
-    // Common effective sol-air exposure; poor insulation transmits more opaque
-    // solar heat. Retain nominal total gain and existing glazing/shade estimates.
-    const conductance=nominal.bodyConduction+nominal.cabConduction;
-    const body=bodyGlass+shell*e.bodyConduction/conductance;
-    const cab=cabGlass+shell*e.cabConduction/conductance;
-    const rear=body*GEOMETRY.rearBodyFraction;
-    return[total*rear/denominator,total*(body+cab-rear)/denominator];
+function solarPeakGains(cabFactor=3,bodyCase=BODY_CASES[0]){
+    const e=envelopeAllocation(cabFactor,bodyCase),rise=C.solarAbsorptance*C.solarPeak/C.exteriorFilm;
+    const exposure={wall:C.shellSunFrac,roof:1,floor:0,door:C.shellSunFrac,opening:1};
+    let body=0,rear=0;
+    for(const key of Object.keys(exposure)){
+        body+=e.parts[key]*rise*exposure[key];rear+=e.rearParts[key]*rise*exposure[key];
+    }
+    // Cab opaque conductance is distributed by area; the underside has no
+    // direct solar exposure. Mean side exposure is lower than roof exposure.
+    const cabRoof=GEOMETRY.cabFloor,cabSides=Math.max(0,e.cabOpaque-2*cabRoof);
+    const cab=e.cabConduction*(cabRoof+cabSides*C.shellSunFrac)/e.cabOpaque*rise;
+    const bodyGlass=e.bodyGlass*C.coachDayGlassSHGC*C.solarPeak*C.glassSunFrac;
+    const cabGlass=e.cabGlass*C.cabGlassSHGC*C.solarPeak*C.glassSunFrac;
+    rear+=bodyGlass*.58;
+    return[rear,body+cab+bodyGlass+cabGlass-rear];
+}
+function solarAllocation(total,cabFactor=3,bodyCase=BODY_CASES[0]){
+    const nominal=solarPeakGains(),gains=solarPeakGains(cabFactor,bodyCase),denominator=nominal[0]+nominal[1];
+    return denominator?gains.map(v=>total*v/denominator):[0,0];
 }
 function zoneHeatGains(internal,solar,hvac,operation,solarWeights=null){
     const weights=solarWeights||solarAllocation(1),delivery=operation==='furnace'?[.7,.3]:M.fraction;
@@ -299,15 +319,15 @@ function occupantLoad(sleeping,people=2){
     const latentBTU=moistureLbHr*M.latentBTUPerLb;
     return{moistureLbHr,totalBTU,latentBTU,sensibleBTU:Math.max(0,totalBTU-latentBTU)};
 }
-const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:30,heatPumpFrostThresh:50,metaSleep:occupantLoad(true).sensibleBTU,metaAwake:occupantLoad(false).sensibleBTU,dehumWaste:640,solarPeak:250,
-    shellSHGC:0.035,
+const C={glassArea:45,rGlass:1,cabOpaqueUA:34.1108641985,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:30,heatPumpFrostThresh:50,metaSleep:occupantLoad(true).sensibleBTU,metaAwake:occupantLoad(false).sensibleBTU,dehumWaste:640,solarPeak:250,
+    solarAbsorptance:.5,exteriorFilm:4, // Assumed mean paint absorptance and exterior film BTU/(hr·ft²·°F).
     // Engineering estimates for glass + deployed shade, not certified product ratings.
     // Cab share uses dimensioned Transit accessories/photo inventory within the
     // existing total glass area. MCD day screen down whenever solar gain is present;
     // night blackout down after solar gain ends. See model-assumptions.md.
     cabGlassFraction:0.60,cabGlassSHGC:0.20,coachDayGlassSHGC:0.50,
     shellSunFrac:0.50,glassSunFrac:0.50,
-    tau: 2.0, // Still-air baseline; C_eff = UA_BASE * tau stays fixed as UA changes.
+    thermalMass:273.14285714285717, // Retained thermal storage, independent of envelope conductance.
     dayCoolDefault:72,nightCoolDefault:68,dayHeatDefault:70,nightHeatDefault:66,comfortFloor:65,
     warmPenalty:2.0,coldPenalty:1.0,
     maxxFanMinOutdoor:65,  // Existing full-period open-window ventilation preference
@@ -331,7 +351,7 @@ const C={shellArea:641,glassArea:45,rShell:7,rGlass:1,acCapacity:15000,evapCFM:3
     hpCapacityCold:13000,        // Retained working heating estimate at 41°F
     furnaceOutput:15000,         // Suburban NT-20SQ: 19,000 BTU/hr input × 80% efficiency
     tiebreakRange:5};
-const UA_BASE=(C.shellArea/C.rShell)+(C.glassArea/C.rGlass);
+const UA_BASE=envelopeAllocation().total;
 
 
 // Data freshness policies are independent of thermodynamic model constants.
@@ -615,7 +635,7 @@ function solarHourFactor(date,lat,lon){
 function effectiveGlassSHGC(){return C.cabGlassFraction*C.cabGlassSHGC+(1-C.cabGlassFraction)*C.coachDayGlassSHGC;}
 function solarLoad(cf,isDay,dateForSolar,lat,lon){
     if(!isDay) return 0;
-    const peakLoad=C.shellSHGC*C.solarPeak*C.shellArea*C.shellSunFrac+effectiveGlassSHGC()*C.solarPeak*C.glassArea*C.glassSunFrac;
+    const peakLoad=solarPeakGains().reduce((a,b)=>a+b,0);
     const hourFactor=(dateForSolar&&lat!=null&&lon!=null)?solarHourFactor(dateForSolar,lat,lon):1;
     return Math.round(peakLoad*cf*hourFactor);
 }
@@ -717,13 +737,13 @@ function passiveEqAt(tOut,wind,cf,isDay,meta,solarCtx){
 }
 
 // One-zone sensible heat balance. Effective mass is fixed, not wind-dependent.
-// C_eff = UA_BASE * tau_calm, BTU/°F; tau_effective = C_eff / UA_total, hours.
+// Fixed effective thermal storage, BTU/°F; response time = storage / UA_total.
 const THERMAL_STEP_MIN=5;
 const THERMAL_EPS=1e-8;
 function thermalEnvironment(tOut,wind,cloud,isDay,meta,solarCtx){
     const ua=UA_BASE*(1+0.02*wind);
     const gains=meta+dehumidifierHeat()+solarLoad(cloud,isDay,solarCtx?.date,solarCtx?.lat,solarCtx?.lon);
-    return{tOut,ua,gains,mass:UA_BASE*C.tau};
+    return{tOut,ua,gains,mass:C.thermalMass};
 }
 function thermalAdvance(tIn,eq,tau,hours){return eq+(tIn-eq)*Math.exp(-hours/tau);}
 function thermalCrossing(tIn,eq,tau,target){
@@ -1129,10 +1149,13 @@ const WINDOW_SECTIONS=[
     {id:'sink',name:'sink window',zone:1,side:1,width:19.25,height:10.5},
     {id:'dinette1',name:'dinette window, first section',zone:1,side:-1,width:21.625,height:10.5},
     {id:'dinette2',name:'dinette window, second section',zone:1,side:-1,width:21.625,height:10.5}];
-const AIR_SCENARIOS=[
+const AIR_WEATHER_CASES=[
     {name:'working estimate',flow:1,windSign:0,mix:1,rhOffset:0,tempOffset:0,surfaceFactor:.8,cabFactor:3},
     {name:'restricted airflow / warmer',flow:.7,windSign:1,mix:.7,rhOffset:5,tempOffset:2,surfaceFactor:.85,cabFactor:4.5},
     {name:'greater airflow / cooler',flow:1.2,windSign:-1,mix:1.3,rhOffset:5,tempOffset:-2,surfaceFactor:.9,cabFactor:1.5}];
+// Cross all body assemblies with every existing weather/airflow/cab case.
+// The first remains the nominal case for fast screening, then all nine verify.
+const AIR_SCENARIOS=BODY_CASES.flatMap(bodyCase=>AIR_WEATHER_CASES.map(s=>({...s,bodyCase,name:s.name+' / '+bodyCase.name})));
 const COMFORT=Object.freeze({tolerance:.5,
     sleeping:Object.freeze({low:65,high:69,target:67}),
     nonSleeping:Object.freeze({low:68,high:73,target:71})});
@@ -1362,7 +1385,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     const {start,end}=simulationBounds(envelope),rows=options.rows||scheduleWeather(envelope,start,end,options.maxStepMin||.5);
     if(!rows.length||rows.some(row=>!Number.isFinite(row.dt)||row.dt<=0))throw new Error('The calculation needs positive-duration intervals. Rebuild the plan with valid times.');
     const scenario=options.scenario||AIR_SCENARIOS[0];
-    const envelopeParts=envelopeAllocation(scenario.cabFactor??3),solarWeights=solarAllocation(1,scenario.cabFactor??3);
+    const envelopeParts=envelopeAllocation(scenario.cabFactor??3,scenario.bodyCase),solarWeights=solarAllocation(1,scenario.cabFactor??3,scenario.bodyCase);
     let config=mode==='maxxfan'?(options.config||{fanZone:1,fanName:'Mid-coach MaxxFan',gaps:[0,0,0,4,0,0]}):null;
     let sp={...setpoints,fan:setpoints.fan??setpoints.cool},maxFan=options.fanSetting||(isOvernight?'Low':'Auto');
     const initialRH=Math.max(5,Math.min(100,(state.indoorRH??rhFromRatio(startIndoor,humidityRatio(rows[0].tOut,rows[0].rh))*.85)+scenario.rhOffset));
@@ -1372,7 +1395,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     let priorDehumHeat=0,dehumRuntimeMinutes=0,moistureTotals={occupants:0,dehumidifier:0,ac:0,outside:0},initialWaterLb=w.reduce((sum,v,z)=>sum+v*M.volumeFt3[z]*.075,0);
     let condensedLb=0,humidRun=0,humidMax=0,surfaceRun=[0,0],surfaceMax=0,minMargin=Infinity,maxRH=0,minRH=100,maxSurfaceRH=0;
     let warmRun=0,warmMax=0,coldRun=0,coldMax=0,severeRun=0,severeMax=0,recovery=null,freezeRisk=null,condensationConcern=null,failureTime=null,comfortProblem=null,surfaceConcern=null;
-    const unsafe=[],warnings=new Set(),trace=[],segments=[],mass=M.fraction.map(f=>UA_BASE*C.tau*f),airMass=M.volumeFt3.map(v=>v*.075);
+    const unsafe=[],warnings=new Set(),trace=[],segments=[],mass=M.fraction.map(f=>C.thermalMass*f),airMass=M.volumeFt3.map(v=>v*.075);
     let band=comfortPolicy(isOvernight);const floor=C.comfortFloor;let lastSetup=null;
     const record=(time,elapsed)=>{
         if([...t,...w].some(v=>!Number.isFinite(v)))throw new Error('Indoor prediction is not finite. Check the inputs and rebuild the plan.');
@@ -1435,7 +1458,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             const target=mode==='auto'?sp.auto:operation==='ac'?sp.cool:sp.heat;
             const capacity=operation==='ac'?C.acSensibleCapacity:operation==='furnace'?C.furnaceOutput:heatPumpCapacity(out);
             const balance=uaTotal*(out-target)+initialGains;
-            const need=operation==='ac'?Math.max(0,UA_BASE*C.tau*(sensed-target)/dt+balance):Math.max(0,UA_BASE*C.tau*(target-sensed)/dt-balance);
+            const need=operation==='ac'?Math.max(0,C.thermalMass*(sensed-target)/dt+balance):Math.max(0,C.thermalMass*(target-sensed)/dt-balance);
             duty=mode==='auto'?1:Math.min(1,need/capacity);q=(operation==='ac'?-1:1)*capacity*duty;
             if(operation==='ac')capacityCool||=balance>capacity;else capacityHeat||=-balance>capacity;
             if(options.checkEquipment!==false&&duty>0){
@@ -1551,7 +1574,7 @@ function qualifyAcrossScenarios(candidate,envelope,overnight,sp,meta,start,rows,
     candidate.scenarioResults=[candidate,...trials].map(c=>({suitable:c.suitable,moistureEligible:c.moistureEligible,comfortEligible:c.comfortEligible,equipmentEligible:c.equipmentEligible,heatMinutes:c.heatMinutes,coolMinutes:c.coolMinutes,finalIndoor:c.finalIndoor}));
     const failed=trials.find(c=>!c.suitable);
     if(failed){candidate.suitable=false;candidate.robustnessIssueCode=failed.equipmentIssueCode;candidate.robustnessReason='Fails the '+AIR_SCENARIOS[trials.indexOf(failed)+1].name+' scenario: '+(failed.equipmentReason||failed.moistureReason||failed.comfortReason);}
-    candidate.scenarioSummary=failed?'Sensitive to plausible conditions':'Acceptable in all three tested scenarios';
+    candidate.scenarioSummary=failed?'Sensitive to plausible conditions':'Acceptable in all tested scenarios';
     candidate.moistureRange={min:Math.min(candidate.moisture.minRH,...trials.map(c=>c.moisture.minRH)),max:Math.max(candidate.moisture.maxRH,...trials.map(c=>c.moisture.maxRH))};
     return candidate;
 }
@@ -1795,6 +1818,13 @@ function evaluatePlan(phases,envelope,request,rows){
     });
     return planFromTrials(phases,trials,envelope,request);
 }
+function screenPlan(phases,envelope,request,rows){
+    // A failed nominal trajectory cannot qualify across all cases. Screen timing
+    // proposals first; every accepted proposal still receives full verification.
+    const nominal=simulatePlan(phases,envelope,request,AIR_SCENARIOS[0],rows);
+    return nominal.suitable&&nominal.ready?evaluatePlan(phases,envelope,request,rows):
+        planFromTrials(phases,[nominal],envelope,request);
+}
 function planFromTrials(phases,trials,envelope,request){
     const failed=trials.find(t=>!t.suitable),late=trials.find(t=>!t.ready);
     const suitable=!failed,ready=!late,first=phases[0].setup,last=phases.at(-1).setup;
@@ -2021,7 +2051,7 @@ function renderDeparturePlan(result){
         for(const suitable of [true,false]){
             const list=options.filter(p=>p.suitable===suitable);
             out+='<details class="diag-panel"><summary>'+(suitable?'Other viable '+kind+' options':'Unsuitable or unnecessary '+kind+' modes')+'</summary>';
-            out+=list.length?list.map(p=>'<div class="comparison-row"><div class="comparison-name">'+escapeHTML(setupName(p.setup))+'</div><p class="comparison-text">'+escapeHTML(suitable?'Passes this entire interval in all three scenarios. '+(kind==='current'?'Choosing this alternative changes the departure projection; rebuild the plan with fresh readings before leaving.':kind==='departure'?'Uses the recommended current plan’s predicted departure conditions. Choosing it changes the overnight projection; rebuild the plan on return.':'Uses the same predicted sleep-start conditions after the displayed preparation.'):p.reason||'Does not pass the checks for this period.')+'</p>'+(suitable?'<p class="comparison-range">'+escapeHTML(setupInstructions(p.setup))+'</p>'+metrics(p)+(p.frontFits===false?'<p class="hint">The dinette leaves its comfort band; the bed area takes priority.</p>':''):'')+'</div>').join(''):'<p class="hint">None for this interval.</p>';
+            out+=list.length?list.map(p=>'<div class="comparison-row"><div class="comparison-name">'+escapeHTML(setupName(p.setup))+'</div><p class="comparison-text">'+escapeHTML(suitable?'Passes this entire interval in all tested scenarios. '+(kind==='current'?'Choosing this alternative changes the departure projection; rebuild the plan with fresh readings before leaving.':kind==='departure'?'Uses the recommended current plan’s predicted departure conditions. Choosing it changes the overnight projection; rebuild the plan on return.':'Uses the same predicted sleep-start conditions after the displayed preparation.'):p.reason||'Does not pass the checks for this period.')+'</p>'+(suitable?'<p class="comparison-range">'+escapeHTML(setupInstructions(p.setup))+'</p>'+metrics(p)+(p.frontFits===false?'<p class="hint">The dinette leaves its comfort band; the bed area takes priority.</p>':''):'')+'</div>').join(''):'<p class="hint">None for this interval.</p>';
             out+='</details>';
         }
         if(recommended?.setup)out+='<p class="hint">'+(recommended.frontFits===false?'The dinette may leave its comfort band; the bed area takes priority.':'Bed and dinette predictions are shown separately above.')+'</p>';
@@ -2050,7 +2080,7 @@ function* searchPlans(envelope,request){
     if(request.occupancy==='leaving'||request.occupancy==='away')return yield* searchDeparturePlans(envelope,request);
     const bounds=planBounds(request.start,request),rows=planRows(envelope,request),vents=shortlistVents(envelope,request,bounds.sleep);
     const nightVents=bounds.bedtime?shortlistVents(envelope,request,true):vents;
-    let days=planSetups(bounds.sleep,vents),nights=planSetups(true,nightVents),results=[];
+    let days=planSetups(bounds.sleep,vents),nights=planSetups(true,nightVents),results=[],daytimeCovered=false;
     if(bounds.bedtime){
         const nightSeeds=nights.slice();
         // Learn controls before searching transition times. An unsuitable default
@@ -2065,6 +2095,9 @@ function* searchPlans(envelope,request){
                 return optimizePhase(original,0,envelope,request,rows.filter(r=>r.to<=+bounds.bedtime),+request.start,+bounds.bedtime,changed=>{const p=stagePlanRaw([],changed,+request.start,+bounds.bedtime,envelope,request,rows);p.ready=true;return p;});
             }).sort(comparePlans)[0];
         });
+        // Cache eviction must not erase a verified daytime result and trigger
+        // an unnecessary exhaustive daytime-bridge search.
+        daytimeCovered=daytime.some(p=>p.suitable);
         days=daytime.map(p=>p.setup);
         const prefix=daytime.slice().sort(comparePlans)[0].phases;
         nights=nights.map(setup=>{
@@ -2098,7 +2131,7 @@ function* searchPlans(envelope,request){
             const times=new Set([+bounds.bedtime,+request.start]);
             // Coarse exploration across the entire available horizon, then refine
             // the latest successful bracket to five minutes. Each retained time
-            // is verified with the full three-scenario overnight trajectory.
+            // is verified with the full sensitivity-case overnight trajectory.
             for(let t=+bounds.bedtime-30*60000;t>+request.start;t-=30*60000)times.add(t);
             if(request.departure)times.add(+request.departure);
             if(request.returnTime)times.add(+request.returnTime);
@@ -2108,7 +2141,7 @@ function* searchPlans(envelope,request){
                 if(!setupChangeAllowed(day,night,time,request))return null;
                 const phases=time===+request.start?[{time,setup:night}]:[{time:+request.start,setup:day},{time,setup:night}];
                 if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))return null;
-                let plan=evaluatePlan(phases,envelope,request,rows);
+                let plan=screenPlan(phases,envelope,request,rows);
                 if(plan.trials.some(t=>!t.equipmentEligible))plan=repairPlanFans(plan,envelope,request,rows);
                 if(!closest||comparePlans(plan,closest)<0)closest=plan;
                 return plan;
@@ -2147,7 +2180,7 @@ function* searchPlans(envelope,request){
                         const phases=time===+request.start?[{time,setup:cool},{time:+bounds.bedtime,setup:night}]:
                             [{time:+request.start,setup:day},{time,setup:cool},{time:+bounds.bedtime,setup:night}];
                         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))continue;
-                        const plan=evaluatePlan(phases,envelope,request,rows);
+                        const plan=screenPlan(phases,envelope,request,rows);
                         if(!closest||comparePlans(plan,closest)<0)closest=plan;
                         if(plan.suitable&&plan.ready){found=plan;break;}yield{searching:time};
                     }
@@ -2161,10 +2194,6 @@ function* searchPlans(envelope,request){
     // A single daytime mode can be insufficient even when a manual change is
     // available (e.g. furnace on a cold morning, COOL later). Try an explicit
     // daytime handoff rather than treating that feasible sequence as impossible.
-    const daytimeCovered=bounds.bedtime&&days.some(day=>AIR_SCENARIOS.every(s=>{
-        const prefix=envelope.planCache.get(day.key+'|'+s.name);
-        return prefix&&+prefix.trace.at(-1).time>=+bounds.bedtime&&(prefix.failureTime==null||prefix.failureTime>=+bounds.bedtime);
-    }));
     if(bounds.bedtime&&!daytimeCovered&&!results.some(p=>p.suitable&&p.ready)){
         for(const day of days){
             if(day.type==='maxxfan')continue;
@@ -2184,7 +2213,7 @@ function* searchPlans(envelope,request){
                     for(let time=+bounds.bedtime;time>handoff;time-=30*60000){
                         if(!setupChangeAllowed(bridge,night,time,request))continue;
                         const phases=[{time:+request.start,setup:day},{time:handoff,setup:bridge},{time,setup:night}];
-                        let p=evaluatePlan(phases,envelope,request,rows);
+                        let p=screenPlan(phases,envelope,request,rows);
                         if(p.trials.some(t=>!t.equipmentEligible))p=repairPlanFans(p,envelope,request,rows);
                         if(p.suitable&&p.ready){recovered=p;break;}
                         const earliest=Math.min(...p.trials.map(t=>t.failureTime??Infinity));if(earliest<time&&earliest<=handoff)break;
@@ -2197,11 +2226,13 @@ function* searchPlans(envelope,request){
     }
     const settingsGroups=new Map();
     for(const p of results.slice().sort(comparePlans)){const key=p.type+'|'+p.nightType;if(!settingsGroups.has(key))settingsGroups.set(key,p);}
-    results=[...settingsGroups.values()].map(p=>optimizeSequence(p,envelope,request,rows));
+    // Restore all cases for retained results, including rejected diagnostic
+    // plans, before ranking and presenting them.
+    results=[...settingsGroups.values()].map(p=>optimizeSequence(evaluatePlan(p.phases,envelope,request,rows),envelope,request,rows));
     annotateAutoPlans(results);
     results.sort(comparePlans);
     if(!results.length)throw new Error('No executable setup can be evaluated with the entered physical arrangement.');
-    const current=results[0].suitable?null:currentRecommendation(envelope,request,results);
+    const current=results[0].suitable&&results[0].ready?null:currentRecommendation(envelope,request,results);
     const result={winner:results[0],plans:results,bounds,envelope,request,current};
     result.comparisons=periodComparisons(result,days,nights,rows);
     return result;
@@ -2217,7 +2248,7 @@ function annotateAutoPlans(plans){
             return minutes('ac')>=5&&minutes('hp')>=5;
         }).length;
         const need=!ac&&!heat&&both>0;
-        plan.autoExplanation=ac?'Cooling alone is acceptable; AUTO receives no benefit for reheating.':heat?'Heating alone is acceptable; both functions are not needed.':need?'Both functions prevent a single-mode shortfall in '+both+' of three sensitivity scenarios.':'A sustained need for both functions is not established.';
+        plan.autoExplanation=ac?'Cooling alone is acceptable; AUTO receives no benefit for reheating.':heat?'Heating alone is acceptable; both functions are not needed.':need?'Both functions prevent a single-mode shortfall in '+both+' of '+AIR_SCENARIOS.length+' sensitivity scenarios.':'A sustained need for both functions is not established.';
         const nightHeat=plan.trials[0].segments.filter(s=>s.startMs>=since&&s.operation==='hp').reduce((n,s)=>n+s.hours*60*s.duty,0);
         plan.score+=need?-1:ac&&nightHeat>0?1+nightHeat/30:.5;
     }
@@ -2291,7 +2322,7 @@ function renderPeriodComparisons(period,night=false){
         const list=options.filter(p=>p.suitable===viable);
         html+='<details class="diag-panel"><summary>'+escapeHTML(title)+'</summary>';
         html+=list.length?list.map(p=>'<div class="comparison-row"><div class="comparison-name">'+escapeHTML(setupName(p.setup))+'</div><div class="comparison-text">'+
-            escapeHTML(viable?'Passes temperature, moisture and equipment checks in all three scenarios for this interval. '+
+            escapeHTML(viable?'Passes temperature, moisture and equipment checks in all tested scenarios for this interval. '+
                 (p.idle?'No active heating or cooling is predicted with this setting. ':p.setup.type==='auto'?'AUTO can maintain acceptable conditions, but is not required by the recommended plan. ':'')+(period.recommended?(night?'The displayed overnight recommendation was selected within the complete plan.':'The displayed daytime recommendation was selected within the complete plan; this alternative passes only the stated interval.'):'No complete plan has been recommended; this option passes only the stated interval.'):p.reason||'Does not pass this interval’s checks.')+'</div>'+
             (viable?'<div class="comparison-range">'+escapeHTML(setupInstructions(p.setup))+'</div><p class="hint">Bedroom: '+escapeHTML(p.bedroom)+'°F · '+escapeHTML(p.humidity)+'% RH.<br>Dinette: '+escapeHTML(p.front)+'°F.'+(p.frontFits===false?' The dinette leaves its comfort band; the bed area takes priority.':'')+'</p>':'')+'</div>').join(''):'<p class="hint">None for this interval.</p>';
         html+='</details>';
@@ -2344,7 +2375,7 @@ function renderPlan(result){
         if(current.natural)html+='<div class="mitigation-box"><strong>Active heating is not needed</strong>'+(current.natural.minutes===0?'Both zones are already in the acceptable daytime comfort band.':'Natural recovery is expected to reach the acceptable daytime comfort band within '+current.natural.minutes+' minutes, by approximately '+escapeHTML(formatTime(current.natural.time))+'.')+'</div>';
         html+=step('What to do '+(request.future?'at the start':'now'),formatStamp(bounds.start),planActionText({time:+bounds.start,setup:current.setup},request));
         html+=frontOutlook(current.trials,+bounds.start,current.reviewAt)+renderPeriodComparisons(result.comparisons?.day);
-        html+=step('Next action — refresh readings',formatTime(new Date(current.reviewAt)),'Refresh both temperature and humidity readings and build a new plan. This setup passes the temperature, moisture and equipment checks until this review time in all three scenarios.'+(request.occupancy==='leaving'&&current.reviewAt===+request.departure?' Reassess before leaving; this current recommendation does not cover your absence.':''));
+        html+=step('Next action — refresh readings',formatTime(new Date(current.reviewAt)),'Refresh both temperature and humidity readings and build a new plan. This setup passes the temperature, moisture and equipment checks until this review time in all tested scenarios.'+(request.occupancy==='leaving'&&current.reviewAt===+request.departure?' Reassess before leaving; this current recommendation does not cover your absence.':''));
         html+=currentOutlook(current,bounds);
     }else if(!safe){
         html+='<div class="result-primary">No suitable current setup</div><p class="hint">'+escapeHTML(p.reason)+'</p><p class="hint">No current setup passes the checks. Refresh both readings and review the operating or moisture concerns below.</p>';
@@ -2358,7 +2389,7 @@ function renderPlan(result){
         if(!bounds.sleep&&!result.comparisons?.day&&initial.setup.sleepComfort)html+='<p class="hint">Bedtime preparation begins now. The steps below replace the normal daytime settings; projected overnight alternatives assume you follow this preparation.</p>';
         const actions=p.phases.filter((phase,i)=>i>0&&!sameSetup(p.phases[i-1].setup,phase.setup));
         if(actions.length){actions.forEach((phase,i)=>{html+=step((i===0?'Next action':'Later action')+(phase.setup.sleepComfort?' — prepare for sleep':' — daytime adjustment'),formatTime(new Date(phase.time)),planActionText(phase,request));});
-            if(p.prepareAt&&p.ready)html+='<p class="hint">Estimated preparation time: '+Math.ceil((+bounds.bedtime-p.prepareAt)/60000)+' minutes. This preparation time passes all three tested scenarios; the search refines timing in five-minute steps.</p>';
+            if(p.prepareAt&&p.ready)html+='<p class="hint">Estimated preparation time: '+Math.ceil((+bounds.bedtime-p.prepareAt)/60000)+' minutes. This preparation time passes all tested scenarios; the search refines timing in five-minute steps.</p>';
         }else html+=step('Next action',bounds.bedtime?'Before 10 PM':'Through '+formatTime(bounds.end),'No additional setup change is needed in this plan. Recalculate with fresh readings if conditions or your return time change.');
         if(bounds.bedtime){
             html+='<div class="plan-metrics"><strong>Bedroom at 10 PM:</strong> '+readingAt(p,+bounds.bedtime,'bedroom')+'°F · '+readingAt(p,+bounds.bedtime,'rh')+'% RH</div>';
@@ -2366,7 +2397,7 @@ function renderPlan(result){
                 html+='<div class="mitigation-box severity-amber"><strong>Bedtime target needs more time</strong>'+escapeHTML(p.reason)+(next?' Nominal forecast first reaches the bedtime range at '+formatTime(next.time)+'.':' The bedtime target is not reached in the modeled period.')+'</div>';}
         }
         html+=step('Recommended overnight setup',bounds.bedtime?'From 10 PM':'Overnight in progress',planActionText({time:sleepFrom,setup:p.nightSetup},request));
-        html+='<div class="plan-metrics">Bedroom: '+traceRange(p,sleepFrom,+bounds.end,'bedroom')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'rh')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'dewPoint')+'°F.<br>Front: '+traceRange(p,sleepFrom,+bounds.end,'midCoach')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'midRH')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'midDewPoint')+'°F.<br>Temperature, moisture and equipment checks pass in all three tested scenarios.</div>';
+        html+='<div class="plan-metrics">Bedroom: '+traceRange(p,sleepFrom,+bounds.end,'bedroom')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'rh')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'dewPoint')+'°F.<br>Front: '+traceRange(p,sleepFrom,+bounds.end,'midCoach')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'midRH')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'midDewPoint')+'°F.<br>Temperature, moisture and equipment checks pass in all tested scenarios.</div>';
         html+='<p class="hint">The overnight setup runs through 7 AM without manual changes or automatic furnace backup.'+(p.trials.some(t=>t.defrostMinutes>0)?' Heat-pump defrost pauses are included.':'')+'</p>';
         if(p.autoExplanation)html+='<p class="hint">'+escapeHTML(p.autoExplanation)+'</p>';
         html+=surfaceOutlook(p.trials)+frontOutlook(p.trials,+bounds.start,+bounds.end);

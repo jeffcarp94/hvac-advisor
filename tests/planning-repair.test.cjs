@@ -42,12 +42,23 @@ test('AUTO readiness accepts normal cycling only after cooling target has been r
  a.run(`late=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+planBounds(r.start).bedtime,setup:planSetup('auto',true)}],e,r);`);
  assert.equal(a.run('late.ready'),false);
 });
-test('preparation search finds a feasible five-minute island between failed coarse samples',()=>{
+test('preparation search checks a fine-grid timing island after coarse proposals fail',()=>{
  const a=app();load(a,require('./fixtures/winterset-planning-regressions.json')[0]);
- // Keep the strict target here to isolate search coverage from AUTO readiness policy.
- a.run(`originalSimulate=simulatePlan;simulatePlan=(...args)=>{const p=originalSimulate(...args);if(p.atBedtime&&p.atBedtime.bedroom>68.5)p.ready=false;return p;};
+ // Isolate timing coverage under the working body and three weather cases.
+ // A synthetic narrow readiness window supplies a non-monotonic timing oracle;
+ // real temperature, humidity and equipment checks must still pass inside it.
+ a.run(`AIR_SCENARIOS.splice(3);island=+planBounds(r.start,r).bedtime-15*60000;
+ planSetups=sleep=>[withSetting(planSetup(sleep?'auto':'ac',sleep,null,'Low'),sleep?66:71)];
+ optimizePhase=plan=>plan;shortlistVents=()=>[];
+ originalSimulate=simulatePlan;simulatePlan=(...args)=>{
+  const p=originalSimulate(...args),sleepPhase=args[0].find(phase=>phase.setup.sleepComfort);
+  if(p.atBedtime&&sleepPhase?.time!==island){p.ready=false;p.bedtimeReason='Synthetic timing-window constraint';}
+  return p;
+ };
  result=runUnifiedPlan(r,e);`);
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
+ assert.equal(a.run('result.winner.phases[1].time'),a.run('island'));
+ assert.equal(a.run('result.winner.trials.length'),3);
  assert.equal(a.run('result.winner.trials.every(t=>+t.trace.at(-1).time===+e.windowEnd)'),true);
 });
 test('planner searches separate COOL preparation followed by an overnight heating setup',()=>{
@@ -57,3 +68,4 @@ test('planner searches separate COOL preparation followed by an overnight heatin
  assert.equal(a.run('result.winner.trials.every(t=>+t.trace.at(-1).time===+e.windowEnd)'),true);
  assert.match(a.run('html'),/without manual changes or automatic furnace backup/);
 });
+

@@ -69,16 +69,21 @@ test('currently-away guidance preserves the verified physical arrangement and av
  if(a.run('c'))assert.equal(a.run('sameSetup(c.setup,r.actual)'),true);
  assert.equal(a.run("setupChangeAllowed(r.actual,planSetup('ac',false),+r.start,r)"),false);
 });
-test('Winterset evening regression verifies a complete plan through 7 AM with finite humidity control',()=>{
+test('Winterset evening gives verified current guidance when body uncertainty prevents a complete plan',()=>{
  // Full window/fan search is exercised in browser CI; isolate closed-coach guidance here.
  const a=setup();a.run('shortlistVents=()=>[];result=runUnifiedPlan(r,e);html=renderPlan(result)');
- assert.equal(a.run('result.winner.suitable'),true);assert.equal(a.run('result.winner.ready'),true);
- assert.equal(a.run('result.current'),null);
- assert.ok(a.run('Number.isFinite(result.winner.targetRank)'));
+ assert.equal(a.run('result.winner.suitable&&result.winner.ready'),false);
+ assert.ok(a.run('result.current'));assert.equal(a.run('result.winner.trials.length'),9);
+ assert.equal(a.run('result.winner.trials[0].suitable'),true);
+ assert.ok(a.run('result.winner.trials.some(t=>!t.suitable)'));
+ assert.ok(a.run('Number.isFinite(result.current.targetRank)'));
  assert.ok(a.run('result.winner.phases.every(p=>p.setup.type===\"passive\"||settingValues(p.setup).includes(p.setup.setpoints[p.setup.type===\"auto\"?\"auto\":p.setup.type===\"ac\"?\"cool\":p.setup.type===\"maxxfan\"?\"fan\":\"heat\"]))'));
- assert.equal(a.run('result.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+result.bounds.end&&t.moisture.humidMax===0)'),true);
+ assert.equal(a.run('result.current.trials.length'),9);
+ assert.equal(a.run('result.current.reviewAt'),+new Date(winterset.request.start)+30*60000);
+ assert.equal(a.run('result.current.trials.every(t=>t.suitable&&+t.trace.at(-1).time===result.current.reviewAt&&t.moisture.humidMax===0)'),true);
  assert.match(a.run('html'),/Select (COOL|AUTO|HEAT PUMP|FURNACE) at \d+°F/);assert.match(a.run('html'),/Bed-area comfort takes priority/);assert.match(a.run('html'),/dew point/);
- assert.doesNotMatch(a.run('html'),/No suitable current setup|Overnight needs reassessment/);
+ assert.doesNotMatch(a.run('html'),/No suitable current setup/);
+ assert.match(a.run('html'),/Overnight needs reassessment|complete overnight setup has not been verified/);
 });
 test('a future extreme-cold shortfall still provides bounded current guidance',()=>{
  const a=setup();a.run(`shortlistVents=()=>[];planSetups=sleep=>['ac','furnace'].map(type=>planSetup(type,sleep));
