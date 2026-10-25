@@ -6,12 +6,18 @@ function decision(result){
  const plan=p=>({phases:p.phases,prepareAt:p.prepareAt,suitable:p.suitable,ready:p.ready,reason:p.reason,score:p.score,trials:p.trials.map(trial)});
  return hash({winner:plan(result.winner),plans:result.plans.map(plan),current:result.current&&{setup:result.current.setup,reviewAt:result.current.reviewAt,score:result.current.score,trials:result.current.trials.map(trial)}});
 }
-test('whole-plan selection, ranking, preparation and trajectories are invariant to surface warnings',()=>{
- const a=app();a.run(`forecast.timeZone='America/Chicago';state.temp=59;state.rh=60;state.wind=8;state.cloud=.1;state.dehumidifierEnabled=true;
- r={start:new Date('2026-10-11T02:00Z'),reading:new Date('2026-10-11T02:00Z'),initial:{temperature:[72,72],rh:[54,52]},occupancy:'staying',remote:false};
+test('closed-coach whole-plan selection, ranking, preparation and trajectories are invariant to surface warnings',()=>{
+ const a=app();a.ctx.job=require('./fixtures/winterset-2026-03-24.json');
+ // Full window/fan search remains covered by browser CI on the same fixture.
+ a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;shortlistVents=()=>[];
+ r={start:new Date(job.start),reading:new Date(job.start),initial:{temperature:[72,72],rh:[54,52]},occupancy:'staying',remote:false};
+ points=job.points.map(p=>({...p,time:new Date(p.time),tOut:Math.round(p.tOut),rh:Math.round(p.rh)}));
+ function envelope(){return {windowStart:r.start,windowEnd:new Date(job.end),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};}
  originalSurface=surfaceAssessment;
- function calculate(){return runUnifiedPlan(r,makeEnvelope(r.start,planBounds(r.start).end,'Advisory invariance',300000));}
+ function calculate(){return runUnifiedPlan(r,envelope());}
  base=calculate();`);
+ assert.equal(a.run('base.winner.suitable&&base.winner.ready'),true);
+ assert.equal(a.run('base.winner.trials.length'),9);
  const expected=decision(a.run('base'));
  assert.ok(a.run('base.winner.trials.some(t=>t.condensationConcern)'));
  a.run(`surfaceAssessment=()=>({surface:100,margin:100,surfaceRH:0,condensation:false});quiet=calculate()`);
@@ -39,3 +45,4 @@ test('sustained room-air RH remains a separate rejection when surface warnings a
  assert.equal(a.run('p.moistureEligible'),false);assert.match(a.run('p.moistureReason'),/Indoor RH exceeds 65%/);
  assert.ok(a.run("!p.condensationConcern||p.condensationConcern.source==='air'"));
 });
+
