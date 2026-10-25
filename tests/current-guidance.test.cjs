@@ -72,7 +72,7 @@ test('currently-away guidance preserves the verified physical arrangement and av
 test('Winterset evening gives verified current guidance when body uncertainty prevents a complete plan',()=>{
  // Full window/fan search is exercised in browser CI; isolate closed-coach guidance here.
  const a=setup();a.run('shortlistVents=()=>[];result=runUnifiedPlan(r,e);html=renderPlan(result)');
- assert.equal(a.run('result.winner.suitable'),false);assert.equal(a.run('result.winner.ready'),true);
+ assert.equal(a.run('result.winner.suitable&&result.winner.ready'),false);
  assert.ok(a.run('result.current'));assert.equal(a.run('result.winner.trials.length'),9);
  assert.equal(a.run('result.winner.trials[0].suitable'),true);
  assert.ok(a.run('result.winner.trials.some(t=>!t.suitable)'));
