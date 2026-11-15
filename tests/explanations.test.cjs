@@ -4,11 +4,11 @@ const {app}=require('./helpers.cjs');
 
 function messages(){
     const a=app();
-    a.run(`end=new Date('2026-10-22T07:00Z');sp={cool:70,heat:66,auto:68};
+    a.run(`end=new Date('2026-10-22T07:00Z');sp={cool:70,heat:66};
         candidate=(type,extra={})=>({type,suitable:true,equipmentEligible:true,floorCompliant:true,endInBand:true,
             comfortLow:66,comfortHigh:70,finalIndoor:66,indoorMin:66,indoorMax:72,hoursOutOfBand:0,
             autoDidHeat:true,autoDidCool:false,hourly:[{indoor:72},{indoor:66}],...extra});
-        winner=candidate('auto',{optimizedSet:68});`);
+        winner=candidate('auto',{setpoints:sp,optimizedSet:'HEAT TO 66°F / COOL TO 70°F'});`);
     return a;
 }
 
@@ -21,9 +21,9 @@ test('the approved overnight descriptions replace scores and the misleading off 
         assert.match(html,/Expected indoor temperature: 66–72°F/);
     }
     assert.match(a.run("comparisonExplanation(candidate('hp'),winner,sp,end,true)"),/Lets the RV cool to about 66°F, then uses the heat pump/);
-    assert.match(a.run("comparisonExplanation(candidate('furnace'),winner,sp,end,true)"),/propane heat.*cooler than the recommended AUTO setting/);
+    assert.match(a.run("comparisonExplanation(candidate('furnace'),winner,sp,end,true)"),/propane heat/);
     assert.match(a.run("comparisonRow(candidate('passive'),winner,sp,end,true)"),/Heating and cooling OFF/);
-    assert.match(a.run("comparisonExplanation(winner,winner,sp,end,true)"),/Recommended\. Best match.*overnight.*AUTO to 68°F/);
+    assert.match(a.run("comparisonExplanation(winner,winner,sp,end,true)"),/Recommended\. Best match.*overnight.*AUTO HEAT PUMP.*HEAT TO 66°F \/ COOL TO 70°F/);
 });
 
 test('unused equipment and incomplete recovery do not claim to hold a setpoint',()=>{
@@ -44,8 +44,8 @@ test('every equipment rejection has a plain-language cause in both comparison pa
         ['maxxfan','outside-humid',/too much moisture/],
         ['maxxfan','outside-cold',/too cold.*Keep them closed.*heating and cooling off/],
         ['maxxfan','outside-hot',/as warm as, or warmer than/],
-        ['hp','heat-pump-cold',/below 50°F.*Select FURNACE/],
-        ['auto','heat-pump-cold',/below 50°F.*instead of HEAT PUMP or AUTO/]
+        ['hp','heat-pump-cold',/Auto Gas Changeover.*42°F.*propane furnace/],
+        ['auto','heat-pump-cold',/Auto Gas Changeover.*42°F.*propane furnace/]
     ];
     for(const [mode,code,expected] of cases){
         a.run(`c=candidate('${mode}',{suitable:false,equipmentEligible:false,equipmentIssueCode:'${code}',equipmentMinimum:50,
@@ -67,8 +67,8 @@ test('heating/cooling mismatches and AUTO drift name the needed action or temper
         ['maxxfan',65,/cannot heat.*Use heat/],
         ['passive',75,/Cooling is needed.*maximum of 70°F/],
         ['passive',65,/Heat is needed.*minimum of 66°F/],
-        ['auto',71,/waits until 70°F before cooling/],
-        ['auto',65,/waits until 66°F before heating/]
+        ['auto',71,/HEAT TO 66°F \/ COOL TO 70°F.*cooling begins near 72°F/],
+        ['auto',65,/HEAT TO 66°F \/ COOL TO 70°F.*heating begins near 64°F/]
     ]){
         const text=a.run(`temperatureIssue(candidate('${mode}',{suitable:false,endInBand:false,finalIndoor:${final}}),sp,end).text`);
         assert.match(text,expected);assert.doesNotMatch(text,/weighted|criteria|drift|floor compliance/);

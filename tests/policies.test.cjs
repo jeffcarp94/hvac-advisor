@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const {app,fixture}=require('./helpers.cjs');
 function scenario({temp=80,rh=30,wind=0,cloud=0,startIndoor=72,hours=3}={}){
     const a=app();a.run(`state.indoor=${startIndoor};start=new Date('2026-10-21T09:00Z');end=new Date(start.getTime()+${hours}*3600000);
-        envelope={windowStart:start,windowEnd:end,wind:${wind},cloud:${cloud},points:[{time:start,tOut:${temp},rh:${rh},wind:${wind},cloud:${cloud}}]};sp={cool:72,heat:70,auto:71};`);
+        envelope={windowStart:start,windowEnd:end,wind:${wind},cloud:${cloud},points:[{time:start,tOut:${temp},rh:${rh},wind:${wind},cloud:${cloud}}]};sp={cool:72,heat:68};`);
     return a;
 }
 
@@ -139,7 +139,7 @@ test('ventilation 62°F dew-point preference is not presented as an ASHRAE manda
 test('actionable setups include Dometic outlets, furnace fan behavior and observed-ice recovery',()=>{
     const a=app();
     for(const mode of ['ac','auto']){
-        const s=a.run(`setupForMode('${mode}',{cool:72,heat:70,auto:71},'High',false)`);
+        const s=a.run(`setupForMode('${mode}',{cool:72,heat:68},'High',false)`);
         assert.match(s,/two distribution vents open, or quick-cool plus one distribution vent/);
         assert.match(a.run(`assumptionPanel('${mode}','High')`),/FAN ONLY until ice clears/);
     }

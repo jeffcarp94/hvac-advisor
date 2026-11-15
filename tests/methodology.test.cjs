@@ -92,10 +92,10 @@ test('AUTO does not earn dual-mode preference for brief calls or unnecessary reh
 });
 test('AUTO resolves the 65°F heating trigger without a numerical step below the floor',()=>{
     const a=setup({temp:50,rh:15,indoorRH:15,hours:3});
-    a.run(`state.dehumidifierEnabled=false;C.metaSleep=0;
+    a.run(`state.dehumidifierEnabled=false;C.metaSleep=0;sp={heat:67,cool:71};
         s=zoneProfile('auto',e,true,sp,0,72,{checkEquipment:false});`);
     assert.ok(a.run('Math.min(...s.trace.map(p=>p.bedroom))')>=65-1e-6);
-    assert.equal(a.run('s.didHeat'),true);assert.equal(a.run('s.didCool'),true);
+    assert.equal(a.run('s.didHeat'),true);assert.equal(a.run('s.didCool'),false);
     assert.equal(a.run('s.floorCompliant'),true);
 });
 test('equipment policies remain independent from moisture/comfort and use actual cooling calls',()=>{
@@ -141,7 +141,7 @@ test('end-to-end selection yields a true winner or an explicit no-suitable resul
     const a=setup({hours:1});a.run('result=selectOvernightSetup(e,true)');
     assert.equal(a.run('result.setpoints.cool'),68);assert.equal(a.run('result.setpoints.heat'),66);
     assert.equal(a.run('result.noSuitable'),a.run('!result.winner.suitable'));
-    assert.equal(a.run('result.allCandidates.length'),6);
+    assert.equal(a.run('result.allCandidates.length'),7);
     const html=a.run("renderRecommendation('test','Overnight Recommendation',result,true)");assert.match(html,/Other Viable HVAC Options/);assert.match(html,/Unsuitable HVAC Modes/);
     assert.doesNotMatch(html,/Heating and Cooling Options Compared|±0.5°F|constant dew point/);
 });

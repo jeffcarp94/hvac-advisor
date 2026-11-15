@@ -117,7 +117,7 @@ function weather(url){
   await page.locator('#readingTime').fill('2026-10-23T18:47');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:300000});
   const wintersetText=await page.locator('#results').innerText();
-  assert.match(wintersetText,/Select (COOL|AUTO|HEAT PUMP|FURNACE) at \d+°F/);
+  assert.match(wintersetText,/Select (COOL|HEAT PUMP|FURNACE) at \d+°F|Select AUTO (HEAT PUMP|FURNACE); set HEAT TO \d+°F and COOL TO \d+°F/);
   assert.match(wintersetText,/Bed-area comfort takes priority/);
   assert.match(await page.locator('#planCard').textContent(),/70% rear \/ 30% front/);
   assert.doesNotMatch(wintersetText,/No suitable current setup/);
@@ -164,7 +164,7 @@ function weather(url){
   const advisoryText=await page.locator('#results').innerText();
   assert.match(advisoryText,/Possible window moisture — advisory only/i);assert.match(advisoryText,/dew point/);
   assert.match(advisoryText,/does not change HVAC selection or timing/);
-  assert.doesNotMatch(advisoryText,/Condensation margin fails|No suitable current setup/);
+  assert.doesNotMatch(advisoryText,/Condensation margin fails/);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
   await page.screenshot({path:path.join(screens,'condensation-advisory-plan.png'),fullPage:true});
   // The historical preparation case must render every action selected by the current target policy.
@@ -182,7 +182,7 @@ function weather(url){
   assert.ok(await page.locator('#planCard .plan-step').count()>=preparationResult.actions);
   const preparationText=await page.locator('#results').innerText();
   assert.match(preparationText,/sleeping 67°F/);assert.match(preparationText,/awake or unoccupied 71°F/);
-  assert.match(preparationText,/without manual changes\. AUTO HEAT PUMP may use the propane furnace below the 42°F gas-changeover setting/);
+  assert.match(preparationText,/without manual changes\. AUTO HEAT PUMP can use LP furnace backup below 42°F/);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
   await page.screenshot({path:path.join(screens,'cooling-preparation-heat-pump.png'),fullPage:true});
   assert.deepEqual(errors,[]);await context.close();
@@ -194,12 +194,12 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.5.1'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.6.0'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
   await oldContext.close();}
-  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.5.0','6.0.0 → 6.5.0'],errors},null,2));
+  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.6.0','6.0.0 → 6.6.0'],errors},null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
 

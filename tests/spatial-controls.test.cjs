@@ -41,12 +41,17 @@ test('furnace setpoint is selected from bed response with front control and a vi
  assert.ok(a.run('p.trials[0].finalZones.temperature[0]>66&&p.trials[0].finalZones.temperature[1]<64'));
  assert.match(a.run('frontOutlook(p.trials,+r.start,to)'),/Dinette comfort differs/);
 });
-test('AUTO control keeps actual selected deadband independently of the bedroom target',()=>{
- const a=scenario();a.run(`s=withSetting(planSetup('auto',true),64);env={tOut:80,ua:100,gains:0,mass:300};p=thermalStep('auto',64,env,s.setpoints,2);`);
- close(a.run('p.segments[0].t1'),66);close(a.run('p.segments[1].t1'),64);
- assert.equal(a.run('s.setpoints.auto'),64);assert.equal(a.run('COMFORT.sleeping.target'),67);
- a.run(`env.tOut=40;p=thermalStep('auto',64,env,s.setpoints,2)`);close(a.run('p.segments[0].t1'),62);close(a.run('p.segments[1].t1'),64);
-});
+test('AUTO control uses independent EasyTouch setpoints instead of a midpoint',()=>{
+  const a=scenario();a.run(`s=withSetting(planSetup('auto',true),{heat:67,cool:71});env={tOut:80,ua:100,gains:0,mass:300};p=thermalStep('auto',69,env,s.setpoints,2);`);
+  close(a.run('p.segments[0].t1'),73);
+  assert.equal(a.run('p.segments[1].operation'),'ac');
+  close(a.run('p.segments[1].t1'),70);
+  assert.equal(a.run('s.setpoints.heat'),67);assert.equal(a.run('s.setpoints.cool'),71);
+  assert.equal(a.run('COMFORT.sleeping.target'),67);
+  a.run(`env.tOut=55;env.gains=0;p=thermalStep('auto',69,env,s.setpoints,2)`);
+  close(a.run('p.segments[0].t1'),65);assert.equal(a.run('p.segments[1].operation'),'hp');
+  close(a.run('p.segments[1].t1'),68);
+ });
 test('planned cabinet isolation has no invented numeric correction or insulation credit',()=>{
  const a=scenario();assert.equal(a.run('state.thermostatIsolated'),false);assert.match(a.run('spatialModelText(true)'),/planned/);
  a.run(`before=simulatePlan([{time:+r.start,setup:withSetting(planSetup('furnace',true),63)}],e,r,AIR_SCENARIOS[0],rows);state.thermostatIsolated=true;after=simulatePlan([{time:+r.start,setup:withSetting(planSetup('furnace',true),63)}],e,r,AIR_SCENARIOS[0],rows)`);
@@ -56,7 +61,7 @@ test('planned cabinet isolation has no invented numeric correction or insulation
 test('unchanged effective controls preserve AUTO cycle and cached state across a stage label',()=>{
  const a=scenario();a.run(`r.initial.temperature=[67,67];state.temp=80;e=makeEnvelope(r.start,planBounds(r.start,r).end,'Cycle continuity',300000);
  to=+r.start+60*60000;rows=planRows(e,r,.5,[to]).filter(x=>x.to<=to);
- first=withSetting(planSetup('auto',true),67);second=withSetting(planSetup('auto',false,null,'Low'),67);
+ first=withSetting(planSetup('auto',true),{heat:67,cool:71});second=withSetting(planSetup('auto',false,null,'Low'),{heat:67,cool:71});
  direct=simulatePlan([{time:+r.start,setup:first}],e,r,AIR_SCENARIOS[0],rows);
  split=[{time:+r.start,setup:first},{time:+r.start+7*60000,setup:second}];
  divided=simulatePlan(split,e,r,AIR_SCENARIOS[0],rows);e.planCache=new Map();cached=evaluatePlan(split,e,r,rows);`);

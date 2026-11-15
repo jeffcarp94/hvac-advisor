@@ -1,3 +1,15 @@
+# v6.6.0 — EasyTouch RV 350 dual-temperature AUTO controls (current policy)
+
+**Actual owner settings confirmed November 15, 2026:** Auto Gas Changeover Outside Temperature Setpoint 42°F; Temperature Differential Gap HEAT 2°F and COOL 2°F. These are constants, with no user-adjustable gap UI.
+
+The Micro-Air 350 manual, *Operational Modes → Auto Modes*, documents independently programmable HEAT TO and COOL TO setpoints in both Auto Heat Pump and Auto Furnace. *Settings Screens → Temperature Gap (Hysteresis)* illustrates heating starting at HEAT TO minus the gap and ending at HEAT TO plus 1°F. The model extrapolates that heating rule to a 2°F gap. Cooling starts at COOL TO plus 2°F and, **as an explicitly labeled unverified symmetric engineering assumption**, ends at COOL TO minus 1°F. This is not a certified cooling control cycle table.
+
+Auto Heat Pump heats via the rooftop heat pump at or above the 42°F outdoor changeover setting and via propane furnace below it; Auto Furnace always heats via propane. Both select air conditioning for cooling. Their AUTO modes have no single shared midpoint.
+
+Every proposed pair uses whole degrees, with a conservative 4°F minimum between COOL TO and HEAT TO to avoid contradictory call regions. **The thermostat firmware's actual narrowest allowed spacing is not documented in the retrieved manufacturer manual; 4°F is a planning safeguard, not a claimed OEM limit.** The reference manual's example shows 68°F heat and 72°F cool. The optimizer explores independent values and verifies resulting temperature/moisture histories under all scenario tests. The exact reset hysteresis for the outdoor 42°F gas handoff remains unverified.
+
+OEM source: [Micro-Air EasyTouch RV 350 Reference Manual, Operational Modes and Temperature Gap](https://www.micro-air.com/support-documents/EasyTouchRV/EasyTouchRV_350_Manual_2.0.pdf). The older CCC2 assumptions below are historical when they conflict with this section.
+
 # v6.5.1 — Installed Micro-Air EasyTouch RV 350 and 42°F gas changeover (current policy)
 
 **Actual owner setting (2026-11-15):** The factory Dometic CCC2 thermostat display was replaced with Micro-Air EasyTouch RV 350. The thermostat setting named **Auto Gas Changeover Outside Temperature Setpoint** is **42°F**. Micro-Air's manual, *Operational Modes*, confirms distinct **Auto Heat Pump** (cooling / heat-pump heat) and **Auto Furnace** (cooling / furnace heat) modes, each with two independent heating/cooling setpoints. Its *Unique Features → Auto Gas Changeover* confirms the existing Dometic control board can replace heat-pump output with auxiliary gas heating based on the heat-pump outdoor sensor. The Micro-Air display retains the Dometic controller protocol. See [Micro-Air EasyTouch RV 350 Reference Manual, Revision 2.0](https://www.micro-air.com/support-documents/EasyTouchRV/EasyTouchRV_350_Manual_2.0.pdf) and [Dometic CCC2 Operating Instructions, Special Features → Auxiliary Heat](https://media.dometic.com/externalassets/thermostat-control-box-ccc2_64755.pdf).
