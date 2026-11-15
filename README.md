@@ -1,3 +1,11 @@
+# v6.6.0 — EasyTouch 350 independent AUTO setpoints and owner-configured gaps
+
+- Replaced the old CCC2-style single AUTO midpoint / ±2°F activation assumption. AUTO HEAT PUMP and AUTO FURNACE are modeled with two independent programmable integers: HEAT TO and COOL TO, displayed explicitly in proposed plans and instructions.
+- Owner-confirmed fixed Temperature Differential Gap values: HEAT 2°F, COOL 2°F. These are engineering constants in the model, not user inputs. The model starts heating at HEAT TO minus 2°F and ends near HEAT TO plus 1°F. Cooling starts at COOL TO plus 2°F and ends near COOL TO minus 1°F. Micro-Air's reference manual explicitly illustrates heating termination; cooling termination is inferred by symmetry, and remains unverified for the actual equipment.
+- Optimizer searches independent heat/cool pairs. The Advisor enforces at least 4°F between COOL TO and HEAT TO as a conservative planning guardrail, not a manufacturer-published firmware constraint. Micro-Air illustrates 68°F heat / 72°F cool but does not document its minimum accepted separation.
+- AUTO FURNACE is a distinct modeled mode; AUTO HEAT PUMP continues to honor the configured 42°F LP-furnace outdoor changeover. The new PWA version invalidates the old cached application. Historical notes below are superseded where they refer to a shared AUTO midpoint.
+- OEM reference: [Micro-Air EasyTouch RV 350 Reference Manual, Operational Modes and Temperature Gap (Hysteresis)](https://www.micro-air.com/support-documents/EasyTouchRV/EasyTouchRV_350_Manual_2.0.pdf).
+
 # v6.5.1 — Micro-Air EasyTouch 350 thermostat and owner-selected 42°F gas changeover
 
 - **Installed control:** Micro-Air EasyTouch RV 350 replaced the factory Dometic CCC2 display. On November 15, 2026 the owner set **Auto Gas Changeover Outside Temperature Setpoint** to **42°F**.
