@@ -182,7 +182,7 @@ function weather(url){
   assert.ok(await page.locator('#planCard .plan-step').count()>=preparationResult.actions);
   const preparationText=await page.locator('#results').innerText();
   assert.match(preparationText,/sleeping 67°F/);assert.match(preparationText,/awake or unoccupied 71°F/);
-  assert.match(preparationText,/without manual changes or automatic furnace backup/);
+  assert.match(preparationText,/without manual changes\. AUTO HEAT PUMP may use the propane furnace below the 42°F gas-changeover setting/);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
   await page.screenshot({path:path.join(screens,'cooling-preparation-heat-pump.png'),fullPage:true});
   assert.deepEqual(errors,[]);await context.close();
@@ -194,7 +194,7 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.5.0'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.5.1'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
