@@ -21,7 +21,7 @@ function app(){
         fetch:async()=>{throw new Error('Unexpected network request');}});
     const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
     vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],ctx);
-    for(const [id,value] of Object.entries({occupancyMode:'staying',planningMode:'now',dehumidifierMode:'enabled',actualMode:'passive',actualFan:'Auto',actualVent:'1',actualSetpoint:'72'}))getElement(id).value=value;
+    for(const [id,value] of Object.entries({occupancyMode:'staying',planningMode:'now',dehumidifierMode:'enabled',actualMode:'passive',actualFan:'Auto',actualVent:'1',actualSetpoint:'72',actualHeatSetpoint:'68',actualCoolSetpoint:'72'}))getElement(id).value=value;
     return{ctx,run:source=>vm.runInContext(source,ctx),element:getElement,setNow:date=>clock=Date.parse(date),listeners};
 }
 function fixture(a,{zone='America/Chicago',temp=50,rh=50}={}){
