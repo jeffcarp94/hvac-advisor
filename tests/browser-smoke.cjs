@@ -182,7 +182,7 @@ function weather(url){
   assert.ok(await page.locator('#planCard .plan-step').count()>=preparationResult.actions);
   const preparationText=await page.locator('#results').innerText();
   assert.match(preparationText,/sleeping 67°F/);assert.match(preparationText,/awake or unoccupied 71°F/);
-  assert.match(preparationText,/without manual changes\. AUTO HEAT PUMP may use the propane furnace below the 42°F gas-changeover setting/);
+  assert.match(preparationText,/without manual changes\. AUTO HEAT PUMP can use LP furnace backup below 42°F/);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
   await page.screenshot({path:path.join(screens,'cooling-preparation-heat-pump.png'),fullPage:true});
   assert.deepEqual(errors,[]);await context.close();
