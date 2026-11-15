@@ -159,9 +159,7 @@ function weather(url){
     full:result.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+end),
     warning:result.winner.trials.some(t=>t.condensationConcern)};
   },moistureFixture);
-  // A historic CCC2 plan can fail the new EasyTouch 2°F-gap comfort constraints.
-   if(advisoryResult.suitable)assert.equal(advisoryResult.ready&&advisoryResult.full,true);
-   assert.equal(advisoryResult.warning,true);
+  assert.equal(advisoryResult.suitable,true);assert.equal(advisoryResult.ready,true);assert.equal(advisoryResult.full,true);assert.equal(advisoryResult.warning,true);
   await page.locator('#planCard').waitFor({state:'visible'});
   const advisoryText=await page.locator('#results').innerText();
   assert.match(advisoryText,/Possible window moisture — advisory only/i);assert.match(advisoryText,/dew point/);

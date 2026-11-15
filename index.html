@@ -725,7 +725,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
         if(op==='maxxfan'&&tOut>=tInPrev-1e-8)return{...pass,safe:false,issueCode:'outside-hot',category:'comfort',categoryLabel:'Would import heat',reason:'Open-window ventilation would import heat during the interval',detail:'Outdoor air is at least as warm as cabin air while the fan is called.'};
         return pass;
     }
-    if(op==='ac')return coolingPolicy(tInPrev,tOut,rh,isAutoMode(candidateType)?setpoints.cool:setpoints.cool,fan,operating?.indoorDP);
+    if(op==='ac')return coolingPolicy(tInPrev,tOut,rh,setpoints.cool,fan,operating?.indoorDP);
     if(op==='hp'){
         const p=heatPumpPolicy(tOut,rh,isOvernight);
         return{...pass,...p,detail:p.reason,requiredFan:fan};
@@ -1240,8 +1240,8 @@ function settingValues(setup){
         // Bounded search over independent integer controls, not a CCC2 midpoint.
         // The four-degree spacing is conservative; firmware minimum is unverified.
         const values=[],seen=new Set(),h0=setup.setpoints.heat,c0=setup.setpoints.cool;
-        const heats=[h0,h0-1,h0+1,h0-2,h0+2,policy.target-2,policy.target];
-        const cools=[c0,c0-1,c0+1,c0-2,c0+2,policy.target+2,policy.target+4];
+        const heats=[h0,h0-1,h0+1,h0-2,h0+2,policy.target-5,policy.target-4,policy.target-3,policy.target-2,policy.target];
+        const cools=[c0,c0-1,c0+1,c0-2,c0+2,policy.target-1,policy.target,policy.target+2,policy.target+4];
         for(const heat of heats)for(const cool of cools){
             const pair={heat,cool},key=heat+'|'+cool;
             if(!seen.has(key)&&validDualSetpoints(pair)){values.push(pair);seen.add(key);}
@@ -2220,8 +2220,11 @@ function* searchPlans(envelope,request){
             }
             // Heating overnight may require an independent cooling preparation stage.
             if(!found&&['hp','furnace'].includes(night.type)&&bounds.bedtime){
-                for(const fan of ['Low','Medium','High']){
-                    const cool=planSetup('ac',true,null,fan);
+                for(const fan of ['Low','Medium','High'])for(const coolingSet of [C.nightCoolDefault,C.nightCoolDefault-1,C.nightCoolDefault-2,C.nightCoolDefault-3]){
+                    if(found)break;
+                    // Front control can need a lower setting to prepare the bedroom.
+                    // Verify each setting and transition through the entire night.
+                    const cool=withSetting(planSetup('ac',true,null,fan),coolingSet);
                     if(!setupChangeAllowed(cool,night,+bounds.bedtime,request))continue;
                     const coolingTimes=new Set([+request.start]);
                     for(let time=+bounds.bedtime-PLAN.searchMinutes*60000;time>+request.start;time-=PLAN.searchMinutes*60000)coolingTimes.add(time);
@@ -2330,7 +2333,7 @@ function periodComparisons(result,days,nights,rows){
         const end=current?current.reviewAt:winner.setup.sleepComfort?+request.start:next?.time??+bounds.bedtime;
         if(end>+request.start&&(winner.suitable||current)){
             const dayRows=planRows(envelope,request,.5,[end]).filter(row=>row.to<=end);
-            const candidates=[],setups=days.flatMap(base=>['ac','hp','auto'].includes(base.type)?['Auto','Low','Medium','High'].map(fan=>planSetup(base.type,false,base.config,fan)):[base]);
+            const candidates=[],setups=days.flatMap(base=>['ac','hp','auto','auto_furnace'].includes(base.type)?['Auto','Low','Medium','High'].map(fan=>planSetup(base.type,false,base.config,fan)):[base]);
             for(const setup of setups){
                 const available=request.occupancy!=='away'||setupChangeAllowed(request.actual,setup,+request.start,request);
                 const p=stagePlan([],setup,+request.start,end,envelope,request,dayRows);

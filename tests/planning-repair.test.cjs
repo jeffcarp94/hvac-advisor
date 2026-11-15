@@ -36,10 +36,10 @@ test('sleep forbids later thermostat or physical changes even when remote contro
 });
 test('AUTO readiness accepts normal cycling only after cooling target has been reached',()=>{
  const a=app();load(a,require('./fixtures/winterset-planning-regressions.json')[0]);
- a.run(`p=simulatePlan([{time:+r.start,setup:planSetup('auto',true)}],e,r);`);
+ a.run(`p=simulatePlan([{time:+r.start,setup:withSetting(planSetup('auto',true),{heat:62,cool:66})}],e,r);`);
  assert.equal(a.run('p.ready'),true);
  assert.ok(a.run('p.trace.some(p=>p.bedroom<=68.5)'));
- a.run(`late=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+planBounds(r.start).bedtime,setup:planSetup('auto',true)}],e,r);`);
+ a.run(`late=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+planBounds(r.start).bedtime,setup:withSetting(planSetup('auto',true),{heat:62,cool:66})}],e,r);`);
  assert.equal(a.run('late.ready'),false);
 });
 test('preparation search checks a fine-grid timing island after coarse proposals fail',()=>{
@@ -48,7 +48,7 @@ test('preparation search checks a fine-grid timing island after coarse proposals
  // A synthetic narrow readiness window supplies a non-monotonic timing oracle;
  // real temperature, humidity and equipment checks must still pass inside it.
  a.run(`AIR_SCENARIOS.splice(3);island=+planBounds(r.start,r).bedtime-15*60000;
- planSetups=sleep=>[withSetting(planSetup(sleep?'auto':'ac',sleep,null,'Low'),sleep?{heat:67,cool:71}:71)];
+ planSetups=sleep=>[withSetting(planSetup(sleep?'auto':'ac',sleep,null,'Low'),sleep?{heat:62,cool:66}:71)];
  optimizePhase=plan=>plan;shortlistVents=()=>[];
  originalSimulate=simulatePlan;simulatePlan=(...args)=>{
   const p=originalSimulate(...args),sleepPhase=args[0].find(phase=>phase.setup.sleepComfort);
@@ -66,6 +66,6 @@ test('planner searches separate COOL preparation followed by an overnight heatin
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
  assert.equal(a.run("result.plans.some(p=>p.suitable&&p.ready&&p.phases.length===3&&p.phases[1].setup.type==='ac'&&['hp','furnace'].includes(p.nightType))"),true);
  assert.equal(a.run('result.winner.trials.every(t=>+t.trace.at(-1).time===+e.windowEnd)'),true);
- assert.match(a.run('html'),/without manual changes\. AUTO HEAT PUMP may use the propane furnace below the 42°F gas-changeover setting/);
+ assert.match(a.run('html'),/without manual changes\. AUTO HEAT PUMP can use LP furnace backup below 42°F/);
 });
 
