@@ -958,7 +958,8 @@ function setupForMode(type,setpoints,fan,isOvernight,variant){
     if(type==='furnace')return 'Select FURNACE at '+setpoints.heat+'°F. Set the roof fan to AUTO (roof fan off in Furnace mode); the furnace blower operates automatically. Close windows and MaxxFans.';
     const mode=type==='auto'?'AUTO HEAT PUMP':type==='ac'?'COOL':'HEAT PUMP';
     const sp=type==='auto'?setpoints.auto:type==='ac'?setpoints.cool:setpoints.heat;
-    let text='Select '+mode+' at '+sp+'°F. Set fan to '+(fan||'Auto').toUpperCase()+' for the whole interval. '+(fan==='Auto'?'Auto cycles and may slow to Low near setpoint. ':'The selected fixed fan runs continuously. ')+'Close windows and MaxxFans.';
+    let text=(type==='auto'?'Select AUTO HEAT PUMP. The Advisor models a legacy '+sp+'°F midpoint, but your EasyTouch 350 requires separate HEAT TO and COOL TO setpoints; neither has been independently optimized here. Verify both actual settings before using this approximate AUTO plan. ':'Select '+mode+' at '+sp+'°F. ')
+        +'Set fan to '+(fan||'Auto').toUpperCase()+' for the whole interval. '+(fan==='Auto'?'Auto cycles and may slow to Low near setpoint. ':'The selected fixed fan runs continuously. ')+'Close windows and MaxxFans.';
     if(type==='auto'||type==='hp')text+=' Automatic gas changeover uses the propane furnace for heating below '+C.heatPumpMinTemp+'°F.';
     if(type==='auto'||type==='ac')text+=' Keep a clean filter and at least two distribution vents open, or quick-cool plus one distribution vent; do not obstruct airflow.';
     return text;
@@ -1059,7 +1060,7 @@ function comparisonExplanation(c,winner,setpoints,end,isOvernight,current=false,
     const didHeat=c.autoDidHeat??c.didHeat,didCool=c.autoDidCool??c.didCool;
     let text='';
     if(!c.suitable||c.capacityCool||c.capacityHeat)text=temperatureIssue(c,setpoints,end).text;
-    else if(mode==='auto')text='Set AUTO to '+set+'°F; it switches between heating and cooling as needed.';
+    else if(mode==='auto')text='AUTO HEAT PUMP alternates between cooling and heating as needed; '+set+'°F is an Advisor modeling midpoint, not a directly programmable EasyTouch AUTO setpoint. Its separate heating/cooling settings require independent verification.';
     else if(mode==='furnace'||mode==='hp'){
         const source=mode==='furnace'?'propane heat':'the heat pump';
         if(!didHeat)text='Heating is not needed during this period at a set point of '+set+'°F.';
@@ -2342,6 +2343,7 @@ function planActionText(phase,request){
     const setup=phase.setup;
     if(setup.type==='maxxfan'||setup.type==='passive'&&setup.config)return 'Keep the verified '+escapeHTML(setupName(setup))+' setup unchanged. No window or MaxxFan adjustment is required.';
     const mode={ac:'COOL',hp:'HEAT PUMP',furnace:'FURNACE',auto:'AUTO HEAT PUMP',passive:'OFF'}[setup.type],sp=setup.type==='auto'?setup.setpoints.auto:setup.type==='ac'?setup.setpoints.cool:setup.setpoints.heat;
+    if(setup.type==='auto')return 'In the Micro-Air app, select AUTO HEAT PUMP and verify its separate HEAT TO and COOL TO values. The Advisor\'s '+sp+'°F modeled midpoint is not a single programmable AUTO setting. Keep the verified window and MaxxFan arrangement unchanged.';
     return 'In the remote thermostat app, select '+mode+(setup.type==='passive'?'':' at '+sp+'°F with '+setup.fan+' fan')+'. Keep the verified physical window and MaxxFan arrangement unchanged.';
 }
 function traceRange(plan,from,to,field){const v=plan.trials.flatMap(t=>t.trace.filter(p=>+p.time>=from&&+p.time<=to).map(p=>p[field]));return v.length?Math.min(...v).toFixed(1)+'–'+Math.max(...v).toFixed(1):'—';}
