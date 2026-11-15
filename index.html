@@ -1221,15 +1221,26 @@ function frontMetrics(trials,from=-Infinity,to=Infinity){
 }
 function compareFront(a,b){return typeof a.frontFits==='boolean'&&typeof b.frontFits==='boolean'?Number(!a.frontFits)-Number(!b.frontFits):0;}
 function withSetting(setup,value){
-    const field=setup.type==='auto'?'auto':setup.type==='ac'?'cool':setup.type==='maxxfan'?'fan':'heat';
-    const setpoints={...setup.setpoints,[field]:value};
+    const field=setup.type==='ac'?'cool':setup.type==='maxxfan'?'fan':'heat';
+    const setpoints=isAutoMode(setup.type)?{...setup.setpoints,heat:value.heat,cool:value.cool}:{...setup.setpoints,[field]:value};
+    if(isAutoMode(setup.type)&&!validDualSetpoints(setpoints))throw new Error('Unprogrammable EasyTouch dual setpoint pair.');
     return{...setup,setpoints,key:[setup.type,setup.sleepComfort,setup.fan,JSON.stringify(setpoints),setupPhysicalKey(setup)].join('|')};
 }
 function settingValues(setup){
     if(setup.type==='passive')return [];
     const policy=comfortPolicy(setup.sleepComfort);
-    // CCC2 manual p.9: heat 40–90°F; cooling 55–90°F. AUTO respects cooling minimum.
-    // MaxxFan candidates use the room comfort interval, not a fictitious roof-AC mode.
+    if(isAutoMode(setup.type)){
+        // Bounded search over independent integer controls, not a CCC2 midpoint.
+        // The four-degree spacing is conservative; firmware minimum is unverified.
+        const values=[],seen=new Set(),h0=setup.setpoints.heat,c0=setup.setpoints.cool;
+        const heats=[h0,h0-1,h0+1,h0-2,h0+2,policy.target-2,policy.target];
+        const cools=[c0,c0-1,c0+1,c0-2,c0+2,policy.target+2,policy.target+4];
+        for(const heat of heats)for(const cool of cools){
+            const pair={heat,cool},key=heat+'|'+cool;
+            if(!seen.has(key)&&validDualSetpoints(pair)){values.push(pair);seen.add(key);}
+        }
+        return values;
+    }
     const low=setup.type==='maxxfan'?policy.low:['hp','furnace'].includes(setup.type)?40:55;
     const high=setup.type==='maxxfan'?policy.high:90;
     return Array.from({length:high-low+1},(_,i)=>low+i);
@@ -1237,8 +1248,8 @@ function settingValues(setup){
 function optimizePhase(plan,index,envelope,request,rows,from=+request.start,to=+planBounds(request.start,request).end,stageEvaluate=null){
     const base=plan.phases[index].setup,values=settingValues(base);if(!values.length)return plan;
     if(plan.trials.some(t=>t.failureTime!=null&&t.failureTime<plan.phases[index].time))return plan;
-    const field=base.type==='auto'?'auto':base.type==='ac'?'cool':base.type==='maxxfan'?'fan':'heat';
-    const candidates=values.filter(v=>v!==base.setpoints[field]);
+    const field=base.type==='ac'?'cool':base.type==='maxxfan'?'fan':'heat';
+    const candidates=values.filter(v=>isAutoMode(base.type)?v.heat!==base.setpoints.heat||v.cool!==base.setpoints.cool:v!==base.setpoints[field]);
     const coarseRows=planRows(envelope,request,3,[from,to,...plan.phases.map(p=>p.time)]).filter(row=>row.to<=to);
     const screened=candidates.map(value=>{
         const phases=plan.phases.map((p,i)=>i===index?{...p,setup:withSetting(base,value)}:p);
@@ -1277,7 +1288,8 @@ function frontOutlook(trials,from,to){
     return '<p class="hint"><strong>Dinette comfort differs:</strong> predicted '+Math.min(...points.map(p=>p.midCoach)).toFixed(1)+'–'+Math.max(...points.map(p=>p.midCoach)).toFixed(1)+'°F. Bed-area comfort is prioritized; the dinette leaves the applicable comfort band.</p>';
 }
 
-function confirmedSetpoints(isOvernight){const heat=isOvernight?C.nightHeatDefault:C.dayHeatDefault,cool=isOvernight?C.nightCoolDefault:C.dayCoolDefault;return{heat,cool,auto:(heat+cool)/2,fan:cool};}
+function confirmedSetpoints(isOvernight){const heat=isOvernight?C.nightHeatDefault:C.dayHeatDefault,cool=isOvernight?C.nightCoolDefault:C.dayCoolDefault;return{heat,cool,fan:cool};}
+function autoSeedSetpoints(isOvernight){const target=comfortPolicy(isOvernight).target;return{heat:target-2,cool:target+2,fan:target+2};}
 function currentTargets(now){return confirmedSetpoints(localParts(now).hour>=22||localParts(now).hour<7);}
 function targetDescription(now=new Date()){const p=currentTargets(now);return 'Current targets: heat '+p.heat+'°F / cool '+p.cool+'°F';}
 function openingArea(section,gap){
@@ -1591,7 +1603,7 @@ function modelCandidate(type,envelope,overnight,sp,meta,start,options={}){
 }
 function eligibilityRank(c){return c.suitable?0:c.equipmentEligible&&c.moistureEligible?1:c.equipmentEligible?2:3;}
 function compareCandidates(a,b){return eligibilityRank(a)-eligibilityRank(b)||compareFront(a,b)||compareTarget(a,b)||a.score-b.score||modePreference(a)-modePreference(b);}
-function modePreference(c){return({passive:0,maxxfan:1,ac:2,hp:3,furnace:4,auto:5})[c.type];}
+function modePreference(c){return({passive:0,maxxfan:1,ac:2,hp:3,furnace:4,auto:5,auto_furnace:6})[c.type];}
 function qualifyAcrossScenarios(candidate,envelope,overnight,sp,meta,start,rows,context={}){
     const trials=AIR_SCENARIOS.slice(1).map(scenario=>modelCandidate(candidate.type,envelope,overnight,sp,meta,start,{scenario,rows,config:candidate.config,...context}));
     candidate.scenarioResults=[candidate,...trials].map(c=>({suitable:c.suitable,moistureEligible:c.moistureEligible,comfortEligible:c.comfortEligible,equipmentEligible:c.equipmentEligible,heatMinutes:c.heatMinutes,coolMinutes:c.coolMinutes,finalIndoor:c.finalIndoor}));
@@ -1721,15 +1733,17 @@ function planningBounds(start){
 }
 function isAwayAt(request,time){return request.occupancy!=='staying'&&time>=+request.departure&&time<+request.returnTime;}
 function planSetup(type,sleep,config=null,fan=null){
-    const setpoints=confirmedSetpoints(sleep);
-    return{type,setpoints,config,fan:fan||(type==='ac'||type==='auto'?sleep?'Low':'Auto':'Auto'),sleepComfort:sleep,
-        key:[type,sleep,config?.fanZone,config?.gaps.join(','),fan].join('|')};
+    const setpoints=isAutoMode(type)?autoSeedSetpoints(sleep):confirmedSetpoints(sleep);
+    if(isAutoMode(type)&&!validDualSetpoints(setpoints))throw new Error('Invalid initial EasyTouch dual setpoints.');
+    return{type,setpoints,config,fan:fan||(type==='ac'||isAutoMode(type)?sleep?'Low':'Auto':'Auto'),sleepComfort:sleep,
+        key:[type,sleep,config?.fanZone,config?.gaps.join(','),fan,JSON.stringify(setpoints)].join('|')};
 }
 function setupPhysicalKey(setup){return setup.config?'windows:'+setup.config.gaps.join(',')+';vent:'+(setup.type==='maxxfan'?setup.config.fanZone:'off'):'closed';}
 function sameSetup(a,b){
     if(a.type!==b.type||setupPhysicalKey(a)!==setupPhysicalKey(b))return false;
     if(a.type==='passive')return true;
-    const field=a.type==='auto'?'auto':a.type==='ac'?'cool':a.type==='maxxfan'?'fan':'heat';
+    if(isAutoMode(a.type))return a.setpoints.heat===b.setpoints.heat&&a.setpoints.cool===b.setpoints.cool&&a.fan===b.fan;
+    const field=a.type==='ac'?'cool':a.type==='maxxfan'?'fan':'heat';
     return a.setpoints[field]===b.setpoints[field]&&a.fan===b.fan;
 }
 function setupChangeAllowed(from,to,time,request){
@@ -1885,7 +1899,7 @@ function currentRecommendation(envelope,request,plans){
     const rows=planRows(envelope,request,.5,[reviewAt]).filter(row=>row.to<=reviewAt),setups=new Map();
     for(const plan of plans)setups.set(plan.setup.key,plan.setup);
     for(const setup of planSetups(bounds.sleep))setups.set(setup.key,setup);
-    for(const type of ['ac','hp','auto'])for(const fan of ['Low','Medium','High']){const setup=planSetup(type,bounds.sleep,null,fan);setups.set(setup.key,setup);}
+    for(const type of ['ac','hp','auto','auto_furnace'])for(const fan of ['Low','Medium','High']){const setup=planSetup(type,bounds.sleep,null,fan);setups.set(setup.key,setup);}
     const candidates=[];
     for(const setup of setups.values()){
         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,setup,+request.start,request))continue;
@@ -1904,7 +1918,7 @@ function currentRecommendation(envelope,request,plans){
     }
     return current;
 }
-function planSetups(sleep,vents=[]){return ['passive','ac','hp','furnace','auto'].map(t=>planSetup(t,sleep)).concat(vents.map(c=>planSetup('maxxfan',sleep,c)));}
+function planSetups(sleep,vents=[]){return ['passive','ac','hp','furnace','auto','auto_furnace'].map(t=>planSetup(t,sleep)).concat(vents.map(c=>planSetup('maxxfan',sleep,c)));}
 function shortlistVents(envelope,request,sleep){
     if(request.occupancy==='away')return request.actual.type==='maxxfan'?[request.actual.config]:[];
     const bounds=planBounds(request.start,request),limit=!sleep&&bounds.bedtime?+bounds.bedtime:Infinity;
@@ -1932,7 +1946,7 @@ function repairPlanFans(plan,envelope,request,rows){
     // Each trial always restarts at the measured state; no mid-simulation fan-speed magic.
     if(plan.trials.every(t=>t.equipmentEligible))return plan;
     for(const fan of ['Medium','High']){
-        const phases=plan.phases.map(p=>({time:p.time,setup:['ac','auto'].includes(p.setup.type)?{...p.setup,fan,key:p.setup.key+'|'+fan}:p.setup}));
+        const phases=plan.phases.map(p=>({time:p.time,setup:['ac','auto','auto_furnace'].includes(p.setup.type)?{...p.setup,fan,key:p.setup.key+'|'+fan}:p.setup}));
         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))continue;
         const next=evaluatePlan(phases,envelope,request,rows);
         if(next.trials.every(t=>t.equipmentEligible))return next;
@@ -1941,7 +1955,7 @@ function repairPlanFans(plan,envelope,request,rows){
     return plan;
 }
 function stageSetups(sleep,vents){
-    return planSetups(sleep,vents).flatMap(base=>['ac','auto','hp'].includes(base.type)?
+    return planSetups(sleep,vents).flatMap(base=>['ac','auto','auto_furnace','hp'].includes(base.type)?
         ['Auto','Low','Medium','High'].map(fan=>planSetup(base.type,sleep,base.config,fan)):[base]);
 }
 function stageSummary(plan,from,to){
@@ -2111,7 +2125,7 @@ function* searchPlans(envelope,request){
         // attempts before its setting has even been considered. These are seeds;
         // every retained connected sequence is still fully verified below.
         const daytime=days.map(base=>{
-            const fans=['ac','hp','auto'].includes(base.type)?['Auto','Low','Medium','High']:[base.fan];
+            const fans=['ac','hp','auto','auto_furnace'].includes(base.type)?['Auto','Low','Medium','High']:[base.fan];
             return fans.map(fan=>{
                 const setup={...base,fan,key:base.key+'|'+fan};
                 const original=stagePlanRaw([],setup,+request.start,+bounds.bedtime,envelope,request,rows);original.ready=true;
@@ -2124,7 +2138,7 @@ function* searchPlans(envelope,request){
         days=daytime.map(p=>p.setup);
         const prefix=daytime.slice().sort(comparePlans)[0].phases;
         nights=nights.map(setup=>{
-            const fans=['ac','hp','auto'].includes(setup.type)?['Auto','Low','Medium','High']:[setup.fan];
+            const fans=['ac','hp','auto','auto_furnace'].includes(setup.type)?['Auto','Low','Medium','High']:[setup.fan];
             return fans.map(fan=>stagePlan(prefix,{...setup,fan,key:setup.key+'|'+fan},+bounds.bedtime,+bounds.end,envelope,request,rows))
                 .sort(comparePlans)[0].setup;
         });
@@ -2139,7 +2153,7 @@ function* searchPlans(envelope,request){
     }
     if(!bounds.bedtime){
         for(const base of days){
-            const fans=['ac','hp','auto'].includes(base.type)?['Auto','Low','Medium','High']:[base.fan];
+            const fans=['ac','hp','auto','auto_furnace'].includes(base.type)?['Auto','Low','Medium','High']:[base.fan];
             for(const fan of fans){
                 const setup={...base,fan,key:base.key+'|'+fan};
                 const p=repairPlanFans(evaluatePlan([{time:+request.start,setup}],envelope,request,rows),envelope,request,rows);
@@ -2318,7 +2332,7 @@ function periodComparisons(result,days,nights,rows){
     }else if(winner.suitable&&winner.ready){
         const from=+bounds.bedtime,prefix=winner.phases.filter(p=>p.time<from),candidates=[];
         for(const base of nights){
-            const fans=['ac','auto','hp'].includes(base.type)?['Auto','Low','Medium','High']:[base.fan];
+            const fans=['ac','auto','auto_furnace','hp'].includes(base.type)?['Auto','Low','Medium','High']:[base.fan];
             for(const fan of fans){
                 const setup={...base,fan,key:base.key+'|'+fan};
                 let plan=evaluatePlan([...prefix,{time:from,setup}],envelope,request,rows);
