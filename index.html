@@ -1901,9 +1901,9 @@ function compareRecovery(a,b){
 }
 function recoveryNotice(info){
     if(!info)return '';
-    const action=info.direction==='heating'?'Warming':'Cooling';
+    const action=info.progress<=0&&!info.complete?(info.direction==='heating'?'Heating assistance for':'Cooling assistance for'):info.direction==='heating'?'Warming':'Cooling';
     const text=info.complete?'Estimated time to enter the acceptable comfort band: up to '+info.minutes+' minutes across the tested scenarios.':
-        'Recovery is still in progress at '+formatTime(new Date(info.through))+'. Predicted bedroom temperature: '+info.finalLow.toFixed(1)+'–'+info.finalHigh.toFixed(1)+'°F. The comfort target is not reached in every scenario during this interval; continue the recommended HVAC and refresh readings in 30 minutes.';
+        (info.progress>0?'Recovery is still in progress at ':'The target is not reached at ')+formatTime(new Date(info.through))+'. Predicted bedroom temperature: '+info.finalLow.toFixed(1)+'–'+info.finalHigh.toFixed(1)+'°F. The comfort target is not reached in every scenario during this interval; continue the recommended HVAC and refresh readings in 30 minutes.';
     return '<div class="mitigation-box"><strong>'+action+' the RV from '+info.initial.toFixed(1)+'°F</strong>'+escapeHTML(text)+'</div>';
 }
 function planFromTrials(phases,trials,envelope,request){
@@ -2174,14 +2174,14 @@ function recoveryAction(envelope,request){
         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,setup,+request.start,request))continue;
         const trials=AIR_SCENARIOS.map(s=>simulatePlan([{time:+request.start,setup}],envelope,request,s,rows,null,false,true));
         if(!trials.every((t,i)=>t.equipmentEligible&&t.moistureEligible&&(cold?t.finalIndoor>baseline[i].finalIndoor:t.finalIndoor<baseline[i].finalIndoor)))continue;
-        candidates.push({setup,recoveryInfo:recoverySummary(trials),reviewAt,limited:true});
+        candidates.push({setup,recoveryInfo:recoverySummary(trials),reviewAt,limited:true,request});
     }
     candidates.sort((a,b)=>compareRecovery(a,b)||modePreference(a.setup)-modePreference(b.setup));
     return candidates[0]||null;
 }
 function recoveryActionHTML(action){
     if(!action)return '';
-    return '<div class="mitigation-box"><strong>Start temperature recovery now</strong><p>'+escapeHTML(setupName(action.setup)+': '+setupInstructions(action.setup))+'</p><p>This improves the predicted temperature compared with leaving HVAC off. A complete comfort plan has not passed; available capacity or later conditions may prevent reaching or maintaining the target. Refresh both readings by '+escapeHTML(formatTime(new Date(action.reviewAt)))+' and rebuild the plan.</p></div>'+recoveryNotice(action.recoveryInfo);
+    return '<div class="mitigation-box"><strong>Start temperature recovery '+(action.request.future?'at the planned start':'now')+'</strong><p>'+escapeHTML(setupName(action.setup))+': '+planActionText({time:+action.request.start,setup:action.setup},action.request)+'</p><p>This improves the predicted temperature compared with leaving HVAC off. A complete comfort plan has not passed; available capacity or later conditions may prevent reaching or maintaining the target. Refresh both readings by '+escapeHTML(formatTime(new Date(action.reviewAt)))+' and rebuild the plan.</p></div>'+recoveryNotice(action.recoveryInfo);
 }
 function* searchPlansCore(envelope,request){
     validatePlanRequest(request);envelope.planCache=new Map();
@@ -2373,7 +2373,7 @@ function runUnifiedPlan(request,envelope=null){
 // including its carried heat, water and exposure counters in every scenario.
 function periodComparisons(result,days,nights,rows){
     const {winner,bounds,request,envelope,current}=result,output={day:null,night:null};
-    const summarize=(plan,from,to)=>({...targetMetrics(plan.trials,from,to),setup:plan.setup,suitable:plan.suitable&&plan.ready,
+    const summarize=(plan,from,to)=>({...targetMetrics(plan.trials,from,to),recoveryInfo:recoverySummary(plan.trials),setup:plan.setup,suitable:plan.suitable&&plan.ready,
         idle:plan.trials.every(t=>!t.segments.some(s=>s.startMs>=from&&s.startMs<to&&s.duty>0&&['ac','hp','furnace'].includes(s.operation))),
         reason:plan.reason,score:plan.score,bedroom:traceRange(plan,from,to,'bedroom'),
         humidity:traceRange(plan,from,to,'rh'),front:traceRange(plan,from,to,'midCoach')});
@@ -2433,8 +2433,8 @@ function renderPeriodComparisons(period,night=false){
         const list=options.filter(p=>p.suitable===viable);
         html+='<details class="diag-panel"><summary>'+escapeHTML(title)+'</summary>';
         html+=list.length?list.map(p=>'<div class="comparison-row"><div class="comparison-name">'+escapeHTML(setupName(p.setup))+'</div><div class="comparison-text">'+
-            escapeHTML(viable?'Passes temperature, moisture and equipment checks in all tested scenarios for this interval. '+
-                (p.idle?'No active heating or cooling is predicted with this setting. ':isAutoMode(p.setup.type)?'AUTO can maintain acceptable conditions, but is not required by the recommended plan. ':'')+(period.recommended?(night?'The displayed overnight recommendation was selected within the complete plan.':'The displayed daytime recommendation was selected within the complete plan; this alternative passes only the stated interval.'):'No complete plan has been recommended; this option passes only the stated interval.'):p.reason||'Does not pass this interval’s checks.')+'</div>'+
+            escapeHTML(viable?(p.recoveryInfo?.complete===false?'Equipment and moisture checks pass; initial temperature recovery is still incomplete. ':'Passes temperature, moisture and equipment checks, allowing initial recovery, in all tested scenarios for this interval. ')+
+                (p.idle?'No active heating or cooling is predicted with this setting. ':isAutoMode(p.setup.type)&&p.recoveryInfo?.complete!==false?'AUTO can maintain acceptable conditions, but is not required by the recommended plan. ':'')+(period.recommended?(night?'The displayed overnight recommendation was selected within the complete plan.':'The displayed daytime recommendation was selected within the complete plan; this alternative passes only the stated interval.'):'No complete plan has been recommended; this option passes only the stated interval.'):p.reason||'Does not pass this interval’s checks.')+'</div>'+
             (viable?'<div class="comparison-range">'+escapeHTML(setupInstructions(p.setup))+'</div><p class="hint">Bedroom: '+escapeHTML(p.bedroom)+'°F · '+escapeHTML(p.humidity)+'% RH.<br>Dinette: '+escapeHTML(p.front)+'°F.'+(p.frontFits===false?' The dinette leaves its comfort band; the bed area takes priority.':'')+'</p>':'')+'</div>').join(''):'<p class="hint">None for this interval.</p>';
         html+='</details>';
     }
@@ -2488,7 +2488,7 @@ function renderPlan(result){
         if(current.natural)html+='<div class="mitigation-box"><strong>Active heating is not needed</strong>'+(current.natural.minutes===0?'Both zones are already in the acceptable daytime comfort band.':'Natural recovery is expected to reach the acceptable daytime comfort band within '+current.natural.minutes+' minutes, by approximately '+escapeHTML(formatTime(current.natural.time))+'.')+'</div>';
         html+=step('What to do '+(request.future?'at the start':'now'),formatStamp(bounds.start),planActionText({time:+bounds.start,setup:current.setup},request));
         html+=frontOutlook(current.trials,+bounds.start,current.reviewAt)+renderPeriodComparisons(result.comparisons?.day);
-        html+=step('Next action — refresh readings',formatTime(new Date(current.reviewAt)),'Refresh both temperature and humidity readings and build a new plan. This setup passes the temperature, moisture and equipment checks until this review time in all tested scenarios.'+(request.occupancy==='leaving'&&current.reviewAt===+request.departure?' Reassess before leaving; this current recommendation does not cover your absence.':''));
+        html+=step('Next action — refresh readings',formatTime(new Date(current.reviewAt)),'Refresh both temperature and humidity readings and build a new plan. This setup passes the equipment and moisture checks and allows initial temperature recovery until this review time in all tested scenarios.'+(request.occupancy==='leaving'&&current.reviewAt===+request.departure?' Reassess before leaving; this current recommendation does not cover your absence.':''));
         html+=currentOutlook(current,bounds);
     }else if(!safe){
         html+='<div class="result-primary">'+(result.recoveryAction?'Comfort recovery needs reassessment':'No suitable current setup')+'</div><p class="hint">'+escapeHTML(p.reason)+'</p><p class="hint">No current setup passes the checks. Refresh both readings and review the operating or moisture concerns below.</p>';
@@ -2606,7 +2606,7 @@ async function analyze(){
         }
         if(revision!==planRevision)return;lastPlan=result;
         const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
-        const futureActions=[...(result.current?[result.current.reviewAt]:result.winner.phases.slice(1).map(p=>p.time)),request.departure&&+request.departure,request.returnTime&&+request.returnTime].filter(t=>t>Date.now());
+        const futureActions=[...(result.recoveryAction?[result.recoveryAction.reviewAt]:[]),...(result.current?[result.current.reviewAt]:result.winner.phases.slice(1).map(p=>p.time)),request.departure&&+request.departure,request.returnTime&&+request.returnTime].filter(t=>t>Date.now());
         resultRecorded(envelope,Math.min(...futureActions),request);
         container.scrollIntoView({behavior:'smooth',block:'start'});
     }catch(error){if(revision===planRevision)showAnalysisError(error);}

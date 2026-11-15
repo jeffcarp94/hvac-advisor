@@ -55,3 +55,19 @@ test('fallback refuses blocked equipment and unavailable physical changes',()=>{
  a.run(`r.occupancy='away';r.remote=true;r.actual=planSetup('maxxfan',false,{gaps:[4,0,0,0,0,0],fanZone:0});action=recoveryAction(e,r)`);
  assert.equal(a.run('action'),null);
 });
+test('slow but effective heating is not subject to a 30-minute deadline',()=>{
+ const a=setup(40,41);a.run(`C.furnaceOutput=7000;p=simulatePlan([{time:+r.start,setup:heating}],e,r,AIR_SCENARIOS[0],rows,null,false,true)`);
+ assert.ok(a.run('p.recoveryMinutes')>30);assert.equal(a.run('p.recoveryInfo.complete'),true);
+ assert.doesNotMatch(a.run('p.comfortReason'),/within 30 minutes|falls below 65/);
+});
+test('an actual departure during cooldown preserves the recovery clock and occupancy change',()=>{
+ const a=setup(110,95);a.run(`r.occupancy='leaving';r.departure=new Date(+r.start+12*60000);r.returnTime=new Date(+r.start+180*60000);
+ rows=planRows(e,r,.5,[+r.departure]).filter(x=>x.to<=+r.returnTime);
+ prefix=[{time:+r.start,setup:cooling}];before=simulatePlan(prefix,e,r,AIR_SCENARIOS[0],rows.filter(x=>x.to<=+r.departure));
+ after=simulatePlan([...prefix,{time:+r.departure,setup:cooling}],e,r,AIR_SCENARIOS[0],rows);
+ handoff=after.trace.find(p=>+p.time===+r.departure);`);
+ assert.equal(a.run('before.recoveryInfo.complete'),false);
+ assert.equal(a.run('handoff.bedroom'),a.run('before.finalIndoor'));
+ assert.equal(a.run('after.suitable'),true);assert.ok(a.run('after.recoveryMinutes')>30);
+ assert.equal(a.run('rows.find(p=>p.from===+r.departure).occupants'),0);
+});
