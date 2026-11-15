@@ -778,8 +778,8 @@ function thermalDemand(mode,tIn,env,setpoints,control){
         if(control.phase==='ac'&&tIn<=setpoints.cool-EASYTOUCH.cycleEndOffset+THERMAL_EPS)control.phase='off';
         if(control.phase==='hp'&&tIn>=setpoints.heat+EASYTOUCH.cycleEndOffset-THERMAL_EPS)control.phase='off';
         if(control.phase==='off'){
-            if(tIn>=setpoints.cool+EASYTOUCH.coolGap-THERMAL_EPS&&qAt(tIn)>=0)control.phase='ac';
-            else if(tIn<=setpoints.heat-EASYTOUCH.heatGap+THERMAL_EPS&&qAt(tIn)<=0)control.phase='hp';
+            if(tIn>=setpoints.cool+EASYTOUCH.coolGap-THERMAL_EPS)control.phase='ac';
+            else if(tIn<=setpoints.heat-EASYTOUCH.heatGap+THERMAL_EPS)control.phase='hp';
         }
         return control.phase==='hp'?autoHeatingOperation(mode,env.tOut):control.phase;
     }
@@ -1150,6 +1150,8 @@ function currentModeDisplayName(mode){
     if(mode==='ac')return 'Air Conditioner';
     if(mode==='hp')return 'Heat Pump';
     if(mode==='furnace')return 'LP Furnace';
+    if(mode==='auto')return 'Auto Heat Pump';
+    if(mode==='auto_furnace')return 'Auto Furnace';
     return mode;
 }
 
