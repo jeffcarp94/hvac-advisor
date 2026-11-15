@@ -950,7 +950,7 @@ function evaluateCandidate(type,envelope,isOvernight,setpoints,meta){
 
 function candidateRank(r){return r.suitable?0:r.equipmentEligible&&r.floorCompliant?1:r.equipmentEligible?2:3;}
 function optimizeCandidate(type,envelope,isOvernight,meta){
-    return evaluateCandidate(type,envelope,isOvernight,confirmedSetpoints(isOvernight),meta);
+    return evaluateCandidate(type,envelope,isOvernight,isAutoMode(type)?autoSeedSetpoints(isOvernight):confirmedSetpoints(isOvernight),meta);
 }
 
 function periodPreference(c){return c.type==='passive'?1:c.type==='maxxfan'?2:isAutoMode(c.type)&&c.autoDidCool&&c.autoDidHeat?3:c.type==='hp'?4:c.type==='furnace'?5:isAutoMode(c.type)&&c.autoDidHeat?5.5:c.type==='ac'?6:7;}
@@ -1633,14 +1633,14 @@ function autoNeedAssessment(auto,ac,heat){
 }
 function assessModes(envelope,overnight,sp,start,context={}){
     const meta=context.monitored?C.metaAwake:overnight?C.metaSleep:C.metaAwake,{start:begin,end}=simulationBounds(envelope),rows=scheduleWeather(envelope,begin,end);
-    const results=['passive','ac','hp','furnace','auto','auto_furnace'].map(type=>modelCandidate(type,envelope,overnight,sp,meta,start,{rows,...context}));
+    const results=['passive','ac','hp','furnace','auto','auto_furnace'].map(type=>modelCandidate(type,envelope,overnight,isAutoMode(type)?autoSeedSetpoints(overnight):sp,meta,start,{rows,...context}));
     // First assess all practical fan/window candidates; then test the best few
     // under uncertainty so a fragile nominal winner cannot hide a robust option.
     const screeningRows=scheduleWeather(envelope,begin,end,3);
     const vents=fanConfigurations().map(config=>modelCandidate('maxxfan',envelope,overnight,sp,meta,start,{rows:screeningRows,config,...context})).sort(compareCandidates);
     const finalists=vents.slice(0,8).map(c=>modelCandidate('maxxfan',envelope,overnight,sp,meta,start,{rows,config:c.config,...context})).map(c=>qualifyAcrossScenarios(c,envelope,overnight,sp,meta,start,rows,context)).sort(compareCandidates);
     results.push(finalists[0]);
-    for(const c of results)if(c.type!=='maxxfan')qualifyAcrossScenarios(c,envelope,overnight,sp,meta,start,rows,context);
+    for(const c of results)if(c.type!=='maxxfan')qualifyAcrossScenarios(c,envelope,overnight,c.setpoints,meta,start,rows,context);
     const auto=results.find(c=>c.type==='auto'),autoFurnace=results.find(c=>c.type==='auto_furnace'),ac=results.find(c=>c.type==='ac'),heat=results.filter(c=>c.type==='hp'||c.type==='furnace').sort(compareCandidates)[0];
     auto.autoNeed=autoNeedAssessment(auto,ac,heat);
     autoFurnace.autoNeed=autoNeedAssessment(autoFurnace,ac,heat);
