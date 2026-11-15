@@ -959,6 +959,7 @@ function systemDisplayName(winner){
     if(winner.type==='passive') return 'Heating and cooling OFF';
     if(winner.type==='maxxfan') return winner.variant||'MaxxFan vents';
     if(winner.type==='auto') return 'Auto Heat Pump (cooling, heat pump, auxiliary furnace)';
+    if(winner.type==='auto_furnace')return 'Auto Furnace (cooling / propane furnace)';
     if(winner.type==='ac') return 'Air Conditioner';
     if(winner.type==='hp') return 'Heat Pump';
     if(winner.type==='furnace') return 'LP Furnace';
@@ -969,12 +970,13 @@ function setupForMode(type,setpoints,fan,isOvernight,variant){
     if(type==='passive')return 'Set the thermostat OFF and roof fans OFF. Close windows and MaxxFans.';
     if(type==='maxxfan')return 'Thermostat OFF. Use one '+(variant||'MaxxFan')+' on Auto at '+(isOvernight?C.maxxFanSetNight:C.maxxFanSetDay)+'°F with nearby intake windows open. Close the other MaxxFan and other windows. Roof AC fan OFF.';
     if(type==='furnace')return 'Select FURNACE at '+setpoints.heat+'°F. Set the roof fan to AUTO (roof fan off in Furnace mode); the furnace blower operates automatically. Close windows and MaxxFans.';
-    const mode=type==='auto'?'AUTO HEAT PUMP':type==='ac'?'COOL':'HEAT PUMP';
-    const sp=type==='auto'?setpoints.auto:type==='ac'?setpoints.cool:setpoints.heat;
-    let text=(type==='auto'?'Select AUTO HEAT PUMP. The Advisor models a legacy '+sp+'°F midpoint, but your EasyTouch 350 requires separate HEAT TO and COOL TO setpoints; neither has been independently optimized here. Verify both actual settings before using this approximate AUTO plan. ':'Select '+mode+' at '+sp+'°F. ')
+    const mode=type==='auto'?'AUTO HEAT PUMP':type==='auto_furnace'?'AUTO FURNACE':type==='ac'?'COOL':'HEAT PUMP';
+    const sp=type==='ac'?setpoints.cool:setpoints.heat;
+    let text=(isAutoMode(type)?'Select '+mode+'; set HEAT TO '+setpoints.heat+'°F and COOL TO '+setpoints.cool+'°F. ':'Select '+mode+' at '+sp+'°F. ')
         +'Set fan to '+(fan||'Auto').toUpperCase()+' for the whole interval. '+(fan==='Auto'?'Auto cycles and may slow to Low near setpoint. ':'The selected fixed fan runs continuously. ')+'Close windows and MaxxFans.';
+    if(isAutoMode(type))text+=' Heat begins at '+(setpoints.heat-EASYTOUCH.heatGap)+'°F and ends near '+(setpoints.heat+EASYTOUCH.cycleEndOffset)+'°F; cooling begins at '+(setpoints.cool+EASYTOUCH.coolGap)+'°F and ends near '+(setpoints.cool-EASYTOUCH.cycleEndOffset)+'°F. The cooling shutoff is a modeled assumption.';
     if(type==='auto'||type==='hp')text+=' Automatic gas changeover uses the propane furnace for heating below '+C.heatPumpMinTemp+'°F.';
-    if(type==='auto'||type==='ac')text+=' Keep a clean filter and at least two distribution vents open, or quick-cool plus one distribution vent; do not obstruct airflow.';
+    if(isAutoMode(type)||type==='ac')text+=' Keep a clean filter and at least two distribution vents open, or quick-cool plus one distribution vent; do not obstruct airflow.';
     return text;
 }
 function policyBadge(suitable,equipmentEligible,category){
@@ -983,18 +985,18 @@ function policyBadge(suitable,equipmentEligible,category){
         :'<div class="risk-badge moderate"><div class="risk-dot moderate"></div><span>'+(equipmentEligible?'Comfort shortfall':'Use another setting')+'</span></div>';
 }
 function assumptionPanel(mode,fan){
-    const ice=mode==='ac'||mode==='auto'?' If icing is observed: stop cooling, inspect/clean the filter, and ensure vents are open. Use FAN ONLY until ice clears; resume at a warmer setpoint. If icing persists, obtain service.':'';
+    const ice=mode==='ac'||isAutoMode(mode)?' If icing is observed: stop cooling, inspect/clean the filter, and ensure vents are open. Use FAN ONLY until ice clears; resume at a warmer setpoint. If icing persists, obtain service.':'';
     return '<details class="mitigation-box"><summary>Operating assumptions'+(ice?' & icing guidance':'')+'</summary><div style="margin-top:8px;line-height:1.5;">'+operatingAssumptions(mode,fan)+ice+'</div></details>';
 }
 function humidityDescription(){return state.indoorRH==null?'Indoor RH unknown; coil checks use a rough outdoor dew-point proxy; the 50% dehumidifier setting is not a humidity measurement.':state.indoorRH+'% starting indoor RH entered; constant dew point assumed for coil checks.';}
 function candidateSetpoint(c,setpoints){
     const mode=c.type||c.mode;
-    return c.optimizedSet??(mode==='auto'?setpoints.auto:mode==='ac'?setpoints.cool:setpoints.heat);
+    return isAutoMode(mode)?setpoints.heat:c.optimizedSet??(mode==='ac'?setpoints.cool:setpoints.heat);
 }
 function temperatureIssueLegacy(c,setpoints,end){
     const mode=c.type||c.mode,trace=c.hourly||c.trace||[],initial=trace[0]?.indoor;
-    const heating=mode==='furnace'?'The furnace':mode==='auto'?'Heat from the heat pump or automatic LP furnace in AUTO HEAT PUMP mode':'The heat pump or automatic LP furnace';
-    const cooling=mode==='auto'?'The AC in AUTO mode':'The AC';
+    const heating=mode==='furnace'||mode==='auto_furnace'?'The furnace':mode==='auto'?'Heat from the heat pump or automatic LP furnace in AUTO HEAT PUMP mode':'The heat pump or automatic LP furnace';
+    const cooling=isAutoMode(mode)?'The AC in AUTO mode':'The AC';
     const set=candidateSetpoint(c,setpoints),code=c.equipmentIssueCode||c.issueCode;
     const final='The RV would be about '+c.finalIndoor+'°F by '+formatTime(end)+'.';
     const issue=(headline,text,equipmentRisk=false)=>({headline,text,equipmentRisk});
@@ -1004,12 +1006,12 @@ function temperatureIssueLegacy(c,setpoints,end){
         if(code==='outside-humid')return issue('The outdoor air is too humid','Opening the windows would bring in too much moisture. Keep windows and vents closed and use the AC or dehumidifier as needed.');
         if(code==='outside-cold')return issue('The outdoor air is too cold','The outdoor air is too cold to recommend leaving windows and vents open throughout this period. Keep them closed and use heat as needed. With heating and cooling off, the RV would be about '+c.finalIndoor+'°F by '+formatTime(end)+'.');
         if(code==='outside-hot')return issue('Open windows would bring in heat','The outdoor air would be as warm as, or warmer than, the RV while the fan runs. Keep windows and vents closed and use the AC if cooling is needed.');
-        if(code==='heat-pump-cold'||mode==='hp'||mode==='auto')return issue('Use the furnace for heating','The outdoor temperature drops below '+(c.equipmentMinimum??C.heatPumpMinTemp)+'°F, too cold to recommend the heat pump for this period. Select FURNACE directly instead of HEAT PUMP or AUTO.');
+        if(code==='heat-pump-cold')return issue('Check the heating source','The Auto Gas Changeover setting is '+C.heatPumpMinTemp+'°F. Heat Pump and Auto Heat Pump use the propane furnace when a heating call occurs below this outdoor threshold.');
         return issue('Choose another setting','This setting cannot provide the heating or cooling needed during this period.');
     }
     if(c.heatingFloorLimited&&!c.floorCompliant)return issue('Heating cannot keep up',heating+' cannot maintain your minimum set point of '+C.comfortFloor+'°F in this weather. '+final);
     if(initial<C.comfortFloor&&!c.floorCompliant){
-        const recovery=mode==='furnace'||mode==='hp'||mode==='auto'?heating+(c.endInBand?' can warm the RV during this period. ':' needs more time to reach your set point of '+set+'°F. '):'';
+        const recovery=mode==='furnace'||mode==='hp'||isAutoMode(mode)?heating+(c.endInBand?' can warm the RV during this period. ':' needs more time to reach your set point of '+set+'°F. '):'';
         return issue('The RV starts too cold','The RV starts at '+initial+'°F, below your minimum temperature of '+C.comfortFloor+'°F. '+recovery+final);
     }
     if(!c.floorCompliant)return issue('The RV gets too cold','The RV would drop to about '+Math.min(...trace.map(p=>p.indoor)).toFixed(1)+'°F during this period, below your minimum of '+C.comfortFloor+'°F. More heat is needed. '+final);
@@ -1023,9 +1025,9 @@ function temperatureIssueLegacy(c,setpoints,end){
     }
     if(mode==='furnace'||mode==='hp')return issue('More heating time is needed',heating+' needs more time to reach your set point of '+set+'°F. '+final);
     if(mode==='ac')return issue('More cooling time is needed','The AC needs more time to reach your set point of '+set+'°F. '+final);
-    if(mode==='auto'){
-        const warm=c.finalIndoor>c.comfortHigh;
-        return issue('AUTO lets the RV get too '+(warm?'warm':'cool'),'At a set point of '+set+'°F, AUTO waits until '+(warm?set+2:set-2)+'°F before '+(warm?'cooling':'heating')+'. That lets the RV get '+(warm?'warmer':'cooler')+' than you prefer. '+final);
+    if(isAutoMode(mode)){
+        const warm=c.finalIndoor>c.comfortHigh,sp=c.setpoints||setpoints;
+        return issue('AUTO lets the RV get too '+(warm?'warm':'cool'),'At '+autoSetpointLabel(sp)+', '+(warm?'cooling':'heating')+' begins near '+(warm?sp.cool+EASYTOUCH.coolGap:sp.heat-EASYTOUCH.heatGap)+'°F. This falls outside your preferred comfort band. '+final);
     }
     if(mode==='maxxfan')return issue(c.finalIndoor>c.comfortHigh?'The MaxxFan cannot cool enough':'Heating is needed',c.finalIndoor>c.comfortHigh?'The MaxxFan cannot cool the RV to '+c.comfortHigh+'°F using outdoor air during this period. '+final:'The MaxxFan brings in outdoor air but cannot heat the RV. '+final+' Use heat to stay at or above '+c.comfortLow+'°F.');
     const warm=c.finalIndoor>c.comfortHigh,limit=warm?c.comfortHigh:c.floorCompliant?c.comfortLow:C.comfortFloor;
@@ -1033,17 +1035,17 @@ function temperatureIssueLegacy(c,setpoints,end){
 }
 function selectionModeName(c){
     const mode=c.type||c.mode;
-    return mode==='auto'?'AUTO mode':mode==='ac'?'COOL mode':mode==='hp'?'the heat pump':mode==='furnace'?'the furnace':mode==='maxxfan'?'MaxxFan cooling':'heating and cooling OFF';
+    return mode==='auto'?'AUTO HEAT PUMP mode':mode==='auto_furnace'?'AUTO FURNACE mode':mode==='ac'?'COOL mode':mode==='hp'?'the heat pump':mode==='furnace'?'the furnace':mode==='maxxfan'?'MaxxFan cooling':'heating and cooling OFF';
 }
 function preferenceExplanation(winner,current=false,other=null){
     const mode=winner.type||winner.mode,name=selectionModeName(winner);
     if(mode==='passive')return 'The RV can reach your preferred temperature with heating and cooling OFF, so running equipment is not needed.';
     if(mode==='maxxfan')return 'Cooler outdoor air can do the job, so the app prefers MaxxFan cooling over running the AC.';
-    if(mode==='auto'&&winner.autoDidCool&&winner.autoDidHeat){
+    if(isAutoMode(mode)&&winner.autoDidCool&&winner.autoDidHeat){
         const otherMode=other?.type||other?.mode;
         return 'AUTO was chosen because this period calls for both cooling and heating.'+(otherMode==='ac'?' COOL cannot add heat when the RV gets too cool.':otherMode==='hp'||otherMode==='furnace'?' '+selectionModeName(other).replace(/^the /,'The ')+' can heat but cannot cool the RV.':'');
     }
-    if(mode==='auto'&&winner.autoDidHeat)return 'AUTO was chosen because heating is needed; COOL cannot provide heat.';
+    if(isAutoMode(mode)&&winner.autoDidHeat)return 'AUTO was chosen because heating is needed; COOL cannot provide heat.';
     if(mode==='ac')return 'COOL was chosen because cooling alone can do the job; AUTO’s ability to add heat is not needed.';
     if(mode==='hp'&&other&&(other.type||other.mode)==='furnace')return 'The app prefers the heat pump over propane heat when either can do the job.';
     return name.charAt(0).toUpperCase()+name.slice(1)+' comes first in the app’s preference order when '+(current?'recovery times':'comfort results')+' are similar.';
@@ -1073,13 +1075,13 @@ function comparisonExplanation(c,winner,setpoints,end,isOvernight,current=false,
     const didHeat=c.autoDidHeat??c.didHeat,didCool=c.autoDidCool??c.didCool;
     let text='';
     if(!c.suitable||c.capacityCool||c.capacityHeat)text=temperatureIssue(c,setpoints,end).text;
-    else if(mode==='auto')text='AUTO HEAT PUMP alternates between cooling and heating as needed; '+set+'°F is an Advisor modeling midpoint, not a directly programmable EasyTouch AUTO setpoint. Its separate heating/cooling settings require independent verification.';
+    else if(isAutoMode(mode))text='Select '+(mode==='auto'?'AUTO HEAT PUMP':'AUTO FURNACE')+' with '+autoSetpointLabel(c.setpoints||setpoints)+'; both independent EasyTouch setpoints are evaluated.';
     else if(mode==='furnace'||mode==='hp'){
         const source=mode==='furnace'?'propane heat':'the heat pump';
         if(!didHeat)text='Heating is not needed during this period at a set point of '+set+'°F.';
         else if(initial>set+.5&&Math.abs(c.finalIndoor-set)<=.5)text='Lets the RV cool to about '+set+'°F, then uses '+source+' to hold that temperature.';
         else text='Uses '+source+' to '+(Math.abs(c.finalIndoor-set)<=.5?'keep the RV around ':'warm the RV toward ')+set+'°F.';
-        if(didHeat&&c!==winner&&(winner.type||winner.mode)==='auto'){
+        if(didHeat&&c!==winner&&isAutoMode(winner.type||winner.mode)&&!isAutoMode(mode)){
             const recommended=candidateSetpoint(winner,setpoints);
             if(set!==recommended)text+=' This is '+(set<recommended?'cooler':'warmer')+' than the recommended AUTO setting.';
         }
@@ -1100,9 +1102,9 @@ function comparisonExplanation(c,winner,setpoints,end,isOvernight,current=false,
 function comparisonRow(c,winner,setpoints,end,isOvernight,current=false,target=null){
     const mode=c.type||c.mode,set=c.optimizedSet??(['ac','hp','furnace','auto'].includes(mode)?candidateSetpoint(c,setpoints):null);
     const name=current?currentModeDisplayName(mode):systemDisplayName(c);
-    const fan=c.fanSpeed??c.maxFan,usesFan=(mode==='ac'||mode==='auto'||mode==='hp')&&fan;
+    const fan=c.fanSpeed??c.maxFan,usesFan=(mode==='ac'||isAutoMode(mode)||mode==='hp')&&fan;
     const trace=c.hourly||c.trace,min=c.indoorMin??Math.round(Math.min(...trace.map(p=>p.indoor))*10)/10,max=c.indoorMax??Math.round(Math.max(...trace.map(p=>p.indoor))*10)/10;
-    const label=name+(set!=null?' · '+set+'°F':'')+(usesFan?' · '+fan+' fan':'');
+    const label=name+(isAutoMode(mode)?' · '+autoSetpointLabel(c.setpoints||setpoints):set!=null?' · '+set+'°F':'')+(usesFan?' · '+fan+' fan':'');
     return '<div class="comparison-row"><div class="comparison-name">'+label+'</div><div class="comparison-text">'+comparisonExplanation(c,winner,setpoints,end,isOvernight,current,target)+'</div>'+(c.equipmentEligible?'<div class="comparison-range">Expected indoor temperature: '+min+'–'+max+'°F.</div>':'')+'</div>';
 }
 function currentTransitionWindow(now){
@@ -1588,7 +1590,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
 }
 function profileCandidate(type,sim,setpoints){
     const first=sim.unsafe[0],values=sim.trace.map(p=>p.indoor),min=Math.min(...sim.trace.map(p=>p.bedroom)),max=Math.max(...values);
-    return{...sim,...targetMetrics([sim]),type,mode:type,optimizedSet:type==='auto'?setpoints.auto:type==='ac'||type==='maxxfan'?setpoints.cool:setpoints.heat,
+    return{...sim,...targetMetrics([sim]),type,mode:type,optimizedSet:isAutoMode(type)?autoSetpointLabel(setpoints):type==='ac'||type==='maxxfan'?setpoints.cool:setpoints.heat,
         indoorMin:+min.toFixed(1),indoorMax:+max.toFixed(1),indoorMedian:values.slice().sort((a,b)=>a-b)[Math.floor(values.length/2)],finalIndoor:+sim.finalIndoor.toFixed(1),
         hourly:sim.trace,simulationStart:sim.start,simulationEnd:sim.end,hoursOutOfBand:sim.hoursOut,fanSpeed:sim.maxFan,
         safe:sim.equipmentEligible,equipmentReason:first?.reason||'',equipmentIssueCode:first?.issueCode||'',equipmentMinimum:first?.minimum,
@@ -1596,7 +1598,7 @@ function profileCandidate(type,sim,setpoints){
         autoDidCool:sim.didCool,autoDidHeat:sim.didHeat,variant:sim.config?.fanName,setpoints:{...setpoints},baseScore:sim.score};
 }
 function modelCandidate(type,envelope,overnight,sp,meta,start,options={}){
-    const settings=type==='ac'||type==='auto'?(overnight&&!options.monitored?['Low','Medium','High']:['Auto','Medium','High']):['Auto'];
+    const settings=type==='ac'||isAutoMode(type)?(overnight&&!options.monitored?['Low','Medium','High']:['Auto','Medium','High']):['Auto'];
     let sim;
     for(const fanSetting of settings){sim=zoneProfile(type,envelope,overnight,sp,meta,start,{...options,fanSetting});if(sim.equipmentEligible)break;}
     return profileCandidate(type,sim,sp);
@@ -1626,7 +1628,7 @@ function autoNeedAssessment(auto,ac,heat){
 }
 function assessModes(envelope,overnight,sp,start,context={}){
     const meta=context.monitored?C.metaAwake:overnight?C.metaSleep:C.metaAwake,{start:begin,end}=simulationBounds(envelope),rows=scheduleWeather(envelope,begin,end);
-    const results=['passive','ac','hp','furnace','auto'].map(type=>modelCandidate(type,envelope,overnight,sp,meta,start,{rows,...context}));
+    const results=['passive','ac','hp','furnace','auto','auto_furnace'].map(type=>modelCandidate(type,envelope,overnight,sp,meta,start,{rows,...context}));
     // First assess all practical fan/window candidates; then test the best few
     // under uncertainty so a fragile nominal winner cannot hide a robust option.
     const screeningRows=scheduleWeather(envelope,begin,end,3);
@@ -1634,11 +1636,12 @@ function assessModes(envelope,overnight,sp,start,context={}){
     const finalists=vents.slice(0,8).map(c=>modelCandidate('maxxfan',envelope,overnight,sp,meta,start,{rows,config:c.config,...context})).map(c=>qualifyAcrossScenarios(c,envelope,overnight,sp,meta,start,rows,context)).sort(compareCandidates);
     results.push(finalists[0]);
     for(const c of results)if(c.type!=='maxxfan')qualifyAcrossScenarios(c,envelope,overnight,sp,meta,start,rows,context);
-    const auto=results.find(c=>c.type==='auto'),ac=results.find(c=>c.type==='ac'),heat=results.filter(c=>c.type==='hp'||c.type==='furnace').sort(compareCandidates)[0];
+    const auto=results.find(c=>c.type==='auto'),autoFurnace=results.find(c=>c.type==='auto_furnace'),ac=results.find(c=>c.type==='ac'),heat=results.filter(c=>c.type==='hp'||c.type==='furnace').sort(compareCandidates)[0];
     auto.autoNeed=autoNeedAssessment(auto,ac,heat);
+    autoFurnace.autoNeed=autoNeedAssessment(autoFurnace,ac,heat);
     // Same numeric scale as comfort scoring. Flexibility earns a modest benefit
     // only when both functions prevent failures; unnecessary reheat is a penalty.
-    auto.score+=auto.autoNeed.sustainedNeed?-1:auto.autoNeed.unnecessaryHeat?1+auto.heatMinutes/30:.5;
+    for(const dual of [auto,autoFurnace])dual.score+=dual.autoNeed.sustainedNeed?-1:dual.autoNeed.unnecessaryHeat?1+dual.heatMinutes/30:.5;
     results.sort(compareCandidates);
     const winner=results[0];winner.selectionBasis='score';
     return{winner,allCandidates:results,noSuitable:!winner.suitable,envelope,setpoints:sp,
@@ -1659,9 +1662,9 @@ function candidateSetup(c,isOvernight){
     return 'Thermostat OFF. Use the '+c.config.fanName+' in AUTO at '+c.setpoints.fan+'°F. Set '+windowInstruction(c.config)+'. Keep all remaining window sections and the other MaxxFan closed/off. Roof AC fan OFF.';
 }
 function methodComparison(c,winner,overnight){
-    const problem=methodologyProblem(c),set=['auto','ac','hp','furnace','maxxfan'].includes(c.type)?' · '+c.optimizedSet+'°F':'';
+    const problem=methodologyProblem(c),set=isAutoMode(c.type)?' · '+autoSetpointLabel(c.setpoints):['ac','hp','furnace','maxxfan'].includes(c.type)?' · '+c.optimizedSet+'°F':'';
     let text=c.suitable?'Provides acceptable conditions. '+(Math.abs(c.score-winner.score)<1?'Comfort is similar to the recommendation. ':'The recommendation has the better overall comfort score. '):problem?.text||'Does not meet the required conditions.';
-    if(c.type==='auto')text+=' '+c.autoNeed.explanation+' Likelihood of needing both: '+c.autoNeed.likelihood.toLowerCase()+'.';
+    if(isAutoMode(c.type))text+=' '+c.autoNeed.explanation+' Likelihood of needing both: '+c.autoNeed.likelihood.toLowerCase()+'.';
     if(c.type==='maxxfan'&&c.suitable)text+=' '+candidateSetup(c,overnight)+(c.draftScore>0?' Bedside airflow may feel cool.':' Intake windows are away from the beds.');
     else if(c.suitable)text+=' '+candidateSetup(c,overnight);
     if(c.robustnessIssueCode==='cooling-ice')text+=' The AC may ice up. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.';
@@ -1675,7 +1678,7 @@ function comparisonSections(result,overnight){
 }
 function renderMethodRecommendation(id,title,result,overnight){
     const c=result.winner,e=result.envelope,problem=methodologyProblem(c);
-    document.getElementById('setpointDisplay').textContent='Cool '+result.setpoints.cool+'°F · Heat '+result.setpoints.heat+'°F · AUTO '+result.setpoints.auto+'°F';
+    document.getElementById('setpointDisplay').textContent='Cool '+result.setpoints.cool+'°F · Heat '+result.setpoints.heat+'°F · AUTO uses independent HEAT TO / COOL TO';
     const detail=(label,text)=>'<div class="result-detail"><div class="result-detail-label">'+label+'</div><div class="result-detail-value">'+text+'</div></div>';
     return '<div class="result-card" id="'+id+'"><div class="result-card-header"><div class="result-card-title">'+title+'</div>'+(c.suitable?policyBadge(true,true):'<div class="risk-badge high"><span>Requirements not met</span></div>')+'</div>'
         +'<div class="result-primary">'+(c.suitable?systemDisplayName(c):'No suitable HVAC setup')+'</div>'
@@ -1685,7 +1688,7 @@ function renderMethodRecommendation(id,title,result,overnight){
         +detail('Comfort',c.suitable?'Fits temperature and duration limits. Heat target '+c.setpoints.heat+'°F / cool target '+c.setpoints.cool+'°F; minimum 65°F.':c.comfortReason||'Temperature is acceptable; another requirement fails.')
         +detail('Recovery',c.recoveryMinutes===null?'Acceptable temperature not reached.':'First reaches acceptable temperature in '+Math.ceil(c.recoveryMinutes)+' minutes.')
         +detail('Humidity',moistureSummary(c))
-        +(c.type==='auto'?detail('Changeover',c.autoNeed.explanation+' Likelihood: '+c.autoNeed.likelihood.toLowerCase()+'.'):'')
+        +(isAutoMode(c.type)?detail('Changeover',c.autoNeed.explanation+' Likelihood: '+c.autoNeed.likelihood.toLowerCase()+'.'):'')
         +(c.type==='maxxfan'?detail('Airflow',c.draftScore>0?'Bedside intake creates potential direct drafts; included in comfort scoring.':'Uses mid-coach intake to reduce direct bedside drafts.'):'')
         +detail('Assessment',c.scenarioSummary+'. '+(state.indoorRH==null?'Starting indoor RH estimated.':'Starting indoor RH entered.'))
         +'<div class="diag-panel"><div class="diag-title">Forecast Envelope</div><div class="diag-row"><span>Outdoor range</span><span>'+result.tOutMin+'–'+result.tOutMax+'°F</span></div><div class="diag-row"><span>Window</span><span>'+formatTime(c.simulationStart)+' → '+formatTime(c.simulationEnd)+'</span></div></div>'
