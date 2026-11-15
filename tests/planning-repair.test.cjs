@@ -48,7 +48,7 @@ test('preparation search checks a fine-grid timing island after coarse proposals
  // A synthetic narrow readiness window supplies a non-monotonic timing oracle;
  // real temperature, humidity and equipment checks must still pass inside it.
  a.run(`AIR_SCENARIOS.splice(3);island=+planBounds(r.start,r).bedtime-15*60000;
- planSetups=sleep=>[withSetting(planSetup(sleep?'auto':'ac',sleep,null,'Low'),sleep?66:71)];
+ planSetups=sleep=>[withSetting(planSetup(sleep?'auto':'ac',sleep,null,'Low'),sleep?{heat:67,cool:71}:71)];
  optimizePhase=plan=>plan;shortlistVents=()=>[];
  originalSimulate=simulatePlan;simulatePlan=(...args)=>{
   const p=originalSimulate(...args),sleepPhase=args[0].find(phase=>phase.setup.sleepComfort);
