@@ -979,7 +979,7 @@ function candidateSetpoint(c,setpoints){
 }
 function temperatureIssueLegacy(c,setpoints,end){
     const mode=c.type||c.mode,trace=c.hourly||c.trace||[],initial=trace[0]?.indoor;
-    const heating=mode==='furnace'?'The furnace':mode==='auto'?'The heat pump in AUTO mode':'The heat pump';
+    const heating=mode==='furnace'?'The furnace':mode==='auto'?'Heat from the heat pump or automatic LP furnace in AUTO HEAT PUMP mode':'The heat pump or automatic LP furnace';
     const cooling=mode==='auto'?'The AC in AUTO mode':'The AC';
     const set=candidateSetpoint(c,setpoints),code=c.equipmentIssueCode||c.issueCode;
     const final='The RV would be about '+c.finalIndoor+'°F by '+formatTime(end)+'.';
@@ -2321,7 +2321,7 @@ function renderPeriodComparisons(period,night=false){
     const interval=formatStamp(new Date(period.from))+' → '+formatStamp(new Date(period.to));
     const options=period.options.filter(p=>p.setup.type!==period.recommended?.type);
     let html='<div class="period-comparisons" data-period="'+(night?'night':'day')+'"><p class="hint">'+escapeHTML(interval)+'. '+
-        (night?(period.projected?'Overnight alternatives assume you follow the recommended daytime and bedtime preparation steps. Each is tested from the same predicted sleep-start conditions. ':'')+'Each listed setup must work through 7 AM without further adjustments or automatic furnace backup.':
+        (night?(period.projected?'Overnight alternatives assume you follow the recommended daytime and bedtime preparation steps. Each is tested from the same predicted sleep-start conditions. ':'')+'Each listed setup must work through 7 AM without further adjustments. The Auto Heat Pump mode can automatically select the LP furnace below the 42°F outdoor changeover.':
         'Each option is tested continuously until the next recommended adjustment. If you choose an alternative, refresh readings and rebuild the plan at that time; the overnight projection below assumes the recommended daytime plan.')+'</p>';
     for(const viable of [true,false]){
         const title=viable?'Other viable '+label+' options':night?'Unsuitable '+label+' modes':'Unsuitable or unnecessary daytime modes';
@@ -2404,7 +2404,7 @@ function renderPlan(result){
         }
         html+=step('Recommended overnight setup',bounds.bedtime?'From 10 PM':'Overnight in progress',planActionText({time:sleepFrom,setup:p.nightSetup},request));
         html+='<div class="plan-metrics">Bedroom: '+traceRange(p,sleepFrom,+bounds.end,'bedroom')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'rh')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'dewPoint')+'°F.<br>Front: '+traceRange(p,sleepFrom,+bounds.end,'midCoach')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'midRH')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'midDewPoint')+'°F.<br>Temperature, moisture and equipment checks pass in all tested scenarios.</div>';
-        html+='<p class="hint">The overnight setup runs through 7 AM without manual changes or automatic furnace backup.'+(p.trials.some(t=>t.defrostMinutes>0)?' Heat-pump defrost pauses are included.':'')+'</p>';
+        html+='<p class="hint">The overnight setup runs through 7 AM without manual changes. AUTO HEAT PUMP can use LP furnace backup below 42°F.'+(p.trials.some(t=>t.defrostMinutes>0)?' Heat-pump defrost pauses are included.':'')+'</p>';
         if(p.autoExplanation)html+='<p class="hint">'+escapeHTML(p.autoExplanation)+'</p>';
         html+=surfaceOutlook(p.trials)+frontOutlook(p.trials,+bounds.start,+bounds.end);
         if(request.occupancy!=='staying')html+='<p class="hint">Away '+formatTime(request.departure)+'–'+formatTime(request.returnTime)+': no occupant heat or moisture. Non-sleeping comfort applies throughout the absence; any sleep-temperature setting is preparation. No physical setup changes while absent.</p>';
