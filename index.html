@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.5.1 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.0 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.5.1</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.0</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -648,6 +648,19 @@ function condLoad(tOut,tIn,wind){const ua=UA_BASE*(1+0.02*wind);return{q:Math.ro
 // heating call is below this setting; independent Furnace mode never requests a heat pump.
 // Dometic CCC2 also documents outdoor-sensor changeover hysteresis; the exact adjustable
 // return threshold is unverified, so this model approximates the transition at 42°F.
+// Owner-confirmed 2026-11-15: EasyTouch RV 350 Temperature Differential Gap
+// HEAT = 2°F, COOL = 2°F. No gap UI; these are installed-equipment constants.
+// Micro-Air documents the heat cycle OFF at heat setpoint +1°F; cooling OFF at
+// cool setpoint -1°F is a symmetric engineering assumption, not an OEM example.
+// A conservative 4°F setpoint separation is used for candidate generation;
+// the manufacturer's exact minimum programmable separation is unverified.
+const EASYTOUCH={heatGap:2,coolGap:2,cycleEndOffset:1,minAutoSpread:4};
+const isAutoMode=mode=>mode==='auto'||mode==='auto_furnace';
+function validDualSetpoints(sp){
+    return Number.isInteger(sp.heat)&&Number.isInteger(sp.cool)&&sp.heat>=40&&sp.cool<=90&&sp.cool>=55&&sp.cool-sp.heat>=EASYTOUCH.minAutoSpread;
+}
+function autoHeatingOperation(mode,out){return mode==='auto_furnace'?'furnace':heatSourceForPumpMode(out);}
+function autoSetpointLabel(sp){return 'HEAT TO '+sp.heat+'°F / COOL TO '+sp.cool+'°F';}
 const HP={defrostBelow:42,heatingMinutes:25,pauseMinutes:5}; // 4.5 min reversal + .5 min fan delay
 function heatPumpMinimum(){return C.heatPumpMinTemp;}
 function heatSourceForPumpMode(tOut){return tOut<C.heatPumpMinTemp?'furnace':'hp';}
@@ -709,7 +722,7 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
         if(op==='maxxfan'&&tOut>=tInPrev-1e-8)return{...pass,safe:false,issueCode:'outside-hot',category:'comfort',categoryLabel:'Would import heat',reason:'Open-window ventilation would import heat during the interval',detail:'Outdoor air is at least as warm as cabin air while the fan is called.'};
         return pass;
     }
-    if(op==='ac')return coolingPolicy(tInPrev,tOut,rh,candidateType==='auto'?setpoints.auto:setpoints.cool,fan,operating?.indoorDP);
+    if(op==='ac')return coolingPolicy(tInPrev,tOut,rh,isAutoMode(candidateType)?setpoints.cool:setpoints.cool,fan,operating?.indoorDP);
     if(op==='hp'){
         const p=heatPumpPolicy(tOut,rh,isOvernight);
         return{...pass,...p,detail:p.reason,requiredFan:fan};
@@ -757,15 +770,15 @@ function thermalCrossing(tIn,eq,tau,target){
 }
 function thermalDemand(mode,tIn,env,setpoints,control){
     const qAt=t=>env.ua*(env.tOut-t)+env.gains;
-    if(mode==='auto'){
-        const sp=setpoints.auto;
-        if(control.phase==='ac'&&tIn<=sp+THERMAL_EPS)control.phase='off';
-        if(control.phase==='hp'&&tIn>=sp-THERMAL_EPS)control.phase='off';
+    if(isAutoMode(mode)){
+        if(!validDualSetpoints(setpoints))throw new Error('Invalid EasyTouch dual setpoints.');
+        if(control.phase==='ac'&&tIn<=setpoints.cool-EASYTOUCH.cycleEndOffset+THERMAL_EPS)control.phase='off';
+        if(control.phase==='hp'&&tIn>=setpoints.heat+EASYTOUCH.cycleEndOffset-THERMAL_EPS)control.phase='off';
         if(control.phase==='off'){
-            if(tIn>sp+2+THERMAL_EPS||(tIn>=sp+2-THERMAL_EPS&&qAt(tIn)>0))control.phase='ac';
-            else if(tIn<sp-2-THERMAL_EPS||(tIn<=sp-2+THERMAL_EPS&&qAt(tIn)<0))control.phase='hp';
+            if(tIn>=setpoints.cool+EASYTOUCH.coolGap-THERMAL_EPS&&qAt(tIn)>=0)control.phase='ac';
+            else if(tIn<=setpoints.heat-EASYTOUCH.heatGap+THERMAL_EPS&&qAt(tIn)<=0)control.phase='hp';
         }
-        return control.phase==='hp'?heatSourceForPumpMode(env.tOut):control.phase;
+        return control.phase==='hp'?autoHeatingOperation(mode,env.tOut):control.phase;
     }
     if(mode==='ac')return tIn>setpoints.cool+THERMAL_EPS||(tIn>=setpoints.cool-THERMAL_EPS&&qAt(tIn)>0)?'ac':'off';
     if(mode==='hp'||mode==='furnace')return tIn<setpoints.heat-THERMAL_EPS||(tIn<=setpoints.heat+THERMAL_EPS&&qAt(tIn)<0)?(mode==='hp'?heatSourceForPumpMode(env.tOut):'furnace'):'off';
@@ -784,14 +797,14 @@ function thermalStep(mode,tIn,env,setpoints,hours,control={phase:'off'},guard=nu
         const operation=thermalDemand(mode,temperature,env,setpoints,control);
         let ua=env.ua,q=0,target=null,duty=operation==='off'?0:1,capacityLimited=false;
         if(operation==='ac'){
-            target=mode==='auto'?setpoints.auto:setpoints.cool;
+            target=isAutoMode(mode)?setpoints.cool-EASYTOUCH.cycleEndOffset:setpoints.cool;
             const need=env.ua*(env.tOut-target)+env.gains;
             q=-C.acSensibleCapacity;
             capacityLimited=need>C.acSensibleCapacity+THERMAL_EPS;
             // Ideal averaged cycling at the setpoint; full output while recovering.
-            if(mode!=='auto'&&Math.abs(temperature-target)<THERMAL_EPS&&need>=0&&need<=C.acSensibleCapacity){q=-need;duty=need/C.acSensibleCapacity;}
+            if(!isAutoMode(mode)&&Math.abs(temperature-target)<THERMAL_EPS&&need>=0&&need<=C.acSensibleCapacity){q=-need;duty=need/C.acSensibleCapacity;}
         }else if(operation==='hp'||operation==='furnace'){
-            target=mode==='auto'?setpoints.auto:setpoints.heat;
+            target=isAutoMode(mode)?setpoints.heat+EASYTOUCH.cycleEndOffset:setpoints.heat;
             const capacity=operation==='furnace'?C.furnaceOutput:(heatPumpCapacity(env.tOut)*(env.tOut<HP.defrostBelow?HP.heatingMinutes/(HP.heatingMinutes+HP.pauseMinutes):1));
             const need=env.ua*(target-env.tOut)-env.gains;
             q=capacity;capacityLimited=need>capacity+THERMAL_EPS;
@@ -805,7 +818,7 @@ function thermalStep(mode,tIn,env,setpoints,hours,control={phase:'off'},guard=nu
             ua+=ventUA*duty;
         }else{
             const passiveEq=env.tOut+env.gains/env.ua;
-            if(mode==='auto')target=passiveEq>temperature?setpoints.auto+2:setpoints.auto-2;
+            if(isAutoMode(mode))target=passiveEq>temperature?setpoints.cool+EASYTOUCH.coolGap:setpoints.heat-EASYTOUCH.heatGap;
             else if(mode==='ac')target=setpoints.cool;
             else if(mode==='hp'||mode==='furnace')target=setpoints.heat;
             else if(mode==='maxxfan')target=setpoints.fan;
@@ -820,7 +833,7 @@ function thermalStep(mode,tIn,env,setpoints,hours,control={phase:'off'},guard=nu
             if(failure)return{temperature:tIn,control:{phase:'off'},segments:[],failure};
         }
         segments.push(segment);temperature=next;elapsed+=dt;remaining-=dt;
-        if(crossing<=dt+1e-10&&mode==='auto')control.phase=operation==='off'?(target>setpoints.auto?'ac':'hp'):'off';
+        if(crossing<=dt+1e-10&&isAutoMode(mode))control.phase=operation==='off'?(target>=setpoints.cool+EASYTOUCH.coolGap?'ac':'hp'):'off';
     }
     return{temperature,control,segments,failure:null};
 }
@@ -1170,8 +1183,8 @@ function comfortPolicy(sleeping){return sleeping?COMFORT.sleeping:COMFORT.nonSle
 function targetPenalty(temperature,sleeping,mode,operation='off'){
     const p=comfortPolicy(sleeping),delta=temperature-p.target,miss=Math.max(0,Math.abs(delta)-COMFORT.tolerance);
     if(miss<=1e-9)return 0;
-    const heating=['hp','furnace'].includes(mode)||mode==='auto'&&['hp','furnace'].includes(operation);
-    const cooling=['ac','maxxfan'].includes(mode)||mode==='auto'&&operation==='ac';
+    const heating=['hp','furnace'].includes(mode)||isAutoMode(mode)&&['hp','furnace'].includes(operation);
+    const cooling=['ac','maxxfan'].includes(mode)||isAutoMode(mode)&&operation==='ac';
     const below=p.target-p.low-COMFORT.tolerance,above=p.high-p.target-COMFORT.tolerance;
     // Preferred-side misses occupy 0..1 across the allowed band. An opposite-
     // side miss starts above 1, so it cannot beat a preferred-side steady result.
@@ -1448,13 +1461,16 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const uaTotal=envelopeParts.total*(1+.02*row.wind),bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
         const ua=[envelopeParts.rear,envelopeParts.front].map((u,z)=>Math.max(0,u*(1+.02*row.wind)-1.08*M.volumeFt3[z]*M.baseACH/60));
         let operation='off',q=0,duty=0;
-        if(mode==='auto'){
-            if(phase==='ac'&&sensed<=sp.auto+1e-6)phase='off';if(phase==='hp'&&sensed>=sp.auto-1e-6)phase='off';
-            if(phase==='off'){if(sensed>=sp.auto+2-1e-6)phase='ac';else if(sensed<=sp.auto-2+1e-6)phase='hp';}operation=phase==='hp'?heatSourceForPumpMode(out):phase;
+        if(isAutoMode(mode)){
+            if(!validDualSetpoints(sp))throw new Error('Invalid EasyTouch AUTO HEAT TO / COOL TO setpoint pair.');
+            if(phase==='ac'&&sensed<=sp.cool-EASYTOUCH.cycleEndOffset+1e-6)phase='off';
+            if(phase==='hp'&&sensed>=sp.heat+EASYTOUCH.cycleEndOffset-1e-6)phase='off';
+            if(phase==='off'){if(sensed>=sp.cool+EASYTOUCH.coolGap-1e-6)phase='ac';else if(sensed<=sp.heat-EASYTOUCH.heatGap+1e-6)phase='hp';}
+            operation=phase==='hp'?autoHeatingOperation(mode,out):phase;
         }else if(mode==='ac'&&sensed>=sp.cool-.01)operation='ac';
         else if((mode==='hp'||mode==='furnace')&&sensed<=sp.heat+.01)operation=mode==='hp'?heatSourceForPumpMode(out):'furnace';
         if(out>=HP.defrostBelow||operation==='furnace'){hpRunMinutes=0;if(operation==='furnace')defrostRemaining=0;}
-        if(!['hp','auto'].includes(mode)){hpRunMinutes=0;defrostRemaining=0;}
+        if(!(mode==='hp'||mode==='auto')){hpRunMinutes=0;defrostRemaining=0;}
         if(defrostRemaining>1e-8){
             if(defrostRemaining<dt*60-1e-8){const cut=row.from+defrostRemaining*60000;
                 workRows.splice(rowIndex,1,{...row,to:cut,dt:defrostRemaining/60},{...row,from:cut,dt:dt-defrostRemaining/60});rowIndex--;continue;}
@@ -1462,11 +1478,11 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         }
         const initialGains=meta+priorDehumHeat+row.solar*(solarWeights[0]+solarWeights[1]);
         if(operation==='ac'||operation==='hp'||operation==='furnace'){
-            const target=mode==='auto'?sp.auto:operation==='ac'?sp.cool:sp.heat;
+            const target=operation==='ac'?sp.cool:sp.heat;
             const capacity=operation==='ac'?C.acSensibleCapacity:operation==='furnace'?C.furnaceOutput:heatPumpCapacity(out);
             const balance=uaTotal*(out-target)+initialGains;
             const need=operation==='ac'?Math.max(0,C.thermalMass*(sensed-target)/dt+balance):Math.max(0,C.thermalMass*(target-sensed)/dt-balance);
-            duty=mode==='auto'?1:Math.min(1,need/capacity);q=(operation==='ac'?-1:1)*capacity*duty;
+            duty=isAutoMode(mode)?1:Math.min(1,need/capacity);q=(operation==='ac'?-1:1)*capacity*duty;
             if(operation==='ac')capacityCool||=balance>capacity;else capacityHeat||=-balance>capacity;
             if(options.checkEquipment!==false&&duty>0){
                 const check=operation==='ac'?coolingPolicy(Math.min(...t),out,row.rh,target,maxFan,Math.max(...w.map(dpFromRatio))):heatPumpPolicy(out,row.rh,options.controlAt?row.sleeping||row.occupants===0:isOvernight&&!options.monitored);
@@ -1494,9 +1510,9 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         // Internal sensible gains share the small coach; location creates no bottleneck.
         const gains=zoneHeatGains(meta+moisture.heatBTU,row.solar,q,operation,solarWeights);
         const nextT=coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,dt,1.08);
-        if(mode==='auto'&&operation!=='defrost'&&dt>1/60000){
+        if(isAutoMode(mode)&&operation!=='defrost'&&dt>1/60000){
             const sense=values=>options.frontControl?values[1]:isOvernight?values[0]:values[0]*.4+values[1]*.6;
-            const nextSensed=sense(nextT),trigger=operation==='ac'||operation==='hp'?sp.auto:nextSensed>sensed?sp.auto+2:sp.auto-2;
+            const nextSensed=sense(nextT),trigger=operation==='ac'?sp.cool-EASYTOUCH.cycleEndOffset:(operation==='hp'||operation==='furnace')?sp.heat+EASYTOUCH.cycleEndOffset:nextSensed>sensed?sp.cool+EASYTOUCH.coolGap:sp.heat-EASYTOUCH.heatGap;
             if((sensed-trigger)*(nextSensed-trigger)<0&&Math.abs(sensed-trigger)>1e-6){
                 let low=0,high=dt;
                 for(let k=0;k<22;k++){const middle=(low+high)/2,value=sense(coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,middle,1.08));
