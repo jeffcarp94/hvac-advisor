@@ -79,19 +79,19 @@ test('ventilation flow has finite response, respects thermostat, and can import 
     a.run('env.tOut=95');assert.ok(a.run("thermalStep('maxxfan',85,env,sp,1/60).temperature")>85);
 });
 
-test('AUTO uses two-degree triggers, recovers to setpoint, then drifts while off',()=>{
+test('AUTO uses separate EasyTouch heating and cooling thresholds',()=>{
     const a=setup();
+    a.run("sp={heat:68,cool:72,fan:72};env.tOut=80");
     a.run("autoStep=thermalStep('auto',71,env,sp,2)");
     assert.equal(a.run('autoStep.segments[0].operation'),'off');
-    close(a.run('autoStep.segments[0].t1'),73);
+    close(a.run('autoStep.segments[0].t1'),74);
     assert.equal(a.run('autoStep.segments[1].operation'),'ac');
     close(a.run('autoStep.segments[1].t1'),71);
-    assert.equal(a.run('autoStep.segments[2].operation'),'off');
-    a.run('env.tOut=40;env.gains=0');
-    a.run("autoHeat=thermalStep('auto',71,env,sp,2)");
-    close(a.run('autoHeat.segments[0].t1'),69);
+    a.run('env.tOut=55;env.gains=0');
+    a.run("autoHeat=thermalStep('auto',70,env,sp,2)");
+    close(a.run('autoHeat.segments[0].t1'),66);
     assert.equal(a.run('autoHeat.segments[1].operation'),'hp');
-    close(a.run('autoHeat.segments[1].t1'),71);
+    close(a.run('autoHeat.segments[1].t1'),69);
 });
 
 test('all profiles include the partial final interval and obey weather boundaries causally',()=>{
