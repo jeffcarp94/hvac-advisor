@@ -1,5 +1,7 @@
 # v6.6.1 — Heating and cooling recovery
 
+Measured indoor temperatures and manual outdoor temperature controls have no arbitrary minimum or maximum. Missing or nonfinite indoor readings are rejected; equipment eligibility checks and thermostat control/setpoint ranges remain separate. Recovery tests cover conditions below 40°F and above 110°F.
+
 Cold or hot measured starting temperatures now enter a recovery phase. Heating can warm a coach that starts below 65°F; AC can continue cooling beyond 30 minutes. Equipment and moisture checks remain enforced. Plans report estimated recovery time or unfinished recovery and carry temperature and moisture continuously through departure and later stages. After recovery, the existing comfort checks apply.
 
 Recovery options rank by time to reach the acceptable bedroom band, then normal comfort preferences. If the available HVAC cannot produce a verified comfort plan, an equipment-eligible action that improves on leaving HVAC off is shown separately, with a review time and capacity/forecast limitation. Thermodynamic constants are unchanged.

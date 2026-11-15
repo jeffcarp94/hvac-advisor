@@ -133,11 +133,11 @@
         <div class="input-section-title" id="indoorHeading">Inside the RV now</div>
         <div class="sensor-grid">
           <div><div class="sensor-title">Sleeping area</div>
-            <label class="field">Temperature (°F)<input id="bedTemp" type="number" inputmode="decimal" min="40" max="110" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
+            <label class="field">Temperature (°F)<input id="bedTemp" type="number" inputmode="decimal" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
             <label class="field">Humidity (%)<input id="bedRH" type="number" inputmode="decimal" min="1" max="100" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
           </div>
           <div><div class="sensor-title">Front / thermostat</div>
-            <label class="field">Temperature (°F)<input id="frontTemp" type="number" inputmode="decimal" min="40" max="110" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
+            <label class="field">Temperature (°F)<input id="frontTemp" type="number" inputmode="decimal" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
             <label class="field">Humidity (%)<input id="frontRH" type="number" inputmode="decimal" min="1" max="100" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
           </div>
         </div>
@@ -1157,11 +1157,11 @@ function currentModeDisplayName(mode){
 
 function step(f,d){
     if(['temp','rh','wind'].includes(f))manualWeatherEdited();else invalidateResults();
-    if(f==='temp'){state.temp=Math.max(20,Math.min(110,state.temp+d));document.getElementById('tempValue').textContent=state.temp;}
+    if(f==='temp'){state.temp=state.temp+d;document.getElementById('tempValue').textContent=state.temp;}
     else if(f==='rh'){state.rh=Math.max(10,Math.min(100,state.rh+d));document.getElementById('rhValue').textContent=state.rh;}
     else if(f==='wind'){state.wind=Math.max(0,Math.min(50,state.wind+d));document.getElementById('windValue').textContent=state.wind;}
-    else if(f==='indoor'){state.indoor=Math.max(40,Math.min(110,state.indoor+d));document.getElementById('indoorValue').textContent=state.indoor;}
-    else if(f==='currentIndoor'){state.indoorCurrent=Math.max(40,Math.min(110,state.indoorCurrent+d));document.getElementById('currentIndoorValue').textContent=state.indoorCurrent;}
+    else if(f==='indoor'){state.indoor=state.indoor+d;document.getElementById('indoorValue').textContent=state.indoor;}
+    else if(f==='currentIndoor'){state.indoorCurrent=state.indoorCurrent+d;document.getElementById('currentIndoorValue').textContent=state.indoorCurrent;}
 }
 
 function selectChip(g,v,el){manualWeatherEdited();el.parentElement.querySelectorAll('.selector-chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');if(g==='cloud')state.cloud=parseFloat(v);if(g==='precip')state.precip=v;}
@@ -1778,7 +1778,7 @@ function setupChangeAllowed(from,to,time,request){
 }
 function validatePlanRequest(request){
     if(!(request.start instanceof Date)||!Number.isFinite(+request.start))throw new Error('Enter a valid analysis start.');
-    if(request.initial.temperature.some(v=>!Number.isFinite(v)||v<40||v>110))throw new Error('Enter both indoor temperatures from 40–110°F.');
+    if(request.initial.temperature.some(v=>!Number.isFinite(v)))throw new Error('Enter valid numbers for both indoor temperatures.');
     if(request.initial.rh.some(v=>!Number.isFinite(v)||v<1||v>100))throw new Error('Enter both indoor humidity readings from 1–100%.');
     if(!['staying','leaving','away'].includes(request.occupancy))throw new Error('Choose an occupancy option.');
     if(request.occupancy==='away'&&!request.remote)throw new Error('Currently away requires remote thermostat access and current sensor readings.');

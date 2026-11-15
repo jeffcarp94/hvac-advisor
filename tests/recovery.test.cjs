@@ -71,3 +71,25 @@ test('an actual departure during cooldown preserves the recovery clock and occup
  assert.equal(a.run('after.suitable'),true);assert.ok(a.run('after.recoveryMinutes')>30);
  assert.equal(a.run('rows.find(p=>p.from===+r.departure).occupants'),0);
 });
+test('measured temperatures have no arbitrary indoor bounds; invalid numbers still fail',()=>{
+ const a=setup(20,10);a.run('r.reading=r.start');
+ for(const temperatures of [[-20,-15],[20,35],[115,120],[130,135]]){
+  a.ctx.temperatures=temperatures;assert.doesNotThrow(()=>a.run('r.initial.temperature=temperatures;validatePlanRequest(r)'));
+ }
+ for(const bad of [NaN,Infinity,-Infinity]){a.ctx.bad=bad;assert.throws(()=>a.run('r.initial.temperature=[bad,70];validatePlanRequest(r)'),/valid numbers/);}
+});
+test('temperature steppers cross former indoor and outdoor boundaries',()=>{
+ const a=app();
+ for(const [control,field,low] of [['temp','temp',20],['indoor','indoor',40],['currentIndoor','indoorCurrent',40]]){
+  a.run(`state.${field}=${low};step('${control}',-1)`);assert.equal(a.run(`state.${field}`),low-1);
+  a.run(`state.${field}=110;step('${control}',1)`);assert.equal(a.run(`state.${field}`),111);
+ }
+});
+test('heating and cooling recovery simulate beyond the former indoor bounds',()=>{
+ for(const [initial,out,type] of [[20,10,'heating'],[-10,-20,'heating'],[120,105,'cooling'],[130,110,'cooling']]){
+  const a=setup(initial,out);a.run(`p=simulatePlan([{time:+r.start,setup:${type}}],e,r,AIR_SCENARIOS[0],rows,null,false,true)`);
+  assert.equal(a.run('p.equipmentEligible'),true);
+  assert.equal(a.run('p.trace.every(t=>Number.isFinite(t.bedroom)&&Number.isFinite(t.midCoach))'),true);
+  assert.ok(a.run(type==='heating'?'p.finalIndoor>r.initial.temperature[0]':'p.finalIndoor<r.initial.temperature[0]'));
+ }
+});
