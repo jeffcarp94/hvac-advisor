@@ -7,24 +7,44 @@ function scenario({temp=80,rh=30,wind=0,cloud=0,startIndoor=72,hours=3}={}){
     return a;
 }
 
-test('documented heat-pump minimum is 30°F with no humidity-based lockout',()=>{
+test('EasyTouch 350 owner-selected 42°F heat pump to propane changeover is independent of humidity and attendance',()=>{
  const a=app();for(const overnight of [false,true])for(const rh of [5,50,95]){
-  assert.equal(a.run(`heatPumpPolicy(30,${rh},${overnight}).safe`),true);
-  assert.equal(a.run(`heatPumpPolicy(29.99,${rh},${overnight}).safe`),false);
+  assert.equal(a.run(`heatPumpPolicy(42,${rh},${overnight}).safe`),true);
+  assert.equal(a.run(`heatPumpPolicy(41.99,${rh},${overnight}).safe`),false);
   assert.equal(a.run(`heatPumpPolicy(44,${rh},${overnight}).safe`),true);
  }
- assert.equal(a.run('heatPumpMinimum(45)'),30);
- assert.match(a.run('heatPumpPolicy(40,95,true).warning'),/Defrost/);
+ assert.equal(a.run('heatPumpMinimum()'),42);
+ assert.equal(a.run('heatSourceForPumpMode(42)'),'hp');
+ assert.equal(a.run('heatSourceForPumpMode(41.99)'),'furnace');
+ assert.match(a.run('heatPumpPolicy(40,95,true).reason'),/propane furnace automatically/);
 });
-test('heat-pump heating estimate falls with outdoor temperature independently of operating permission',()=>{
- const a=app();assert.equal(a.run('heatPumpCapacity(50)'),15000);assert.equal(a.run('heatPumpCapacity(41)'),13000);
- assert.ok(a.run('heatPumpCapacity(30)')<a.run('heatPumpCapacity(41)'));assert.equal(a.run('heatPumpCapacity(29)'),0);
+test('heat-pump output is disabled below 42°F; above it estimated output rises with outdoor temperature',()=>{
+ const a=app();assert.equal(a.run('heatPumpCapacity(50)'),15000);
+ assert.ok(a.run('heatPumpCapacity(42)')>13000);
+ assert.ok(a.run('heatPumpCapacity(42)')<a.run('heatPumpCapacity(50)'));
+ assert.equal(a.run('heatPumpCapacity(41.99)'),0);
 });
-test('AUTO cannot invent furnace fallback below the documented changeover',()=>{
- const a=scenario({temp:29,startIndoor:80});
- assert.equal(a.run("simulateThermalProfile('hp',envelope,true,sp,1000,80).segments[0].operation"),'off');
- a.run("s=simulateThermalProfile('auto',envelope,true,sp,1000,50)");assert.ok(a.run('s.unsafe.length')>0);
- assert.equal(a.run("s.segments.some(s=>s.operation==='furnace')"),false);
+test('Heat Pump and Auto Heat Pump retain thermostat mode while switching heating to furnace at 41°F',()=>{
+ const cold=scenario({temp:41,startIndoor:60});
+ for(const mode of ['hp','auto']){
+  const s=cold.run(`simulateThermalProfile('${mode}',envelope,true,sp,1000,60)`);
+  assert.equal(s.unsafe.length,0);
+  assert.equal(s.segments.some(segment=>segment.operation==='furnace'),true);
+  assert.equal(s.segments.some(segment=>segment.operation==='hp'),false);
+ }
+ const warm=scenario({temp:43,startIndoor:60});
+ for(const mode of ['hp','auto']){
+  const s=warm.run(`simulateThermalProfile('${mode}',envelope,true,sp,1000,60)`);
+  assert.equal(s.segments.some(segment=>segment.operation==='hp'),true);
+  assert.equal(s.segments.some(segment=>segment.operation==='furnace'),false);
+ }
+});
+test('two-zone heating delivers furnace duct distribution after automatic 42°F changeover',()=>{
+ const a=scenario({temp:41,startIndoor:60});
+ a.run("z=zoneProfile('auto',envelope,true,sp,C.metaSleep,60,{checkEquipment:true,frontControl:true})");
+ assert.equal(a.run("z.segments.some(s=>s.operation==='furnace')"),true);
+ assert.equal(a.run("z.segments.some(s=>s.operation==='hp')"),false);
+ assert.equal(a.run("z.unsafe.length"),0);
 });
 
 test('CCC2 Auto fan uses Low at 4°F, Medium at 5–7°F, High at 8°F',()=>{
