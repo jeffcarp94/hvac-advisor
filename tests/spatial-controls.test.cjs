@@ -61,7 +61,7 @@ test('planned cabinet isolation has no invented numeric correction or insulation
 test('unchanged effective controls preserve AUTO cycle and cached state across a stage label',()=>{
  const a=scenario();a.run(`r.initial.temperature=[67,67];state.temp=80;e=makeEnvelope(r.start,planBounds(r.start,r).end,'Cycle continuity',300000);
  to=+r.start+60*60000;rows=planRows(e,r,.5,[to]).filter(x=>x.to<=to);
- first=withSetting(planSetup('auto',true),67);second=withSetting(planSetup('auto',false,null,'Low'),67);
+ first=withSetting(planSetup('auto',true),{heat:67,cool:71});second=withSetting(planSetup('auto',false,null,'Low'),{heat:67,cool:71});
  direct=simulatePlan([{time:+r.start,setup:first}],e,r,AIR_SCENARIOS[0],rows);
  split=[{time:+r.start,setup:first},{time:+r.start+7*60000,setup:second}];
  divided=simulatePlan(split,e,r,AIR_SCENARIOS[0],rows);e.planCache=new Map();cached=evaluatePlan(split,e,r,rows);`);
