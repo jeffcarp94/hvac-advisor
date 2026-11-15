@@ -29,7 +29,8 @@ test('absence remains awake-policy/unoccupied after 10 PM; return starts sleep a
  assert.equal(a.run('setupChangeAllowed(off,cool,+r.returnTime+60000,r)'),false);
 });
 test('complete departure plan carries state, covers each stage and renders the six requested presentations',()=>{
- const a=scenario({start:'2026-10-24T04:00Z',departure:'2026-10-24T04:10Z',temp:50});a.run('e.points.forEach(p=>p.tOut=50);r.remote=true;result=runUnifiedPlan(r,e);html=renderPlan(result)');
+ // Steady cold weather gives a robust heating plan under the EasyTouch model.
+ const a=scenario({start:'2026-10-24T04:00Z',departure:'2026-10-24T04:10Z',temp:50});a.run('e.points.forEach(p=>p.tOut=45);r.remote=true;result=runUnifiedPlan(r,e);html=renderPlan(result)');
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
  for(const kind of ['current','departure'])assert.ok(a.run(`result.stages.${kind}.recommended`));
  assert.ok(a.run('result.stages.night.recommendation'));

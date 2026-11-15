@@ -24,7 +24,8 @@ test('natural daytime recovery is checked after 10 AM and after 7 PM',()=>{
  }
 });
 test('projected alternatives retain identical preparation and exact carried bedtime state',()=>{
- const a=scenario();a.run(`e.points.forEach(p=>p.tOut=50)`);a.ctx.structuredClone=structuredClone;a.run(`result=runUnifiedPlan(r,e);records=[];originalEvaluate=evaluatePlan;
+ // A steady heating case isolates handoff identity from AUTO's wider cycle.
+ const a=scenario();a.run(`e.points.forEach(p=>p.tOut=45)`);a.ctx.structuredClone=structuredClone;a.run(`result=runUnifiedPlan(r,e);records=[];originalEvaluate=evaluatePlan;
  evaluatePlan=(...args)=>{const p=originalEvaluate(...args);records.push(p);return p;};
  comparisons=periodComparisons(result,planSetups(false),planSetups(true),planRows(e,r));html=renderPlan({...result,comparisons});`);
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
