@@ -1,3 +1,11 @@
+# v6.6.1 — Heating and cooling recovery
+
+Measured indoor temperatures and manual outdoor temperature controls have no arbitrary minimum or maximum. Missing or nonfinite indoor readings are rejected; equipment eligibility checks and thermostat control/setpoint ranges remain separate. Recovery tests cover conditions below 40°F and above 110°F.
+
+Cold or hot measured starting temperatures now enter a recovery phase. Heating can warm a coach that starts below 65°F; AC can continue cooling beyond 30 minutes. Equipment and moisture checks remain enforced. Plans report estimated recovery time or unfinished recovery and carry temperature and moisture continuously through departure and later stages. After recovery, the existing comfort checks apply.
+
+Recovery options rank by time to reach the acceptable bedroom band, then normal comfort preferences. If the available HVAC cannot produce a verified comfort plan, an equipment-eligible action that improves on leaving HVAC off is shown separately, with a review time and capacity/forecast limitation. Thermodynamic constants are unchanged.
+
 # v6.6.0 — EasyTouch 350 independent AUTO setpoints and owner-configured gaps
 
 - Replaced the old CCC2-style single AUTO midpoint / ±2°F activation assumption. AUTO HEAT PUMP and AUTO FURNACE are modeled with two independent programmable integers: HEAT TO and COOL TO, displayed explicitly in proposed plans and instructions.

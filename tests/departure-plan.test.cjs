@@ -69,10 +69,17 @@ test('identical current and departure setup says keep it; immediate departure om
  assert.equal(a.run('result.stages.current'),null);assert.ok(a.run('result.winner.trials'));
  assert.match(a.run('html'),/Recommended departure mode/);assert.doesNotMatch(a.run('html'),/Recommended current mode/);
 });
-test('failed current stage cannot prescribe a departure mode or claim the full plan passes',()=>{
+test('a cold current stage prescribes recovery without claiming an unverified later stage',()=>{
  const a=scenario();a.run(`r.initial.temperature=[60,60];result=runUnifiedPlan(r,e);html=renderPlan(result)`);
- assert.equal(a.run('result.winner.suitable'),false);assert.equal(a.run('result.stages.current.recommended'),null);assert.equal(a.run('result.stages.departure.recommended'),null);
- assert.match(a.run('html'),/No current setup passes continuously through departure/);assert.doesNotMatch(a.run('html'),/Select COOL at|Select HEAT PUMP at|Select FURNACE at/);
+ assert.ok(a.run('result.stages.current.recommended'));
+ assert.ok(a.run("['hp','furnace','auto','auto_furnace'].includes(result.stages.current.recommended.setup.type)"));
+ assert.match(a.run('html'),/Warming the RV from 60.0°F/);
+ if(!a.run('result.stages.departure.recommended'))assert.equal(a.run('result.stages.night?.recommendation??null'),null);
+});
+test('a genuinely failed current stage cannot certify departure or overnight',()=>{
+ const a=scenario();a.run(`r.initial.temperature=[60,60];planSetups=sleep=>[planSetup('passive',sleep)];recoveryAction=()=>null;result=runUnifiedPlan(r,e);html=renderPlan(result)`);
+ assert.equal(a.run('result.stages.current.recommended'),null);assert.equal(a.run('result.stages.departure.recommended'),null);
+ assert.match(a.run('html'),/No current setup passes continuously through departure/);
 });
 
 test('predeparture cooling cannot qualify by using sleeping comfort while still awake',()=>{

@@ -59,8 +59,11 @@ test('current guidance favors target fit over the former natural-recovery prefer
  assert.ok(a.run('c.targetRank<=targetMetrics(off).targetRank'));
  assert.ok(a.run('c.trials.some(t=>t.didHeat)'));
 });
-test('current guidance cannot bypass an initially cold coach',()=>{
- const a=setup();a.run('r.initial.temperature=[64,72];c=currentRecommendation(e,r,[])');assert.equal(a.run('c'),null);
+test('current guidance warms an initially cold bedroom with a warmer front sensor',()=>{
+ const a=setup();a.run('r.initial.temperature=[64,72];c=currentRecommendation(e,r,[])');
+ assert.ok(a.run('c'));assert.equal(a.run('c.recoveryInfo.direction'),'heating');
+ assert.equal(a.run('c.trials.every(t=>t.equipmentEligible&&t.moistureEligible&&t.finalIndoor>64)'),true);
+ assert.equal(a.run('c.reviewAt'),a.run('+r.start+30*60000'));
 });
 test('currently-away guidance preserves the verified physical arrangement and available controls',()=>{
  const a=setup();a.run(`r.occupancy='away';r.remote=true;r.departure=r.start;r.returnTime=new Date(+r.start+3600000);

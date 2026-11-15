@@ -1,3 +1,11 @@
+# v6.6.1 — Initial temperature recovery
+
+Measured indoor temperatures and manual outdoor temperature controls have no arbitrary minimum or maximum. Missing or nonfinite indoor readings are rejected; equipment eligibility checks and thermostat control/setpoint ranges remain separate. Recovery tests cover conditions below 40°F and above 110°F.
+
+Owner-approved November 15, 2026: initial cold/hot conditions are recoverable states, not automatic equipment disqualifications. Appropriate active heating/cooling may begin outside the comfort band, including below 65°F, without a fixed 30-minute deadline. Initial recovery ends at the first entry into the applicable bedroom comfort band. It is never reset by departure, return, mode changes, or cached simulation continuation. Subsequent temperature failures remain failures. Equipment and room-air moisture checks are unchanged.
+
+Recovery timing and progress are evaluated across all sensitivity scenarios. Completed recovery ranks ahead of unfinished recovery; faster completed recovery, or greater progress over a common unfinished interval, ranks ahead of steady-state preferences. The UI distinguishes a recovery trajectory from guaranteed comfort. A separate limited-action fallback compares equipment-eligible HVAC against HVAC off when no current plan qualifies. It does not certify departure or overnight comfort. No heat-transfer, capacity, solar, or thermal-mass constants changed.
+
 # v6.6.0 — EasyTouch RV 350 dual-temperature AUTO controls (current policy)
 
 **Actual owner settings confirmed November 15, 2026:** Auto Gas Changeover Outside Temperature Setpoint 42°F; Temperature Differential Gap HEAT 2°F and COOL 2°F. These are constants, with no user-adjustable gap UI.
