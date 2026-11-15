@@ -160,8 +160,11 @@
         <label class="field"><input id="remoteAccess" type="checkbox" onchange="planInputsChanged()" style="display:inline;width:auto"> Remote thermostat access is available</label>
         <p class="hint">Future capability; off for your current equipment. Read remote sensors in their app and enter values here. This app does not connect to or control equipment.</p>
         <div id="actualSetup" hidden>
-          <label class="field">Current thermostat mode<select id="actualMode" onchange="planInputsChanged()"><option value="passive">OFF</option><option value="ac">COOL</option><option value="hp">HEAT PUMP</option><option value="furnace">FURNACE</option><option value="auto">AUTO HEAT PUMP</option><option value="maxxfan">OFF — MaxxFan in AUTO</option></select></label>
-          <label class="field">Current setpoint (°F)<input id="actualSetpoint" type="number" value="72" min="40" max="90" onchange="planInputsChanged()"></label>
+          <label class="field">Current thermostat mode<select id="actualMode" onchange="planInputsChanged()"><option value="passive">OFF</option><option value="ac">COOL</option><option value="hp">HEAT PUMP</option><option value="furnace">FURNACE</option><option value="auto">AUTO HEAT PUMP</option><option value="auto_furnace">AUTO FURNACE</option><option value="maxxfan">OFF — MaxxFan in AUTO</option></select></label>
+          <label class="field">Current single-mode setpoint (°F)<input id="actualSetpoint" type="number" value="72" min="40" max="90" onchange="planInputsChanged()"></label>
+           <label class="field">Current AUTO HEAT TO (°F)<input id="actualHeatSetpoint" type="number" value="68" min="40" max="90" onchange="planInputsChanged()"></label>
+           <label class="field">Current AUTO COOL TO (°F)<input id="actualCoolSetpoint" type="number" value="72" min="55" max="90" onchange="planInputsChanged()"></label>
+           <p class="hint">For AUTO modes, enter both actual setpoints. Your Heat Gap and Cool Gap are fixed at 2°F in this Advisor; no gap controls are needed.</p>
           <label class="field">Current HVAC fan<select id="actualFan" onchange="planInputsChanged()"><option>Auto</option><option>Low</option><option>Medium</option><option>High</option></select></label>
           <label class="field">Active MaxxFan<select id="actualVent" onchange="planInputsChanged()"><option value="1">Mid-coach</option><option value="0">Bedroom</option></select></label>
           <div id="actualWindows"></div>
@@ -741,7 +744,7 @@ function simulationComfort(sim,isOvernight,current=false){
 function operatingAssumptions(mode,fan){
     return 'Two connected cabin zones; indoor moisture is simulated. '+(state.indoorRH==null?'Starting indoor RH is estimated. ':'Starting indoor RH is entered. ')
         +(mode==='maxxfan'?'One roof fan operates in AUTO; the other stays closed/off. Window settings stay fixed. ':'')
-        +(mode==='ac'||mode==='auto'?'Cooling requires a clean filter and unobstructed distribution vents. ':'')
+        +(mode==='ac'||isAutoMode(mode)?'Cooling requires a clean filter and unobstructed distribution vents. ':'')
         +'Window airflow, surface temperatures, and moisture-removal rates use engineering assumptions tested across scenarios.';
 }
 
@@ -950,7 +953,7 @@ function optimizeCandidate(type,envelope,isOvernight,meta){
     return evaluateCandidate(type,envelope,isOvernight,confirmedSetpoints(isOvernight),meta);
 }
 
-function periodPreference(c){return c.type==='passive'?1:c.type==='maxxfan'?2:c.type==='auto'&&c.autoDidCool&&c.autoDidHeat?3:c.type==='hp'?4:c.type==='furnace'?5:c.type==='auto'&&c.autoDidHeat?5.5:c.type==='ac'?6:7;}
+function periodPreference(c){return c.type==='passive'?1:c.type==='maxxfan'?2:isAutoMode(c.type)&&c.autoDidCool&&c.autoDidHeat?3:c.type==='hp'?4:c.type==='furnace'?5:isAutoMode(c.type)&&c.autoDidHeat?5.5:c.type==='ac'?6:7;}
 function selectOvernightSetup(envelope,isOvernight){
     return assessModes(envelope,isOvernight,confirmedSetpoints(isOvernight),state.indoor);
 }
@@ -1397,7 +1400,7 @@ function mixedMoistureStep(w,tFront,sourceLbHr,outdoorCFM,outdoorW,dt,enabled){
 }
 function circulationFraction(mode,fan,operation,duty){
     // CCC2 fixed roof-fan speeds run between compressor calls (manual p.10).
-    if(['ac','hp','auto'].includes(mode)&&fan!=='Auto')return 1;
+    if(['ac','hp','auto','auto_furnace'].includes(mode)&&fan!=='Auto')return 1;
     return ['ac','hp','furnace'].includes(operation)?duty:0;
 }
 function surfaceAssessment(t,tOut,w,scenario=AIR_SCENARIOS[0]){
@@ -1772,7 +1775,7 @@ function validatePlanRequest(request){
     }
     if(request.occupancy==='away'){
         if(!request.actualConfirmed||!request.actual)throw new Error('Confirm the existing physical setup before planning while away.');
-        if(['ac','hp','furnace','auto'].includes(request.actual.type)&&request.actual.config)throw new Error('The entered active HVAC setup has open windows. It cannot be corrected remotely.');
+        if(['ac','hp','furnace','auto','auto_furnace'].includes(request.actual.type)&&request.actual.config)throw new Error('The entered active HVAC setup has open windows. It cannot be corrected remotely.');
     }
 }
 function readPlanRequest(){
@@ -1792,9 +1795,15 @@ function readPlanRequest(){
         const config=gaps.some(Boolean)?{gaps,fanZone,fanName:fanZone===0?'Bedroom MaxxFan':'Mid-coach MaxxFan'}:null;
         if(type==='maxxfan'&&!config)throw new Error('A MaxxFan exhaust setup needs at least one intake window open.');
         const actual=planSetup(type,planBounds(start,request).sleep,config,value('actualFan')),sp=number('actualSetpoint');
-        const minimum=['hp','furnace'].includes(type)?40:55;
-        if(!Number.isInteger(sp)||sp<minimum||sp>90)throw new Error('Enter the current setpoint as a whole degree from '+minimum+'–90°F.');
-        actual.setpoints={heat:sp,cool:sp,auto:sp,fan:sp};actual.key+='|actual|'+sp;
+        if(isAutoMode(type)){
+            const heat=number('actualHeatSetpoint'),cool=number('actualCoolSetpoint');
+            if(!validDualSetpoints({heat,cool}))throw new Error('Enter actual AUTO HEAT TO / COOL TO in whole degrees, with cooling at least 4°F above heating.');
+            actual.setpoints={heat,cool,fan:cool};actual.key+='|actual|'+heat+'|'+cool;
+        }else{
+            const minimum=['hp','furnace'].includes(type)?40:55;
+            if(!Number.isInteger(sp)||sp<minimum||sp>90)throw new Error('Enter the current setpoint as a whole degree from '+minimum+'–90°F.');
+            actual.setpoints={heat:sp,cool:sp,fan:sp};actual.key+='|actual|'+sp;
+        }
         request.actual=actual;request.actualConfirmed=!!document.getElementById('setupConfirmed').checked;
     }
     validatePlanRequest(request);return request;
@@ -2279,17 +2288,17 @@ function* searchPlans(envelope,request){
 }
 function annotateAutoPlans(plans){
     for(const plan of plans){
-        if(plan.nightType!=='auto')continue;
+        if(!isAutoMode(plan.nightType))continue;
         const peers=plans.filter(p=>p.setup.type===plan.setup.type&&setupPhysicalKey(p.setup)===setupPhysicalKey(plan.setup)&&p.suitable&&p.ready);
         const ac=peers.some(p=>p.nightType==='ac'),heat=peers.some(p=>p.nightType==='hp'||p.nightType==='furnace');
         const since=plan.prepareAt??+plan.request.start;
         const both=plan.trials.filter(t=>{
             const parts=t.segments.filter(s=>s.startMs>=since),minutes=op=>parts.filter(s=>s.operation===op).reduce((n,s)=>n+s.hours*60*s.duty,0);
-            return minutes('ac')>=5&&minutes('hp')>=5;
+            return minutes('ac')>=5&&minutes('hp')+minutes('furnace')>=5;
         }).length;
         const need=!ac&&!heat&&both>0;
         plan.autoExplanation=ac?'Cooling alone is acceptable; AUTO receives no benefit for reheating.':heat?'Heating alone is acceptable; both functions are not needed.':need?'Both functions prevent a single-mode shortfall in '+both+' of '+AIR_SCENARIOS.length+' sensitivity scenarios.':'A sustained need for both functions is not established.';
-        const nightHeat=plan.trials[0].segments.filter(s=>s.startMs>=since&&s.operation==='hp').reduce((n,s)=>n+s.hours*60*s.duty,0);
+        const nightHeat=plan.trials[0].segments.filter(s=>s.startMs>=since&&['hp','furnace'].includes(s.operation)).reduce((n,s)=>n+s.hours*60*s.duty,0);
         plan.score+=need?-1:ac&&nightHeat>0?1+nightHeat/30:.5;
     }
 }
@@ -2363,7 +2372,7 @@ function renderPeriodComparisons(period,night=false){
         html+='<details class="diag-panel"><summary>'+escapeHTML(title)+'</summary>';
         html+=list.length?list.map(p=>'<div class="comparison-row"><div class="comparison-name">'+escapeHTML(setupName(p.setup))+'</div><div class="comparison-text">'+
             escapeHTML(viable?'Passes temperature, moisture and equipment checks in all tested scenarios for this interval. '+
-                (p.idle?'No active heating or cooling is predicted with this setting. ':p.setup.type==='auto'?'AUTO can maintain acceptable conditions, but is not required by the recommended plan. ':'')+(period.recommended?(night?'The displayed overnight recommendation was selected within the complete plan.':'The displayed daytime recommendation was selected within the complete plan; this alternative passes only the stated interval.'):'No complete plan has been recommended; this option passes only the stated interval.'):p.reason||'Does not pass this interval’s checks.')+'</div>'+
+                (p.idle?'No active heating or cooling is predicted with this setting. ':isAutoMode(p.setup.type)?'AUTO can maintain acceptable conditions, but is not required by the recommended plan. ':'')+(period.recommended?(night?'The displayed overnight recommendation was selected within the complete plan.':'The displayed daytime recommendation was selected within the complete plan; this alternative passes only the stated interval.'):'No complete plan has been recommended; this option passes only the stated interval.'):p.reason||'Does not pass this interval’s checks.')+'</div>'+
             (viable?'<div class="comparison-range">'+escapeHTML(setupInstructions(p.setup))+'</div><p class="hint">Bedroom: '+escapeHTML(p.bedroom)+'°F · '+escapeHTML(p.humidity)+'% RH.<br>Dinette: '+escapeHTML(p.front)+'°F.'+(p.frontFits===false?' The dinette leaves its comfort band; the bed area takes priority.':'')+'</p>':'')+'</div>').join(''):'<p class="hint">None for this interval.</p>';
         html+='</details>';
     }
@@ -2375,8 +2384,8 @@ function planActionText(phase,request){
     if(!isAwayAt(request,phase.time)||request.occupancy==='leaving'&&phase.time===+request.departure)return escapeHTML(setupInstructions(phase.setup));
     const setup=phase.setup;
     if(setup.type==='maxxfan'||setup.type==='passive'&&setup.config)return 'Keep the verified '+escapeHTML(setupName(setup))+' setup unchanged. No window or MaxxFan adjustment is required.';
-    const mode={ac:'COOL',hp:'HEAT PUMP',furnace:'FURNACE',auto:'AUTO HEAT PUMP',passive:'OFF'}[setup.type],sp=setup.type==='auto'?setup.setpoints.auto:setup.type==='ac'?setup.setpoints.cool:setup.setpoints.heat;
-    if(setup.type==='auto')return 'In the Micro-Air app, select AUTO HEAT PUMP and verify its separate HEAT TO and COOL TO values. The Advisor\'s '+sp+'°F modeled midpoint is not a single programmable AUTO setting. Keep the verified window and MaxxFan arrangement unchanged.';
+    const mode={ac:'COOL',hp:'HEAT PUMP',furnace:'FURNACE',auto:'AUTO HEAT PUMP',auto_furnace:'AUTO FURNACE',passive:'OFF'}[setup.type],sp=setup.type==='ac'?setup.setpoints.cool:setup.setpoints.heat;
+    if(isAutoMode(setup.type))return 'In the Micro-Air app, select '+mode+'; set HEAT TO '+setup.setpoints.heat+'°F and COOL TO '+setup.setpoints.cool+'°F. Keep the verified window and MaxxFan arrangement unchanged.';
     return 'In the remote thermostat app, select '+mode+(setup.type==='passive'?'':' at '+sp+'°F with '+setup.fan+' fan')+'. Keep the verified physical window and MaxxFan arrangement unchanged.';
 }
 function traceRange(plan,from,to,field){const v=plan.trials.flatMap(t=>t.trace.filter(p=>+p.time>=from&&+p.time<=to).map(p=>p[field]));return v.length?Math.min(...v).toFixed(1)+'–'+Math.max(...v).toFixed(1):'—';}
@@ -2395,8 +2404,8 @@ function currentOutlook(current,bounds){
     let html='<div class="mitigation-box severity-amber"><strong>Overnight needs reassessment</strong>The current recommendation passes through '+escapeHTML(formatTime(new Date(current.reviewAt)))+'. A complete overnight plan has not passed the checks.';
     if(reasons.length){const first=new Date(Math.min(...problems.map(p=>+p.time)));html+=' A temperature concern is predicted by '+escapeHTML(formatTime(first))+': '+escapeHTML(reasons.join(' '));}
     html+='</div>';
-    const assumed=p.phases.at(-1),s=assumed.setup,target=s.type==='auto'?s.setpoints.auto:s.type==='ac'?s.setpoints.cool:s.type==='maxxfan'?s.setpoints.fan:s.setpoints.heat;
-    html+='<p class="hint">Overnight outlook assumes '+escapeHTML(setupName(s))+(s.type==='passive'?'':' at '+target+'°F')+' from '+escapeHTML(formatTime(new Date(assumed.time)))+'. This overnight sequence has not been verified for use.</p>';
+    const assumed=p.phases.at(-1),s=assumed.setup,target=s.type==='ac'?s.setpoints.cool:s.type==='maxxfan'?s.setpoints.fan:s.setpoints.heat;
+    html+='<p class="hint">Overnight outlook assumes '+escapeHTML(setupName(s))+(s.type==='passive'?'':isAutoMode(s.type)?' with '+autoSetpointLabel(s.setpoints):' at '+target+'°F')+' from '+escapeHTML(formatTime(new Date(assumed.time)))+'. This overnight sequence has not been verified for use.</p>';
     if(bounds.bedtime)html+='<p class="hint">Bedroom at 10 PM in this outlook: '+readingAt(p,+bounds.bedtime,'bedroom')+'°F. '+(p.trials.every(t=>t.ready)?'The bedtime temperature target is reached; later concerns still need reassessment.':'Bedtime preparation still needs reassessment to reach the sleep target.')+'</p>';
     const temperatures=p.trials.flatMap(t=>t.trace.filter(v=>+v.time>=sleepFrom).map(v=>v.bedroom));
     if(temperatures.length)html+='<p class="hint">Overnight temperature outlook: bedroom '+Math.min(...temperatures).toFixed(1)+'–'+Math.max(...temperatures).toFixed(1)+'°F; acceptable sleep band 65–69°F. A predicted comfort miss is separate from an equipment operating limit.</p>';
