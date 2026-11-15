@@ -4,7 +4,7 @@ function load(a,job){a.setNow(job.start);a.ctx.job=job;a.run(`forecast.timeZone=
  pts=job.points.map(p=>({...p,time:new Date(p.time),tOut:Math.round(p.tOut),rh:Math.round(p.rh)}));
  e={windowStart:r.start,windowEnd:new Date(job.end),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points:pts,cloud:pts[0].cloud,wind:pts[0].wind,precip:pts[0].precip};`);}
 test('heat pump includes full defrost interruptions and never substitutes furnace',()=>{
- const a=app();a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=false;C.hpCapacityCold=1000;C.hpCapacityWarm=1000;
+ const a=app();a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=false;C.heatPumpMinTemp=30;C.hpCapacityCold=1000;C.hpCapacityWarm=1000;
  e={windowStart:new Date('2026-05-10T03:00Z'),windowEnd:new Date('2026-05-10T04:30Z'),wind:0,cloud:0,points:[{time:new Date('2026-05-10T03:00Z'),tOut:40,rh:70,wind:0,cloud:0}]};
  p=zoneProfile('hp',e,true,confirmedSetpoints(true),0,60,{checkEquipment:false});`);
  assert.ok(Math.abs(a.run('p.defrostMinutes')-15)<1e-6);
@@ -13,7 +13,7 @@ test('heat pump includes full defrost interruptions and never substitutes furnac
  assert.equal(a.run("p.segments.some(s=>s.operation==='furnace')"),false);
 });
 test('part-load heating advances through defrost boundaries with finite substeps',()=>{
- const a=app();a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;
+ const a=app();a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;C.heatPumpMinTemp=30;
  e={windowStart:new Date('2026-05-10T03:00Z'),windowEnd:new Date('2026-05-10T08:00Z'),wind:8,cloud:0,points:[{time:new Date('2026-05-10T03:00Z'),tOut:40,rh:75,wind:8,cloud:0}]};
  p=zoneProfile('hp',e,true,confirmedSetpoints(true),C.metaSleep,66,{frontControl:true});`);
  assert.ok(a.run('p.defrostMinutes')>0);assert.ok(a.run('p.segments.length')<2000);
@@ -22,7 +22,7 @@ test('part-load heating advances through defrost boundaries with finite substeps
 });
 test('cached heating handoff preserves defrost clock, pauses and moisture',()=>{
  const a=app();load(a,require('./fixtures/winterset-planning-regressions.json')[0]);
- a.run(`e.points=e.points.map(p=>({...p,tOut:40,rh:60}));ph=[{time:+r.start,setup:planSetup('hp',false)},{time:+r.start+55*60000,setup:planSetup('hp',true)}];rows=planRows(e,r);
+ a.run(`C.heatPumpMinTemp=30;e.points=e.points.map(p=>({...p,tOut:40,rh:60}));ph=[{time:+r.start,setup:planSetup('hp',false)},{time:+r.start+55*60000,setup:planSetup('hp',true)}];rows=planRows(e,r);
  direct=evaluatePlan(ph,e,r,rows);e.planCache=new Map();cached=evaluatePlan(ph,e,r,rows);`);
  assert.equal(a.run('JSON.stringify(direct.trials.map(t=>({trace:t.trace,segments:t.segments,defrost:t.defrostMinutes})))'),a.run('JSON.stringify(cached.trials.map(t=>({trace:t.trace,segments:t.segments,defrost:t.defrostMinutes})))'));
 });
@@ -66,6 +66,6 @@ test('planner searches separate COOL preparation followed by an overnight heatin
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
  assert.equal(a.run("result.plans.some(p=>p.suitable&&p.ready&&p.phases.length===3&&p.phases[1].setup.type==='ac'&&['hp','furnace'].includes(p.nightType))"),true);
  assert.equal(a.run('result.winner.trials.every(t=>+t.trace.at(-1).time===+e.windowEnd)'),true);
- assert.match(a.run('html'),/without manual changes or automatic furnace backup/);
+ assert.match(a.run('html'),/without manual changes\. AUTO HEAT PUMP may use the propane furnace below the 42°F gas-changeover setting/);
 });
 
