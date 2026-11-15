@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.5.0 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.5.1 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.5.0</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.5.1</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -160,7 +160,7 @@
         <label class="field"><input id="remoteAccess" type="checkbox" onchange="planInputsChanged()" style="display:inline;width:auto"> Remote thermostat access is available</label>
         <p class="hint">Future capability; off for your current equipment. Read remote sensors in their app and enter values here. This app does not connect to or control equipment.</p>
         <div id="actualSetup" hidden>
-          <label class="field">Current thermostat mode<select id="actualMode" onchange="planInputsChanged()"><option value="passive">OFF</option><option value="ac">COOL</option><option value="hp">HEAT PUMP</option><option value="furnace">FURNACE</option><option value="auto">AUTO changeover</option><option value="maxxfan">OFF — MaxxFan in AUTO</option></select></label>
+          <label class="field">Current thermostat mode<select id="actualMode" onchange="planInputsChanged()"><option value="passive">OFF</option><option value="ac">COOL</option><option value="hp">HEAT PUMP</option><option value="furnace">FURNACE</option><option value="auto">AUTO HEAT PUMP</option><option value="maxxfan">OFF — MaxxFan in AUTO</option></select></label>
           <label class="field">Current setpoint (°F)<input id="actualSetpoint" type="number" value="72" min="40" max="90" onchange="planInputsChanged()"></label>
           <label class="field">Current HVAC fan<select id="actualFan" onchange="planInputsChanged()"><option>Auto</option><option>Low</option><option>Medium</option><option>High</option></select></label>
           <label class="field">Active MaxxFan<select id="actualVent" onchange="planInputsChanged()"><option value="1">Mid-coach</option><option value="0">Bedroom</option></select></label>
@@ -319,7 +319,7 @@ function occupantLoad(sleeping,people=2){
     const latentBTU=moistureLbHr*M.latentBTUPerLb;
     return{moistureLbHr,totalBTU,latentBTU,sensibleBTU:Math.max(0,totalBTU-latentBTU)};
 }
-const C={glassArea:45,rGlass:1,cabOpaqueUA:34.1108641985,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:30,heatPumpFrostThresh:50,metaSleep:occupantLoad(true).sensibleBTU,metaAwake:occupantLoad(false).sensibleBTU,dehumWaste:640,solarPeak:250,
+const C={glassArea:45,rGlass:1,cabOpaqueUA:34.1108641985,acCapacity:15000,evapCFM:300,furnaceCapacity:19000,heatPumpMinTemp:42,heatPumpFrostThresh:50,metaSleep:occupantLoad(true).sensibleBTU,metaAwake:occupantLoad(false).sensibleBTU,dehumWaste:640,solarPeak:250,
     solarAbsorptance:.5,exteriorFilm:4, // Assumed mean paint absorptance and exterior film BTU/(hr·ft²·°F).
     // Engineering estimates for glass + deployed shade, not certified product ratings.
     // Cab share uses dimensioned Transit accessories/photo inventory within the
@@ -643,9 +643,14 @@ function solarLoad(cf,isDay,dateForSolar,lat,lon){
 function condLoad(tOut,tIn,wind){const ua=UA_BASE*(1+0.02*wind);return{q:Math.round(ua*(tOut-tIn)),ua:Math.round(ua*10)/10};}
 
 // Operating policies are separate from the sensible temperature predictor.
-// CCC2 manual pp.16–17: auxiliary below 30°F; defrost below 42°F.
+// Micro-Air EasyTouch 350 Auto Gas Changeover is set by the owner to 42°F (2026-11-15).
+// The installed Dometic CCC2 zone board selects auxiliary furnace heat when a heat-pump
+// heating call is below this setting; independent Furnace mode never requests a heat pump.
+// Dometic CCC2 also documents outdoor-sensor changeover hysteresis; the exact adjustable
+// return threshold is unverified, so this model approximates the transition at 42°F.
 const HP={defrostBelow:42,heatingMinutes:25,pauseMinutes:5}; // 4.5 min reversal + .5 min fan delay
 function heatPumpMinimum(){return C.heatPumpMinTemp;}
+function heatSourceForPumpMode(tOut){return tOut<C.heatPumpMinTemp?'furnace':'hp';}
 function heatPumpCapacity(tOut){
     if(tOut<C.heatPumpMinTemp)return 0;
     // Linear continuation of retained 50°F/15k and 41°F/13k engineering estimates.
@@ -653,10 +658,10 @@ function heatPumpCapacity(tOut){
 }
 function heatPumpPolicy(tOut,rh,isOvernight){
     const minimum=heatPumpMinimum(),safe=tOut>=minimum;
-    const reason=safe?'Heat-pump operating range passes.':
-        'Outdoor temperature is below the documented '+minimum+'°F heat-pump changeover. No automatic furnace backup is assumed; select Furnace before sleep.';
+    const reason=safe?'Heat-pump operation is permitted at the configured changeover temperature.':
+        'The EasyTouch 350 gas changeover is set to '+minimum+'°F. A heat-pump heating call below this threshold uses the propane furnace automatically.';
     return{safe,minimum,reason,issueCode:safe?null:'heat-pump-cold',category:safe?null:'range',categoryLabel:'Heat pump below operating range',
-        warning:safe&&tOut<HP.defrostBelow?'Defrost pauses are included; overnight heat-pump operation has no furnace backup.':''};
+        warning:safe&&tOut<HP.defrostBelow?'Heat-pump defrost pauses are included.':''};
 }
 function overnightHeatSystem(tOut,rh){const p=heatPumpPolicy(tOut,rh,true);return{sys:p.safe?'Heat Pump':'LP Furnace',reason:p.reason};}
 function dehumidifierHeat(runtime=0,onPower=C.dehumWaste){return state.dehumidifierEnabled?onPower*Math.max(0,Math.min(1,runtime)):0;}
@@ -760,10 +765,10 @@ function thermalDemand(mode,tIn,env,setpoints,control){
             if(tIn>sp+2+THERMAL_EPS||(tIn>=sp+2-THERMAL_EPS&&qAt(tIn)>0))control.phase='ac';
             else if(tIn<sp-2-THERMAL_EPS||(tIn<=sp-2+THERMAL_EPS&&qAt(tIn)<0))control.phase='hp';
         }
-        return control.phase;
+        return control.phase==='hp'?heatSourceForPumpMode(env.tOut):control.phase;
     }
     if(mode==='ac')return tIn>setpoints.cool+THERMAL_EPS||(tIn>=setpoints.cool-THERMAL_EPS&&qAt(tIn)>0)?'ac':'off';
-    if(mode==='hp'||mode==='furnace')return tIn<setpoints.heat-THERMAL_EPS||(tIn<=setpoints.heat+THERMAL_EPS&&qAt(tIn)<0)?mode:'off';
+    if(mode==='hp'||mode==='furnace')return tIn<setpoints.heat-THERMAL_EPS||(tIn<=setpoints.heat+THERMAL_EPS&&qAt(tIn)<0)?(mode==='hp'?heatSourceForPumpMode(env.tOut):'furnace'):'off';
     if(mode==='maxxfan'){
         const sp=setpoints.fan;
         return tIn>sp+THERMAL_EPS||(tIn>=sp-THERMAL_EPS&&qAt(tIn)>0)?'maxxfan':'off';
@@ -940,7 +945,7 @@ function selectOvernightSetup(envelope,isOvernight){
 function systemDisplayName(winner){
     if(winner.type==='passive') return 'Heating and cooling OFF';
     if(winner.type==='maxxfan') return winner.variant||'MaxxFan vents';
-    if(winner.type==='auto') return 'Auto Change-Over Mode';
+    if(winner.type==='auto') return 'Auto Heat Pump (cooling, heat pump, auxiliary furnace)';
     if(winner.type==='ac') return 'Air Conditioner';
     if(winner.type==='hp') return 'Heat Pump';
     if(winner.type==='furnace') return 'LP Furnace';
@@ -951,9 +956,10 @@ function setupForMode(type,setpoints,fan,isOvernight,variant){
     if(type==='passive')return 'Set the thermostat OFF and roof fans OFF. Close windows and MaxxFans.';
     if(type==='maxxfan')return 'Thermostat OFF. Use one '+(variant||'MaxxFan')+' on Auto at '+(isOvernight?C.maxxFanSetNight:C.maxxFanSetDay)+'°F with nearby intake windows open. Close the other MaxxFan and other windows. Roof AC fan OFF.';
     if(type==='furnace')return 'Select FURNACE at '+setpoints.heat+'°F. Set the roof fan to AUTO (roof fan off in Furnace mode); the furnace blower operates automatically. Close windows and MaxxFans.';
-    const mode=type==='auto'?'AUTO':type==='ac'?'COOL':'HEAT PUMP';
+    const mode=type==='auto'?'AUTO HEAT PUMP':type==='ac'?'COOL':'HEAT PUMP';
     const sp=type==='auto'?setpoints.auto:type==='ac'?setpoints.cool:setpoints.heat;
     let text='Select '+mode+' at '+sp+'°F. Set fan to '+(fan||'Auto').toUpperCase()+' for the whole interval. '+(fan==='Auto'?'Auto cycles and may slow to Low near setpoint. ':'The selected fixed fan runs continuously. ')+'Close windows and MaxxFans.';
+    if(type==='auto'||type==='hp')text+=' Automatic gas changeover uses the propane furnace for heating below '+C.heatPumpMinTemp+'°F.';
     if(type==='auto'||type==='ac')text+=' Keep a clean filter and at least two distribution vents open, or quick-cool plus one distribution vent; do not obstruct airflow.';
     return text;
 }
@@ -1443,10 +1449,10 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         let operation='off',q=0,duty=0;
         if(mode==='auto'){
             if(phase==='ac'&&sensed<=sp.auto+1e-6)phase='off';if(phase==='hp'&&sensed>=sp.auto-1e-6)phase='off';
-            if(phase==='off'){if(sensed>=sp.auto+2-1e-6)phase='ac';else if(sensed<=sp.auto-2+1e-6)phase='hp';}operation=phase;
+            if(phase==='off'){if(sensed>=sp.auto+2-1e-6)phase='ac';else if(sensed<=sp.auto-2+1e-6)phase='hp';}operation=phase==='hp'?heatSourceForPumpMode(out):phase;
         }else if(mode==='ac'&&sensed>=sp.cool-.01)operation='ac';
-        else if((mode==='hp'||mode==='furnace')&&sensed<=sp.heat+.01)operation=mode;
-        if(out>=HP.defrostBelow)hpRunMinutes=0;
+        else if((mode==='hp'||mode==='furnace')&&sensed<=sp.heat+.01)operation=mode==='hp'?heatSourceForPumpMode(out):'furnace';
+        if(out>=HP.defrostBelow||operation==='furnace'){hpRunMinutes=0;if(operation==='furnace')defrostRemaining=0;}
         if(!['hp','auto'].includes(mode)){hpRunMinutes=0;defrostRemaining=0;}
         if(defrostRemaining>1e-8){
             if(defrostRemaining<dt*60-1e-8){const cut=row.from+defrostRemaining*60000;
@@ -2067,7 +2073,7 @@ function renderDeparturePlan(result){
         if(bounds.delayed)html+='<p class="hint">Sleep starts at your return, '+escapeHTML(formatTime(bounds.sleepFrom))+', rather than 10 PM. The absence remains unoccupied until then.</p>';
         if(stages.preparation.length)html+='<p class="hint"><strong>Preparation assumed by the overnight projection:</strong> '+stages.preparation.map(p=>escapeHTML(formatTime(new Date(p.time))+': '+setupInstructions(p.setup))).join(' ')+' Confirm this preparation with fresh readings when you return.</p>';
         html+=section('Recommended overnight mode',stages.night||{from:+bounds.sleepFrom,to:+bounds.end,recommended:null,options:[],blocked:'Overnight alternatives need reassessment after the departure plan is verified.'},'overnight');
-        if(stages.night?.recommendation)html+='<p class="hint">The overnight setup runs through 7 AM without manual changes or automatic furnace backup.</p>';
+        if(stages.night?.recommendation)html+='<p class="hint">The overnight setup runs through 7 AM without manual changes. AUTO HEAT PUMP may use the propane furnace below the 42°F gas-changeover setting.</p>';
     }else html+='<p class="hint">No overnight recommendation: your return is at or after 7 AM. The departure setup is evaluated through your return time.</p>';
     html+='<p class="hint">No occupant heat or moisture between departure and return. Non-sleeping comfort applies throughout the absence; any sleep-temperature setting is preparation. The departure setup remains fixed throughout your absence, even if remote controls are available.</p>';
     html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+interval(+bounds.start,+bounds.end)+' · '+escapeHTML(analysisTimeZone())+'. Temperature, water content, dehumidifier heat and exposure history carry continuously across departure, return and sleep preparation. Overnight alternatives share the displayed preparation.</p>'+spatialModelText(true)+'</details>';
@@ -2335,7 +2341,7 @@ function planActionText(phase,request){
     if(!isAwayAt(request,phase.time)||request.occupancy==='leaving'&&phase.time===+request.departure)return escapeHTML(setupInstructions(phase.setup));
     const setup=phase.setup;
     if(setup.type==='maxxfan'||setup.type==='passive'&&setup.config)return 'Keep the verified '+escapeHTML(setupName(setup))+' setup unchanged. No window or MaxxFan adjustment is required.';
-    const mode={ac:'COOL',hp:'HEAT PUMP',furnace:'FURNACE',auto:'AUTO',passive:'OFF'}[setup.type],sp=setup.type==='auto'?setup.setpoints.auto:setup.type==='ac'?setup.setpoints.cool:setup.setpoints.heat;
+    const mode={ac:'COOL',hp:'HEAT PUMP',furnace:'FURNACE',auto:'AUTO HEAT PUMP',passive:'OFF'}[setup.type],sp=setup.type==='auto'?setup.setpoints.auto:setup.type==='ac'?setup.setpoints.cool:setup.setpoints.heat;
     return 'In the remote thermostat app, select '+mode+(setup.type==='passive'?'':' at '+sp+'°F with '+setup.fan+' fan')+'. Keep the verified physical window and MaxxFan arrangement unchanged.';
 }
 function traceRange(plan,from,to,field){const v=plan.trials.flatMap(t=>t.trace.filter(p=>+p.time>=from&&+p.time<=to).map(p=>p[field]));return v.length?Math.min(...v).toFixed(1)+'–'+Math.max(...v).toFixed(1):'—';}
