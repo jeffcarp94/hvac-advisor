@@ -36,19 +36,20 @@ test('sleep forbids later thermostat or physical changes even when remote contro
 });
 test('AUTO readiness accepts normal cycling only after cooling target has been reached',()=>{
  const a=app();load(a,require('./fixtures/winterset-planning-regressions.json')[0]);
- a.run(`p=simulatePlan([{time:+r.start,setup:withSetting(planSetup('auto',true),{heat:62,cool:66})}],e,r);`);
+ a.run(`p=simulatePlan([{time:+r.start,setup:withSetting(planSetup('auto',true),{heat:63,cool:67})}],e,r);`);
  assert.equal(a.run('p.ready'),true);
  assert.ok(a.run('p.trace.some(p=>p.bedroom<=68.5)'));
- a.run(`late=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+planBounds(r.start).bedtime,setup:withSetting(planSetup('auto',true),{heat:62,cool:66})}],e,r);`);
+ a.run(`late=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+planBounds(r.start).bedtime,setup:withSetting(planSetup('auto',true),{heat:63,cool:67})}],e,r);`);
  assert.equal(a.run('late.ready'),false);
 });
 test('preparation search checks a fine-grid timing island after coarse proposals fail',()=>{
  const a=app();load(a,require('./fixtures/winterset-planning-regressions.json')[0]);
- // Isolate timing coverage under the working body and three weather cases.
+ // Use COOL to isolate timing coverage from the changed AUTO hysteresis.
+ // Retain the working body and all three weather cases.
  // A synthetic narrow readiness window supplies a non-monotonic timing oracle;
  // real temperature, humidity and equipment checks must still pass inside it.
  a.run(`AIR_SCENARIOS.splice(3);island=+planBounds(r.start,r).bedtime-15*60000;
- planSetups=sleep=>[withSetting(planSetup(sleep?'auto':'ac',sleep,null,'Low'),sleep?{heat:62,cool:66}:71)];
+ planSetups=sleep=>[withSetting(planSetup('ac',sleep,null,'Low'),sleep?66:71)];
  optimizePhase=plan=>plan;shortlistVents=()=>[];
  originalSimulate=simulatePlan;simulatePlan=(...args)=>{
   const p=originalSimulate(...args),sleepPhase=args[0].find(phase=>phase.setup.sleepComfort);
