@@ -72,7 +72,7 @@ test('AUTO search includes lower independent controls for bedroom cooling prepar
 test('away AUTO entries and remote actions preserve both independently entered setpoints',()=>{
  const a=app();
  a.setNow('2026-10-24T03:00Z');
- a.run("forecast.timeZone='America/Chicago'");
+ a.run("forecast.timeZone='America/Chicago';updatePlanUI()");
  for(const [id,value] of Object.entries({occupancyMode:'away',returnTime:'2026-10-24T06:00',bedTemp:'68',frontTemp:'68',bedRH:'40',frontRH:'40',readingTime:'2026-10-23T22:00',actualHeatSetpoint:'66',actualCoolSetpoint:'73'}))a.element(id).value=value;
  a.element('remoteAccess').checked=true;a.element('setupConfirmed').checked=true;
  for(const mode of ['auto','auto_furnace']){
