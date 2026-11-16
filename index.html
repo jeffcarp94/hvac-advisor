@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.1 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.2 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.1</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.2</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -771,23 +771,32 @@ function thermalCrossing(tIn,eq,tau,target){
     const ratio=(target-eq)/(tIn-eq);
     return ratio>0&&ratio<1?-tau*Math.log(ratio):Infinity;
 }
-function thermalDemand(mode,tIn,env,setpoints,control){
-    const qAt=t=>env.ua*(env.tOut-t)+env.gains;
-    if(isAutoMode(mode)){
-        if(!validDualSetpoints(setpoints))throw new Error('Invalid EasyTouch dual setpoints.');
-        if(control.phase==='ac'&&tIn<=setpoints.cool-EASYTOUCH.cycleEndOffset+THERMAL_EPS)control.phase='off';
-        if(control.phase==='hp'&&tIn>=setpoints.heat+EASYTOUCH.cycleEndOffset-THERMAL_EPS)control.phase='off';
-        if(control.phase==='off'){
-            if(tIn>=setpoints.cool+EASYTOUCH.coolGap-THERMAL_EPS)control.phase='ac';
-            else if(tIn<=setpoints.heat-EASYTOUCH.heatGap+THERMAL_EPS)control.phase='hp';
-        }
-        return control.phase==='hp'?autoHeatingOperation(mode,env.tOut):control.phase;
+// Shared installed thermostat law; heat phase is logical demand, independent of
+// whether the zone board supplies compressor heat or auxiliary furnace heat.
+function thermostatDemand(mode,sensed,sp,control,tOut){
+    const cool=mode==='ac'||isAutoMode(mode),heat=['hp','furnace','auto','auto_furnace'].includes(mode);
+    if(isAutoMode(mode)&&!validDualSetpoints(sp))throw new Error('Invalid EasyTouch dual setpoints.');
+    if(control.phase==='ac'&&(!cool||sensed<=sp.cool-EASYTOUCH.cycleEndOffset+1e-6))control.phase='off';
+    if(control.phase==='hp'&&(!heat||sensed>=sp.heat+EASYTOUCH.cycleEndOffset-1e-6))control.phase='off';
+    if(control.phase==='off'){
+        if(cool&&sensed>=sp.cool+EASYTOUCH.coolGap-1e-6)control.phase='ac';
+        else if(heat&&sensed<=sp.heat-EASYTOUCH.heatGap+1e-6)control.phase='hp';
     }
-    if(mode==='ac')return tIn>setpoints.cool+THERMAL_EPS||(tIn>=setpoints.cool-THERMAL_EPS&&qAt(tIn)>0)?'ac':'off';
-    if(mode==='hp'||mode==='furnace')return tIn<setpoints.heat-THERMAL_EPS||(tIn<=setpoints.heat+THERMAL_EPS&&qAt(tIn)<0)?(mode==='hp'?heatSourceForPumpMode(env.tOut):'furnace'):'off';
+    return control.phase==='hp'?(mode==='furnace'||mode==='auto_furnace'?'furnace':heatSourceForPumpMode(tOut)):control.phase;
+}
+function thermostatBoundary(mode,operation,sp,rising){
+    if(operation==='ac')return sp.cool-EASYTOUCH.cycleEndOffset;
+    if(operation==='hp'||operation==='furnace')return sp.heat+EASYTOUCH.cycleEndOffset;
+    if(mode==='ac')return sp.cool+EASYTOUCH.coolGap;
+    if(mode==='hp'||mode==='furnace')return sp.heat-EASYTOUCH.heatGap;
+    return rising?sp.cool+EASYTOUCH.coolGap:sp.heat-EASYTOUCH.heatGap;
+}
+const thermostatMode=mode=>['ac','hp','furnace','auto','auto_furnace'].includes(mode);
+function thermalDemand(mode,tIn,env,setpoints,control){
+    if(thermostatMode(mode))return thermostatDemand(mode,tIn,setpoints,control,env.tOut);
     if(mode==='maxxfan'){
-        const sp=setpoints.fan;
-        return tIn>sp+THERMAL_EPS||(tIn>=sp-THERMAL_EPS&&qAt(tIn)>0)?'maxxfan':'off';
+        const sp=setpoints.fan,q=env.ua*(env.tOut-tIn)+env.gains;
+        return tIn>sp+THERMAL_EPS||(tIn>=sp-THERMAL_EPS&&q>0)?'maxxfan':'off';
     }
     return 'off';
 }
@@ -800,18 +809,15 @@ function thermalStep(mode,tIn,env,setpoints,hours,control={phase:'off'},guard=nu
         const operation=thermalDemand(mode,temperature,env,setpoints,control);
         let ua=env.ua,q=0,target=null,duty=operation==='off'?0:1,capacityLimited=false;
         if(operation==='ac'){
-            target=isAutoMode(mode)?setpoints.cool-EASYTOUCH.cycleEndOffset:setpoints.cool;
+            target=setpoints.cool-EASYTOUCH.cycleEndOffset;
             const need=env.ua*(env.tOut-target)+env.gains;
             q=-C.acSensibleCapacity;
             capacityLimited=need>C.acSensibleCapacity+THERMAL_EPS;
-            // Ideal averaged cycling at the setpoint; full output while recovering.
-            if(!isAutoMode(mode)&&Math.abs(temperature-target)<THERMAL_EPS&&need>=0&&need<=C.acSensibleCapacity){q=-need;duty=need/C.acSensibleCapacity;}
         }else if(operation==='hp'||operation==='furnace'){
-            target=isAutoMode(mode)?setpoints.heat+EASYTOUCH.cycleEndOffset:setpoints.heat;
+            target=setpoints.heat+EASYTOUCH.cycleEndOffset;
             const capacity=operation==='furnace'?C.furnaceOutput:(heatPumpCapacity(env.tOut)*(env.tOut<HP.defrostBelow?HP.heatingMinutes/(HP.heatingMinutes+HP.pauseMinutes):1));
             const need=env.ua*(target-env.tOut)-env.gains;
             q=capacity;capacityLimited=need>capacity+THERMAL_EPS;
-            if(mode!=='auto'&&Math.abs(temperature-target)<THERMAL_EPS&&need>=0&&need<=capacity){q=need;duty=need/capacity;}
         }else if(operation==='maxxfan'){
             target=setpoints.fan;
             const ventUA=1.08*C.maxxFanCFM;
@@ -821,9 +827,7 @@ function thermalStep(mode,tIn,env,setpoints,hours,control={phase:'off'},guard=nu
             ua+=ventUA*duty;
         }else{
             const passiveEq=env.tOut+env.gains/env.ua;
-            if(isAutoMode(mode))target=passiveEq>temperature?setpoints.cool+EASYTOUCH.coolGap:setpoints.heat-EASYTOUCH.heatGap;
-            else if(mode==='ac')target=setpoints.cool;
-            else if(mode==='hp'||mode==='furnace')target=setpoints.heat;
+            if(thermostatMode(mode))target=thermostatBoundary(mode,operation,setpoints,passiveEq>temperature);
             else if(mode==='maxxfan')target=setpoints.fan;
         }
         const tau=env.mass/ua,eq=env.tOut+(env.gains+q)/ua;
@@ -836,7 +840,7 @@ function thermalStep(mode,tIn,env,setpoints,hours,control={phase:'off'},guard=nu
             if(failure)return{temperature:tIn,control:{phase:'off'},segments:[],failure};
         }
         segments.push(segment);temperature=next;elapsed+=dt;remaining-=dt;
-        if(crossing<=dt+1e-10&&isAutoMode(mode))control.phase=operation==='off'?(target>=setpoints.cool+EASYTOUCH.coolGap?'ac':'hp'):'off';
+        if(crossing<=dt+1e-10&&thermostatMode(mode))control.phase=operation==='off'?(target>=setpoints.cool+EASYTOUCH.coolGap?'ac':'hp'):'off';
     }
     return{temperature,control,segments,failure:null};
 }
@@ -1252,8 +1256,26 @@ function settingValues(setup){
     const high=setup.type==='maxxfan'?policy.high:90;
     return Array.from({length:high-low+1},(_,i)=>low+i);
 }
+function recoverySetting(setup,request,time){
+    if(time!==+request.start||!thermostatMode(setup.type))return null;
+    const policy=comfortPolicy(planBounds(request.start,request).sleep),initial=request.initial.temperature[0];
+    const defaults=confirmedSetpoints(planBounds(request.start,request).sleep);
+    if(initial<policy.low&&['hp','furnace','auto','auto_furnace'].includes(setup.type))return {field:'heat',value:defaults.heat};
+    if(initial>policy.high&&['ac','auto','auto_furnace'].includes(setup.type))return {field:'cool',value:defaults.cool};
+    return null;
+}
+function applyRecoverySetting(setup,request,time){
+    const recovery=recoverySetting(setup,request,time);if(!recovery)return setup;
+    if(isAutoMode(setup.type)){
+        const pair={heat:setup.setpoints.heat,cool:setup.setpoints.cool,[recovery.field]:recovery.value};
+        if(recovery.field==='heat')pair.cool=Math.max(pair.cool,pair.heat+EASYTOUCH.minAutoSpread);
+        else pair.heat=Math.min(pair.heat,pair.cool-EASYTOUCH.minAutoSpread);
+        return withSetting(setup,pair);
+    }
+    return withSetting(setup,recovery.value);
+}
 function optimizePhase(plan,index,envelope,request,rows,from=+request.start,to=+planBounds(request.start,request).end,stageEvaluate=null){
-    const base=plan.phases[index].setup,values=settingValues(base);if(!values.length)return plan;
+    const base=plan.phases[index].setup,recovery=recoverySetting(base,request,plan.phases[index].time),values=settingValues(base).filter(v=>!recovery||(isAutoMode(base.type)?v[recovery.field]===recovery.value:v===recovery.value));if(!values.length)return plan;
     if(plan.trials.some(t=>t.failureTime!=null&&t.failureTime<plan.phases[index].time))return plan;
     const field=base.type==='ac'?'cool':base.type==='maxxfan'?'fan':'heat';
     const candidates=values.filter(v=>isAutoMode(base.type)?v.heat!==base.setpoints.heat||v.cool!==base.setpoints.cool:v!==base.setpoints[field]);
@@ -1487,14 +1509,9 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const uaTotal=envelopeParts.total*(1+.02*row.wind),bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
         const ua=[envelopeParts.rear,envelopeParts.front].map((u,z)=>Math.max(0,u*(1+.02*row.wind)-1.08*M.volumeFt3[z]*M.baseACH/60));
         let operation='off',q=0,duty=0;
-        if(isAutoMode(mode)){
-            if(!validDualSetpoints(sp))throw new Error('Invalid EasyTouch AUTO HEAT TO / COOL TO setpoint pair.');
-            if(phase==='ac'&&sensed<=sp.cool-EASYTOUCH.cycleEndOffset+1e-6)phase='off';
-            if(phase==='hp'&&sensed>=sp.heat+EASYTOUCH.cycleEndOffset-1e-6)phase='off';
-            if(phase==='off'){if(sensed>=sp.cool+EASYTOUCH.coolGap-1e-6)phase='ac';else if(sensed<=sp.heat-EASYTOUCH.heatGap+1e-6)phase='hp';}
-            operation=phase==='hp'?autoHeatingOperation(mode,out):phase;
-        }else if(mode==='ac'&&sensed>=sp.cool-.01)operation='ac';
-        else if((mode==='hp'||mode==='furnace')&&sensed<=sp.heat+.01)operation=mode==='hp'?heatSourceForPumpMode(out):'furnace';
+        if(thermostatMode(mode)){
+            const control={phase};operation=thermostatDemand(mode,sensed,sp,control,out);phase=control.phase;
+        }
         if(out>=HP.defrostBelow||operation==='furnace'){hpRunMinutes=0;if(operation==='furnace')defrostRemaining=0;}
         if(!(mode==='hp'||mode==='auto')){hpRunMinutes=0;defrostRemaining=0;}
         if(defrostRemaining>1e-8){
@@ -1507,8 +1524,9 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             const target=operation==='ac'?sp.cool:sp.heat;
             const capacity=operation==='ac'?C.acSensibleCapacity:operation==='furnace'?C.furnaceOutput:heatPumpCapacity(out);
             const balance=uaTotal*(out-target)+initialGains;
-            const need=operation==='ac'?Math.max(0,C.thermalMass*(sensed-target)/dt+balance):Math.max(0,C.thermalMass*(target-sensed)/dt-balance);
-            duty=isAutoMode(mode)?1:Math.min(1,need/capacity);q=(operation==='ac'?-1:1)*capacity*duty;
+            // Fixed-capacity equipment runs through a thermostat cycle. The
+            // event split below resolves shutoff; do not invent modulation.
+            duty=1;q=(operation==='ac'?-1:1)*capacity;
             if(operation==='ac')capacityCool||=balance>capacity;else capacityHeat||=-balance>capacity;
             if(options.checkEquipment!==false&&duty>0){
                 const check=operation==='ac'?coolingPolicy(Math.min(...t),out,row.rh,target,maxFan,Math.max(...w.map(dpFromRatio))):heatPumpPolicy(out,row.rh,options.controlAt?row.sleeping||row.occupants===0:isOvernight&&!options.monitored);
@@ -1536,9 +1554,9 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         // Internal sensible gains share the small coach; location creates no bottleneck.
         const gains=zoneHeatGains(meta+moisture.heatBTU,row.solar,q,operation,solarWeights);
         const nextT=coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,dt,1.08);
-        if(isAutoMode(mode)&&operation!=='defrost'&&dt>1/60000){
+        if(thermostatMode(mode)&&operation!=='defrost'&&dt>1/60000){
             const sense=values=>options.frontControl?values[1]:isOvernight?values[0]:values[0]*.4+values[1]*.6;
-            const nextSensed=sense(nextT),trigger=operation==='ac'?sp.cool-EASYTOUCH.cycleEndOffset:(operation==='hp'||operation==='furnace')?sp.heat+EASYTOUCH.cycleEndOffset:nextSensed>sensed?sp.cool+EASYTOUCH.coolGap:sp.heat-EASYTOUCH.heatGap;
+            const nextSensed=sense(nextT),trigger=thermostatBoundary(mode,operation,sp,nextSensed>sensed);
             if((sensed-trigger)*(nextSensed-trigger)<0&&Math.abs(sensed-trigger)>1e-6){
                 let low=0,high=dt;
                 for(let k=0;k<22;k++){const middle=(low+high)/2,value=sense(coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,middle,1.08));
@@ -1566,7 +1584,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         if(outside)hoursOut+=dt;
         score+=dt*(2*Math.max(0,comfortT-band.high)+Math.max(0,band.low-coldT));
         const humidityPenalty=Math.max(...now.rh.map(h=>h<=55?0:h<=60?.4:h<=65?1.9:3.4));score+=dt*humidityPenalty;
-        if(elapsed>(activeRecovery?Math.max(M.recoveryMinutes,recovery??Infinity):M.recoveryMinutes)){warmRun=comfortT>band.high?warmRun+dt*60:0;warmMax=Math.max(warmMax,warmRun);coldRun=coldT<band.low?coldRun+dt*60:0;coldMax=Math.max(coldMax,coldRun);severeRun=comfortT>band.high+1?severeRun+dt*60:0;severeMax=Math.max(severeMax,severeRun);}
+        if(elapsed>(activeRecovery?(recovery??Infinity):M.recoveryMinutes)){warmRun=comfortT>band.high?warmRun+dt*60:0;warmMax=Math.max(warmMax,warmRun);coldRun=coldT<band.low?coldRun+dt*60:0;coldMax=Math.max(coldMax,coldRun);severeRun=comfortT>band.high+1?severeRun+dt*60:0;severeMax=Math.max(severeMax,severeRun);}
         if(recovery===null&&comfortT<=band.high&&coldT>=band.low)recovery=elapsed;
         if(activeRecovery&&recovery!==null&&t[0]<floor-1e-6)recoveryFloorBreach=true;
         if(!comfortProblem){
@@ -1717,7 +1735,7 @@ function renderRecommendation(id,title,result,isOvernight){return renderMethodRe
 
 // v6: a single measured-state plan. No network writes or equipment control.
 let planRevision=0,lastPlan=null,planBusy=false,formTimeZone=null,planWorker=null,cancelPlanWorker=null;
-const PLAN={searchMinutes:5};
+const PLAN={searchMinutes:5,bedtimeTransitionMinutes:30};
 function escapeHTML(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function partsInZone(date,timeZone=analysisTimeZone()){return Object.fromEntries(dateFormatter({timeZone,year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'}).formatToParts(date).filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));}
 function inputDate(date,timeZone=analysisTimeZone()){const p=partsInZone(date,timeZone),pad=n=>String(n).padStart(2,'0');return p.year+'-'+pad(p.month)+'-'+pad(p.day)+'T'+pad(p.hour)+':'+pad(p.minute);}
@@ -1903,7 +1921,7 @@ function recoveryNotice(info){
     if(!info)return '';
     const action=info.progress<=0&&!info.complete?(info.direction==='heating'?'Heating assistance for':'Cooling assistance for'):info.direction==='heating'?'Warming':'Cooling';
     const text=info.complete?'Estimated time to enter the acceptable comfort band: up to '+info.minutes+' minutes across the tested scenarios.':
-        (info.progress>0?'Recovery is still in progress at ':'The target is not reached at ')+formatTime(new Date(info.through))+'. Predicted bedroom temperature: '+info.finalLow.toFixed(1)+'–'+info.finalHigh.toFixed(1)+'°F. The comfort target is not reached in every scenario during this interval; continue the recommended HVAC and refresh readings in 30 minutes.';
+        (info.progress>0?'Recovery is still in progress at ':'The target is not reached at ')+formatTime(new Date(info.through))+'. Predicted bedroom temperature: '+info.finalLow.toFixed(1)+'–'+info.finalHigh.toFixed(1)+'°F. The comfort target is not reached in every scenario during this interval. Refresh readings at the next action time shown below.';
     return '<div class="mitigation-box"><strong>'+action+' the RV from '+info.initial.toFixed(1)+'°F</strong>'+escapeHTML(text)+'</div>';
 }
 function planFromTrials(phases,trials,envelope,request){
@@ -1946,7 +1964,7 @@ function currentRecommendation(envelope,request,plans){
     for(const type of ['ac','hp','auto','auto_furnace'])for(const fan of ['Low','Medium','High']){const setup=planSetup(type,bounds.sleep,null,fan);setups.set(setup.key,setup);}
     const candidates=[];
     for(const setup of setups.values()){
-        if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,setup,+request.start,request))continue;
+        if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,applyRecoverySetting(setup,request,+request.start),+request.start,request))continue;
         const p=stagePlan([],setup,+request.start,reviewAt,envelope,request,rows);
         if(!p.suitable)continue;
         candidates.push({...p,setup:p.setup,trials:p.trials,reviewAt,type:p.setup.type});
@@ -1980,7 +1998,7 @@ function shortlistVents(envelope,request,sleep){
     ranked.sort(compareCandidates);const tested=[];
     for(const c of ranked){
         if(c.suitable){const trials=[c.nominal,...AIR_SCENARIOS.slice(1).map(s=>simulatePlan([{time:+request.start,setup:c.setup}],envelope,request,s,rows))];
-            c.suitable=trials.every(t=>t.suitable);c.score=trials.reduce((n,t)=>n+t.score,0)/3;c.equipmentEligible=trials.every(t=>t.equipmentEligible);c.moistureEligible=trials.every(t=>t.moistureEligible);}
+            c.suitable=trials.every(t=>t.suitable);c.score=trials.reduce((n,t)=>n+t.score,0)/trials.length;c.equipmentEligible=trials.every(t=>t.equipmentEligible);c.moistureEligible=trials.every(t=>t.moistureEligible);}
         tested.push(c);if(tested.filter(t=>t.suitable).length>=4)break;
     }
     tested.sort(compareCandidates);return tested.slice(0,4).map(c=>c.config);
@@ -2016,6 +2034,7 @@ function stagePlan(prefix,setup,from,to,envelope,request,rows){
     return optimizePhase(original,original.phases.length-1,envelope,request,rows.filter(row=>row.to<=to),from,to,changed=>stagePlanRaw(prefix,changed,from,to,envelope,request,rows));
 }
 function stagePlanRaw(prefix,setup,from,to,envelope,request,rows){
+    setup=applyRecoverySetting(setup,request,from);
     const phases=[...prefix.filter(p=>p.time<from),{time:from,setup}],stageRows=rows.filter(row=>row.to<=to);
     const p=evaluatePlan(phases,envelope,request,stageRows),failed=p.trials.find(t=>!t.suitable||+t.trace.at(-1).time!==to);
     const available=request.occupancy!=='away'||setupChangeAllowed(request.actual,phases[0].setup,+request.start,request);
@@ -2158,9 +2177,88 @@ function renderDeparturePlan(result){
 
 function* searchPlans(envelope,request){
     const result=yield* searchPlansCore(envelope,request);
-    const hasCurrent=result.stages?!!result.stages.current?.recommended||!!result.stages.departure.recommended:result.winner.suitable||!!result.current;
+    const hasCurrent=result.stages?!!result.stages.current?.recommended||!!result.stages.departure.recommended:(result.winner.suitable&&result.winner.ready)||!!result.current;
     if(!hasCurrent)result.recoveryAction=recoveryAction(envelope,request);
+    result.bedtimeRecovery=bedtimeRecovery(result,envelope,request);
     return result;
+}
+function bedtimeRecovery(result,envelope,request){
+    if(request.occupancy!=='staying')return null;
+    const {bounds,winner,current,recoveryAction:limited}=result;
+    const start=+request.start,bedtime=+bounds.bedtime;
+    const transition=bedtime-PLAN.bedtimeTransitionMinutes*60000;
+    const setup=current?.setup||limited?.setup||winner.setup;
+    const initial=request.initial.temperature[0],sleep=comfortPolicy(true),awake=comfortPolicy(false);
+    const heat=['hp','furnace','auto','auto_furnace'].includes(setup.type);
+    const cool=['ac','auto','auto_furnace'].includes(setup.type);
+    const inWindow=bedtime&&start>=transition;
+    const direction=heat&&(initial<awake.low&&(bedtime||initial<sleep.low))?'heat':
+        cool&&(initial>awake.high||(inWindow&&initial>=sleep.target)||(bounds.sleep&&initial>sleep.high))?'cool':null;
+    if(!direction||!bedtime&&!bounds.sleep)return null;
+    const action=current||limited;
+    if(!action&&!(winner.suitable&&winner.ready))return null;
+    const reached=point=>direction==='heat'?point.bedroom>=sleep.target:point.bedroom<=sleep.target;
+    const inSleepBand=point=>point.bedroom>=sleep.low-1e-6&&point.bedroom<=sleep.high+1e-6;
+    const verify=phases=>AIR_SCENARIOS.map(scenario=>simulatePlan(phases,envelope,request,scenario,null,null,false,true));
+    const safe=trials=>trials.every(trial=>trial.equipmentEligible&&trial.moistureEligible);
+    const summarize=(trials,from)=>{
+        const hits=trials.map(trial=>trial.trace.find(point=>+point.time>=from&&inSleepBand(point)));
+        const times=hits.filter(Boolean).map(point=>+point.time);
+        return {earliest:times.length?Math.min(...times):null,latest:times.length===hits.length?Math.max(...times):null};
+    };
+    if(!bedtime){
+        if(!bounds.sleep||!(initial<sleep.low||initial>sleep.high))return null;
+        const trials=verify([{time:start,setup}]);
+        return {overnight:true,eta:safe(trials)?summarize(trials,start):null};
+    }
+    const nightDefaults=confirmedSetpoints(true);
+    let night=planSetup(setup.type,true,setup.config,setup.fan);
+    if(isAutoMode(setup.type)){
+        const pair={...nightDefaults};
+        pair.cool=Math.max(pair.cool,pair.heat+EASYTOUCH.minAutoSpread);
+        night=withSetting(night,pair);
+    }
+    const dayPhase={time:start,setup},nominal=simulatePlan([dayPhase],envelope,request,AIR_SCENARIOS[0],null,null,false,true);
+    const reachedEarly=nominal.trace.some(point=>+point.time<transition&&reached(point));
+    // If it reaches the sleep target well before the transition, keep the
+    // normal daytime plan. A fresh run inside the window uses current readings.
+    if(reachedEarly&&!inWindow)return null;
+    const crossing=nominal.trace.find(point=>+point.time>=Math.max(start,transition)&&+point.time<=bedtime&&reached(point));
+    const switchAt=crossing?Math.min(bedtime,+crossing.time===start?start:Math.ceil(+crossing.time/60000)*60000):bedtime;
+    const phases=switchAt===start?[{time:start,setup:night}]:[dayPhase,{time:switchAt,setup:night}];
+    const trials=verify(phases),bedroom=readingAt({trials},bedtime,'bedroom');
+    const eta=safe(trials)?summarize(trials,bedtime):null;
+    const verified=safe(trials)&&trials.every(trial=>trial.ready&&trial.suitable);
+    return {setup,night,start,switchAt,bedtime,transition,bedroom,eta,verified,
+        reviewAt:action?.reviewAt,request,direction,target:sleep.target};
+}
+function bedtimeRecoveryHTML(recovery){
+    const eta=recovery.eta;
+    const estimate=!eta?'A reliable time for reaching sleeping comfort is unavailable.':
+        eta.latest===null?(eta.earliest===null?'The bedroom is not expected to reach 65–69°F during the modeled night.':
+            'Some modeled conditions do not bring the bedroom into 65–69°F during the night.'):
+        'Estimated bedroom temperature enters 65–69°F '+(eta.earliest===eta.latest?'at '+formatTime(eta.latest):
+            'between '+formatTime(eta.earliest)+' and '+formatTime(eta.latest))+'.';
+    if(recovery.overnight)return '<p class="hint">'+escapeHTML(estimate)+'</p>';
+    const {request,start,night,switchAt,bedtime,transition,verified,reviewAt}=recovery;
+    const when=switchAt===start?(request.future?'At the planned start':'Now'):'At '+formatTime(switchAt);
+    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Recovery before bed</div></div>';
+    if(switchAt!==start)html+='<p><strong>'+ (request.future?'At the planned start':'Now')+':</strong> '+planActionText({time:start,setup:recovery.setup},request)+'</p>';
+    if(verified){
+        if(switchAt<bedtime)html+='<p class="hint">The bedroom is expected to '+(recovery.direction==='heat'?'warm':'cool')+' to about '+recovery.target+'°F '+(switchAt===start?'by now':'by '+escapeHTML(formatTime(switchAt)))+'.</p>';
+        html+='<p><strong>'+escapeHTML(when)+':</strong> '+planActionText({time:switchAt,setup:night},request)+'</p>';
+        html+='<p class="hint">'+(switchAt<bedtime?'This starts the overnight setting before 10 PM so daytime recovery does not keep pushing toward the daytime temperature. ':'')+'Keep this setup through morning.</p>';
+    }else{
+        const setting=isAutoMode(night.type)?autoSetpointLabel(night.setpoints):
+            (recovery.direction==='heat'?night.setpoints.heat:night.setpoints.cool)+'°F';
+        const outcome=recovery.bedroom==='—'?'The model could not estimate the bedroom temperature at 10 PM.':
+            'With '+setupName(night)+' at '+setting+' from '+formatTime(switchAt)+', the bedroom is projected to be '+recovery.bedroom+'°F at 10 PM.';
+        html+='<p class="hint">'+escapeHTML(outcome+' '+estimate)+'</p>';
+        if(switchAt===start)html+='<p class="hint">The bedroom is already at or past the sleeping target. The modeled overnight setting did not pass all checks. Check the bedroom and front temperatures before continuing daytime recovery.</p>';
+        html+='<p><strong>Rerun with fresh readings when you’re ready to set up for bed, anytime from '+escapeHTML(formatTime(transition))+' onward.</strong> Use the new overnight recommendation before going to sleep.</p>';
+    }
+    if(reviewAt&&reviewAt<(verified?switchAt:bedtime))html+='<p class="hint">Recheck your readings sooner at '+escapeHTML(formatTime(reviewAt))+'.</p>';
+    return html+'</div>';
 }
 function recoveryAction(envelope,request){
     const bounds=planBounds(request.start,request),band=comfortPolicy(bounds.sleep),initial=request.initial.temperature[0];
@@ -2170,14 +2268,26 @@ function recoveryAction(envelope,request){
     const rows=planRows(envelope,request,.5,[reviewAt]).filter(row=>row.to<=reviewAt);
     const baseline=AIR_SCENARIOS.map(s=>simulatePlan([{time:+request.start,setup:planSetup('passive',bounds.sleep)}],envelope,request,s,rows,null,false,true));
     const candidates=[];
-    for(const setup of stageSetups(bounds.sleep,[]).filter(s=>cold?['hp','furnace','auto','auto_furnace'].includes(s.type):['ac','auto','auto_furnace'].includes(s.type))){
+    for(let setup of stageSetups(bounds.sleep,[]).filter(s=>cold?['hp','furnace','auto','auto_furnace'].includes(s.type):['ac','auto','auto_furnace'].includes(s.type))){
+        setup=applyRecoverySetting(setup,request,+request.start);
         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,setup,+request.start,request))continue;
         const trials=AIR_SCENARIOS.map(s=>simulatePlan([{time:+request.start,setup}],envelope,request,s,rows,null,false,true));
-        if(!trials.every((t,i)=>t.equipmentEligible&&t.moistureEligible&&(cold?t.finalIndoor>baseline[i].finalIndoor:t.finalIndoor<baseline[i].finalIndoor)))continue;
-        candidates.push({setup,recoveryInfo:recoverySummary(trials),reviewAt,limited:true,request});
+        if(!trials.every((t,i)=>t.equipmentEligible&&t.moistureEligible&&(cold?t.didHeat&&t.finalIndoor>baseline[i].finalIndoor:t.didCool&&t.finalIndoor<baseline[i].finalIndoor)))continue;
+        candidates.push({setup,trials,recoveryInfo:recoverySummary(trials),reviewAt,limited:true,request});
     }
-    candidates.sort((a,b)=>compareRecovery(a,b)||modePreference(a.setup)-modePreference(b.setup));
-    return candidates[0]||null;
+    const usesAuxOnly=action=>['hp','auto'].includes(action.setup.type)&&
+        action.trials.every(t=>t.didHeat&&!t.segments.some(s=>s.operation==='hp'&&s.duty>0));
+    candidates.sort((a,b)=>compareRecovery(a,b)||Number(usesAuxOnly(a))-Number(usesAuxOnly(b))||
+        modePreference(a.setup)-modePreference(b.setup));
+    const best=candidates[0];if(!best)return null;
+    const firstRecovery=Math.min(...best.trials.map(t=>t.recoveryMinutes??Infinity));
+    // Review when the fastest scenario enters comfort, before a rear/front
+    // temperature difference can turn useful recovery into overheating/cooling.
+    best.reviewAt=Math.min(reviewAt,+request.start+Math.max(1,Math.floor(firstRecovery))*60000);
+    const shortRows=planRows(envelope,request,.5,[best.reviewAt]).filter(row=>row.to<=best.reviewAt);
+    best.trials=AIR_SCENARIOS.map(s=>simulatePlan([{time:+request.start,setup:best.setup}],envelope,request,s,shortRows,null,false,true));
+    best.recoveryInfo=recoverySummary(best.trials);
+    return best;
 }
 function recoveryActionHTML(action){
     if(!action)return '';
@@ -2188,7 +2298,7 @@ function* searchPlansCore(envelope,request){
     if(request.occupancy==='leaving'||request.occupancy==='away')return yield* searchDeparturePlans(envelope,request);
     const bounds=planBounds(request.start,request),rows=planRows(envelope,request),vents=shortlistVents(envelope,request,bounds.sleep);
     const nightVents=bounds.bedtime?shortlistVents(envelope,request,true):vents;
-    let days=planSetups(bounds.sleep,vents),nights=planSetups(true,nightVents),results=[],daytimeCovered=false;
+    let days=planSetups(bounds.sleep,vents).map(s=>applyRecoverySetting(s,request,+request.start)),nights=planSetups(true,nightVents),results=[],daytimeCovered=false;
     if(bounds.bedtime){
         const nightSeeds=nights.slice();
         // Learn controls before searching transition times. An unsuitable default
@@ -2477,11 +2587,13 @@ function currentOutlook(current,bounds){
 }
 function renderPlan(result){
     if(result.stages)return renderDeparturePlan(result);
+    if(result.bedtimeRecovery&&!result.bedtimeRecovery.overnight)return bedtimeRecoveryHTML(result.bedtimeRecovery);
     const {winner:p,bounds,request}=result,initial=p.phases[0],sleepFrom=bounds.bedtime?+bounds.bedtime:+bounds.start;
     const step=(title,time,body)=>'<div class="plan-step"><div class="plan-time">'+escapeHTML(time)+'</div><strong>'+escapeHTML(title)+'</strong><p>'+body+'</p></div>';
-    const safe=p.suitable,current=!safe&&result.current;
+    const safe=p.suitable&&p.ready,current=!safe&&result.current;
     const badge=current?'<div class="risk-badge moderate"><div class="risk-dot moderate"></div><span>Recheck overnight</span></div>':policyBadge(safe&&p.recoveryInfo?.complete!==false,true);
     let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+badge+'</div>'+comfortPolicyText()+spatialModelText()+recoveryActionHTML(result.recoveryAction);
+    if(result.bedtimeRecovery?.overnight)html+=bedtimeRecoveryHTML(result.bedtimeRecovery);
     if(current){
         html+='<div class="result-primary">'+escapeHTML(setupName(current.setup))+'</div>';
         html+=recoveryNotice(current.recoveryInfo);
@@ -2491,7 +2603,7 @@ function renderPlan(result){
         html+=step('Next action — refresh readings',formatTime(new Date(current.reviewAt)),'Refresh both temperature and humidity readings and build a new plan. This setup passes the equipment and moisture checks and allows initial temperature recovery until this review time in all tested scenarios.'+(request.occupancy==='leaving'&&current.reviewAt===+request.departure?' Reassess before leaving; this current recommendation does not cover your absence.':''));
         html+=currentOutlook(current,bounds);
     }else if(!safe){
-        html+='<div class="result-primary">'+(result.recoveryAction?'Comfort recovery needs reassessment':'No suitable current setup')+'</div><p class="hint">'+escapeHTML(p.reason)+'</p><p class="hint">No current setup passes the checks. Refresh both readings and review the operating or moisture concerns below.</p>';
+        html+='<div class="result-primary">'+(result.recoveryAction?'Comfort recovery needs reassessment':'No suitable current setup')+'</div><p class="hint">'+escapeHTML(p.reason)+'</p><p class="hint">No complete current interval passes the checks. Follow the recovery action above if shown, then refresh readings at its review time.</p>';
         html+=surfaceOutlook(p.trials);
     }else{
         html+='<div class="result-primary">'+escapeHTML(bounds.sleep?setupName(p.nightSetup)+' overnight':setupName(initial.setup)+' now → '+setupName(p.nightSetup)+' overnight')+'</div>';
@@ -2507,8 +2619,7 @@ function renderPlan(result){
         }else html+=step('Next action',bounds.bedtime?'Before 10 PM':'Through '+formatTime(bounds.end),'No additional setup change is needed in this plan. Recalculate with fresh readings if conditions or your return time change.');
         if(bounds.bedtime){
             html+='<div class="plan-metrics"><strong>Bedroom at 10 PM:</strong> '+readingAt(p,+bounds.bedtime,'bedroom')+'°F · '+readingAt(p,+bounds.bedtime,'rh')+'% RH</div>';
-            if(!p.ready){const next=p.trials[0].trace.find(t=>+t.time>=+bounds.bedtime&&t.bedroom>=COMFORT.sleeping.low&&t.bedroom<=COMFORT.sleeping.high);
-                html+='<div class="mitigation-box severity-amber"><strong>Bedtime target needs more time</strong>'+escapeHTML(p.reason)+(next?' Nominal forecast first reaches the bedtime range at '+formatTime(next.time)+'.':' The bedtime target is not reached in the modeled period.')+'</div>';}
+
         }
         html+=step('Recommended overnight setup',bounds.bedtime?'From 10 PM':'Overnight in progress',planActionText({time:sleepFrom,setup:p.nightSetup},request));
         html+='<div class="plan-metrics">Bedroom: '+traceRange(p,sleepFrom,+bounds.end,'bedroom')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'rh')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'dewPoint')+'°F.<br>Front: '+traceRange(p,sleepFrom,+bounds.end,'midCoach')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'midRH')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'midDewPoint')+'°F.<br>'+(p.recoveryInfo?.complete===false?'Initial temperature recovery is still incomplete; comfort is not yet verified.':'Temperature, moisture and equipment checks pass after initial recovery in all tested scenarios.')+'</div>';
@@ -2606,7 +2717,7 @@ async function analyze(){
         }
         if(revision!==planRevision)return;lastPlan=result;
         const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
-        const futureActions=[...(result.recoveryAction?[result.recoveryAction.reviewAt]:[]),...(result.current?[result.current.reviewAt]:result.winner.phases.slice(1).map(p=>p.time)),request.departure&&+request.departure,request.returnTime&&+request.returnTime].filter(t=>t>Date.now());
+        const futureActions=[...(result.bedtimeRecovery?.switchAt?[result.bedtimeRecovery.verified?result.bedtimeRecovery.switchAt:result.bedtimeRecovery.bedtime]:[]),...(result.recoveryAction?[result.recoveryAction.reviewAt]:[]),...(result.current?[result.current.reviewAt]:result.winner.phases.slice(1).map(p=>p.time)),request.departure&&+request.departure,request.returnTime&&+request.returnTime].filter(t=>t>Date.now());
         resultRecorded(envelope,Math.min(...futureActions),request);
         container.scrollIntoView({behavior:'smooth',block:'start'});
     }catch(error){if(revision===planRevision)showAnalysisError(error);}

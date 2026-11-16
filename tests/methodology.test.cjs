@@ -100,7 +100,7 @@ test('AUTO resolves the 65°F heating trigger without a numerical step below the
 });
 test('equipment policies remain independent from moisture/comfort and use actual cooling calls',()=>{
     const a=setup({temp:35,rh:30,indoor:65,indoorRH:40,hours:.5});
-    a.run(`sp.cool=64;c=modelCandidate('ac',e,false,sp,1400,65)`);
+    a.run(`sp.cool=63;c=modelCandidate('ac',e,false,sp,1400,65)`);
     assert.equal(a.run('c.equipmentEligible'),false);assert.equal(a.run('c.equipmentIssueCode'),'cooling-ice');
     assert.equal(a.run('c.fanSpeed'),'High');
     assert.match(a.run('methodologyProblem(c).text'),/FAN ONLY/);
