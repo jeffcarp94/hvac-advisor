@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.2 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.3 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.2</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.3</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -1199,8 +1199,7 @@ function targetPenalty(temperature,sleeping,mode,operation='off'){
     const below=p.target-p.low-COMFORT.tolerance,above=p.high-p.target-COMFORT.tolerance;
     // Preferred-side misses occupy 0..1 across the allowed band. An opposite-
     // side miss starts above 1, so it cannot beat a preferred-side steady result.
-    if(heating)return delta<0?miss/below:1+miss/above;
-    if(cooling)return delta>0?miss/above:1+miss/below;
+    if(heating||cooling)return delta<0?miss/below:1+miss/above;
     return miss/Math.max(below,above); // OFF and idle AUTO have no directional bias.
 }
 function targetMetrics(trials,from=-Infinity,to=Infinity){
@@ -2130,7 +2129,7 @@ function* searchDeparturePlans(envelope,request){
     }
     return{winner,plans,bounds,envelope,request,current:null,stages,comparisons:{day:null,night:stages.night}};
 }
-function comfortPolicyText(){const s=COMFORT.sleeping,a=COMFORT.nonSleeping;return '<p class="hint">Indoor targets: sleeping '+s.target+'°F (allowed '+s.low+'–'+s.high+'°F); awake or unoccupied '+a.target+'°F (allowed '+a.low+'–'+a.high+'°F). Within ±'+COMFORT.tolerance+'°F is preferred. For misses, heating favors the cooler side and cooling the warmer side; closer on that side ranks better. Equipment and moisture checks must pass first.</p>';}
+function comfortPolicyText(){const s=COMFORT.sleeping,a=COMFORT.nonSleeping;return '<p class="hint">Indoor targets: sleeping '+s.target+'°F (allowed '+s.low+'–'+s.high+'°F); awake or unoccupied '+a.target+'°F (allowed '+a.low+'–'+a.high+'°F). Within ±'+COMFORT.tolerance+'°F is preferred. For misses, heating, cooling and ventilation favor the cooler side. Closer to target on that side ranks better. Equipment and moisture checks must pass first.</p>';}
 function setpointSummary(){return 'Bed-area targets: awake/away '+COMFORT.nonSleeping.target+'°F ('+COMFORT.nonSleeping.low+'–'+COMFORT.nonSleeping.high+'°F); sleeping '+COMFORT.sleeping.target+'°F ('+COMFORT.sleeping.low+'–'+COMFORT.sleeping.high+'°F). Thermostat settings are selected in your plan.';}
 function renderDeparturePlan(result){
     const {stages,bounds,request,winner}=result;

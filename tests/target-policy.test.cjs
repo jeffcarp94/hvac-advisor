@@ -5,19 +5,23 @@ function scenario(start='2026-10-23T17:00Z'){
  r={start:new Date('${start}'),initial:{temperature:[68,68],rh:[30,30]},occupancy:'staying',remote:false};
  e=makeEnvelope(r.start,planBounds(r.start,r).end,'Test',300000);e.cloud=0;e.points[0].cloud=0;`);return a;
 }
-test('targets, tolerance and mode direction implement the owner-approved policy',()=>{
+test('active modes favor cooler misses within the comfort band',()=>{
  const a=scenario();assert.equal(a.run('COMFORT.sleeping.target'),67);assert.equal(a.run('COMFORT.nonSleeping.target'),71);
  for(const [sleep,target,low,high]of [[true,67,65,69],[false,71,68,73]]){
   for(const mode of ['hp','furnace','ac','maxxfan','auto','passive']){
    for(const t of [target-.5,target,target+.5])assert.equal(a.run(`targetPenalty(${t},${sleep},'${mode}')`),0);
   }
-  for(const mode of ['hp','furnace'])assert.equal(a.run(`targetPenalty(${low},${sleep},'${mode}')<targetPenalty(${high},${sleep},'${mode}')`),true);
-  for(const mode of ['ac','maxxfan'])assert.equal(a.run(`targetPenalty(${high},${sleep},'${mode}')<targetPenalty(${low},${sleep},'${mode}')`),true);
+  for(const mode of ['hp','furnace','ac','maxxfan'])assert.equal(a.run(`targetPenalty(${low},${sleep},'${mode}')<targetPenalty(${high},${sleep},'${mode}')`),true);
   assert.equal(a.run(`targetPenalty(${target-1},${sleep},'hp')<targetPenalty(${low},${sleep},'hp')`),true);
   assert.equal(a.run(`targetPenalty(${target+.5},${sleep},'ac')<targetPenalty(${high},${sleep},'ac')`),true);
  }
- assert.equal(a.run("targetPenalty(65,true,'auto','hp')<targetPenalty(69,true,'auto','hp')"),true);
- assert.equal(a.run("targetPenalty(69,true,'auto','ac')<targetPenalty(65,true,'auto','ac')"),true);
+ for(const mode of ['auto','auto_furnace']){
+  for(const operation of ['hp','furnace','ac']){
+   assert.ok(a.run(`targetPenalty(65,true,'${mode}','${operation}')<targetPenalty(69,true,'${mode}','${operation}')`));
+  }
+  assert.equal(a.run(`targetPenalty(65,true,'${mode}')`),a.run(`targetPenalty(69,true,'${mode}')`));
+ }
+ assert.equal(a.run("targetPenalty(65,true,'passive')"),a.run("targetPenalty(69,true,'passive')"));
 });
 test('sleep thermostat settings cannot activate sleeping bands while awake or after 7 AM',()=>{
  for(const start of ['2026-10-23T17:00Z','2026-10-24T12:00Z']){
