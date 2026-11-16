@@ -1735,7 +1735,7 @@ function renderRecommendation(id,title,result,isOvernight){return renderMethodRe
 
 // v6: a single measured-state plan. No network writes or equipment control.
 let planRevision=0,lastPlan=null,planBusy=false,formTimeZone=null,planWorker=null,cancelPlanWorker=null;
-const PLAN={searchMinutes:5};
+const PLAN={searchMinutes:5,bedtimeTransitionMinutes:30};
 function escapeHTML(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function partsInZone(date,timeZone=analysisTimeZone()){return Object.fromEntries(dateFormatter({timeZone,year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'}).formatToParts(date).filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));}
 function inputDate(date,timeZone=analysisTimeZone()){const p=partsInZone(date,timeZone),pad=n=>String(n).padStart(2,'0');return p.year+'-'+pad(p.month)+'-'+pad(p.day)+'T'+pad(p.hour)+':'+pad(p.minute);}
@@ -2179,7 +2179,86 @@ function* searchPlans(envelope,request){
     const result=yield* searchPlansCore(envelope,request);
     const hasCurrent=result.stages?!!result.stages.current?.recommended||!!result.stages.departure.recommended:(result.winner.suitable&&result.winner.ready)||!!result.current;
     if(!hasCurrent)result.recoveryAction=recoveryAction(envelope,request);
+    result.bedtimeRecovery=bedtimeRecovery(result,envelope,request);
     return result;
+}
+function bedtimeRecovery(result,envelope,request){
+    if(request.occupancy!=='staying')return null;
+    const {bounds,winner,current,recoveryAction:limited}=result;
+    const start=+request.start,bedtime=+bounds.bedtime;
+    const transition=bedtime-PLAN.bedtimeTransitionMinutes*60000;
+    const setup=current?.setup||limited?.setup||winner.setup;
+    const initial=request.initial.temperature[0],sleep=comfortPolicy(true),awake=comfortPolicy(false);
+    const heat=['hp','furnace','auto','auto_furnace'].includes(setup.type);
+    const cool=['ac','auto','auto_furnace'].includes(setup.type);
+    const inWindow=bedtime&&start>=transition;
+    const direction=heat&&(initial<awake.low&&(bedtime||initial<sleep.low))?'heat':
+        cool&&(initial>awake.high||(inWindow&&initial>=sleep.target)||(bounds.sleep&&initial>sleep.high))?'cool':null;
+    if(!direction||!bedtime&&!bounds.sleep)return null;
+    const action=current||limited;
+    if(!action&&!(winner.suitable&&winner.ready))return null;
+    const reached=point=>direction==='heat'?point.bedroom>=sleep.target:point.bedroom<=sleep.target;
+    const inSleepBand=point=>point.bedroom>=sleep.low-1e-6&&point.bedroom<=sleep.high+1e-6;
+    const verify=phases=>AIR_SCENARIOS.map(scenario=>simulatePlan(phases,envelope,request,scenario,null,null,false,true));
+    const safe=trials=>trials.every(trial=>trial.equipmentEligible&&trial.moistureEligible);
+    const summarize=(trials,from)=>{
+        const hits=trials.map(trial=>trial.trace.find(point=>+point.time>=from&&inSleepBand(point)));
+        const times=hits.filter(Boolean).map(point=>+point.time);
+        return {earliest:times.length?Math.min(...times):null,latest:times.length===hits.length?Math.max(...times):null};
+    };
+    if(!bedtime){
+        if(!bounds.sleep||!(initial<sleep.low||initial>sleep.high))return null;
+        const trials=verify([{time:start,setup}]);
+        return {overnight:true,eta:safe(trials)?summarize(trials,start):null};
+    }
+    const nightDefaults=confirmedSetpoints(true);
+    let night=planSetup(setup.type,true,setup.config,setup.fan);
+    if(isAutoMode(setup.type)){
+        const pair={...nightDefaults};
+        pair.cool=Math.max(pair.cool,pair.heat+EASYTOUCH.minAutoSpread);
+        night=withSetting(night,pair);
+    }
+    const dayPhase={time:start,setup},nominal=simulatePlan([dayPhase],envelope,request,AIR_SCENARIOS[0],null,null,false,true);
+    const reachedEarly=nominal.trace.some(point=>+point.time<transition&&reached(point));
+    // If it reaches the sleep target well before the transition, keep the
+    // normal daytime plan. A fresh run inside the window uses current readings.
+    if(reachedEarly&&!inWindow)return null;
+    const crossing=nominal.trace.find(point=>+point.time>=Math.max(start,transition)&&+point.time<=bedtime&&reached(point));
+    const switchAt=crossing?Math.min(bedtime,+crossing.time===start?start:Math.ceil(+crossing.time/60000)*60000):bedtime;
+    const phases=switchAt===start?[{time:start,setup:night}]:[dayPhase,{time:switchAt,setup:night}];
+    const trials=verify(phases),bedroom=readingAt({trials},bedtime,'bedroom');
+    const eta=safe(trials)?summarize(trials,bedtime):null;
+    const verified=safe(trials)&&trials.every(trial=>trial.ready&&trial.suitable);
+    return {setup,night,start,switchAt,bedtime,transition,bedroom,eta,verified,
+        reviewAt:action?.reviewAt,request,direction,target:sleep.target};
+}
+function bedtimeRecoveryHTML(recovery){
+    const eta=recovery.eta;
+    const estimate=!eta?'A reliable time for reaching sleeping comfort is unavailable.':
+        eta.latest===null?(eta.earliest===null?'The bedroom is not expected to reach 65–69°F during the modeled night.':
+            'Some modeled conditions do not bring the bedroom into 65–69°F during the night.'):
+        'Estimated bedroom temperature enters 65–69°F '+(eta.earliest===eta.latest?'at '+formatTime(eta.latest):
+            'between '+formatTime(eta.earliest)+' and '+formatTime(eta.latest))+'.';
+    if(recovery.overnight)return '<p class="hint">'+escapeHTML(estimate)+'</p>';
+    const {request,start,night,switchAt,bedtime,transition,verified,reviewAt}=recovery;
+    const when=switchAt===start?(request.future?'At the planned start':'Now'):'At '+formatTime(switchAt);
+    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Recovery before bed</div></div>';
+    if(switchAt!==start)html+='<p><strong>'+ (request.future?'At the planned start':'Now')+':</strong> '+planActionText({time:start,setup:recovery.setup},request)+'</p>';
+    if(verified){
+        if(switchAt<bedtime)html+='<p class="hint">The bedroom is expected to '+(recovery.direction==='heat'?'warm':'cool')+' to about '+recovery.target+'°F '+(switchAt===start?'by now':'by '+escapeHTML(formatTime(switchAt)))+'.</p>';
+        html+='<p><strong>'+escapeHTML(when)+':</strong> '+planActionText({time:switchAt,setup:night},request)+'</p>';
+        html+='<p class="hint">'+(switchAt<bedtime?'This starts the overnight setting before 10 PM so daytime recovery does not keep pushing toward the daytime temperature. ':'')+'Keep this setup through morning.</p>';
+    }else{
+        const setting=isAutoMode(night.type)?autoSetpointLabel(night.setpoints):
+            (recovery.direction==='heat'?night.setpoints.heat:night.setpoints.cool)+'°F';
+        const outcome=recovery.bedroom==='—'?'The model could not estimate the bedroom temperature at 10 PM.':
+            'With '+setupName(night)+' at '+setting+' from '+formatTime(switchAt)+', the bedroom is projected to be '+recovery.bedroom+'°F at 10 PM.';
+        html+='<p class="hint">'+escapeHTML(outcome+' '+estimate)+'</p>';
+        if(switchAt===start)html+='<p class="hint">The bedroom is already at or past the sleeping target. The modeled overnight setting did not pass all checks. Check the bedroom and front temperatures before continuing daytime recovery.</p>';
+        html+='<p><strong>Rerun with fresh readings when you’re ready to set up for bed, anytime from '+escapeHTML(formatTime(transition))+' onward.</strong> Use the new overnight recommendation before going to sleep.</p>';
+    }
+    if(reviewAt&&reviewAt<(verified?switchAt:bedtime))html+='<p class="hint">Recheck your readings sooner at '+escapeHTML(formatTime(reviewAt))+'.</p>';
+    return html+'</div>';
 }
 function recoveryAction(envelope,request){
     const bounds=planBounds(request.start,request),band=comfortPolicy(bounds.sleep),initial=request.initial.temperature[0];
@@ -2508,11 +2587,13 @@ function currentOutlook(current,bounds){
 }
 function renderPlan(result){
     if(result.stages)return renderDeparturePlan(result);
+    if(result.bedtimeRecovery&&!result.bedtimeRecovery.overnight)return bedtimeRecoveryHTML(result.bedtimeRecovery);
     const {winner:p,bounds,request}=result,initial=p.phases[0],sleepFrom=bounds.bedtime?+bounds.bedtime:+bounds.start;
     const step=(title,time,body)=>'<div class="plan-step"><div class="plan-time">'+escapeHTML(time)+'</div><strong>'+escapeHTML(title)+'</strong><p>'+body+'</p></div>';
     const safe=p.suitable&&p.ready,current=!safe&&result.current;
     const badge=current?'<div class="risk-badge moderate"><div class="risk-dot moderate"></div><span>Recheck overnight</span></div>':policyBadge(safe&&p.recoveryInfo?.complete!==false,true);
     let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+badge+'</div>'+comfortPolicyText()+spatialModelText()+recoveryActionHTML(result.recoveryAction);
+    if(result.bedtimeRecovery?.overnight)html+=bedtimeRecoveryHTML(result.bedtimeRecovery);
     if(current){
         html+='<div class="result-primary">'+escapeHTML(setupName(current.setup))+'</div>';
         html+=recoveryNotice(current.recoveryInfo);
@@ -2538,8 +2619,7 @@ function renderPlan(result){
         }else html+=step('Next action',bounds.bedtime?'Before 10 PM':'Through '+formatTime(bounds.end),'No additional setup change is needed in this plan. Recalculate with fresh readings if conditions or your return time change.');
         if(bounds.bedtime){
             html+='<div class="plan-metrics"><strong>Bedroom at 10 PM:</strong> '+readingAt(p,+bounds.bedtime,'bedroom')+'°F · '+readingAt(p,+bounds.bedtime,'rh')+'% RH</div>';
-            if(!p.ready){const next=p.trials[0].trace.find(t=>+t.time>=+bounds.bedtime&&t.bedroom>=COMFORT.sleeping.low&&t.bedroom<=COMFORT.sleeping.high);
-                html+='<div class="mitigation-box severity-amber"><strong>Bedtime target needs more time</strong>'+escapeHTML(p.reason)+(next?' Nominal forecast first reaches the bedtime range at '+formatTime(next.time)+'.':' The bedtime target is not reached in the modeled period.')+'</div>';}
+
         }
         html+=step('Recommended overnight setup',bounds.bedtime?'From 10 PM':'Overnight in progress',planActionText({time:sleepFrom,setup:p.nightSetup},request));
         html+='<div class="plan-metrics">Bedroom: '+traceRange(p,sleepFrom,+bounds.end,'bedroom')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'rh')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'dewPoint')+'°F.<br>Front: '+traceRange(p,sleepFrom,+bounds.end,'midCoach')+'°F · '+traceRange(p,sleepFrom,+bounds.end,'midRH')+'% RH · dew point '+traceRange(p,sleepFrom,+bounds.end,'midDewPoint')+'°F.<br>'+(p.recoveryInfo?.complete===false?'Initial temperature recovery is still incomplete; comfort is not yet verified.':'Temperature, moisture and equipment checks pass after initial recovery in all tested scenarios.')+'</div>';
@@ -2637,7 +2717,7 @@ async function analyze(){
         }
         if(revision!==planRevision)return;lastPlan=result;
         const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
-        const futureActions=[...(result.recoveryAction?[result.recoveryAction.reviewAt]:[]),...(result.current?[result.current.reviewAt]:result.winner.phases.slice(1).map(p=>p.time)),request.departure&&+request.departure,request.returnTime&&+request.returnTime].filter(t=>t>Date.now());
+        const futureActions=[...(result.bedtimeRecovery?.switchAt?[result.bedtimeRecovery.verified?result.bedtimeRecovery.switchAt:result.bedtimeRecovery.bedtime]:[]),...(result.recoveryAction?[result.recoveryAction.reviewAt]:[]),...(result.current?[result.current.reviewAt]:result.winner.phases.slice(1).map(p=>p.time)),request.departure&&+request.departure,request.returnTime&&+request.returnTime].filter(t=>t>Date.now());
         resultRecorded(envelope,Math.min(...futureActions),request);
         container.scrollIntoView({behavior:'smooth',block:'start'});
     }catch(error){if(revision===planRevision)showAnalysisError(error);}
