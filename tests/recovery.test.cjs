@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {app}=require('./helpers.cjs');
 function setup(initial,out,minutes=180){
- const a=app();a.run(`forecast.timeZone='America/Chicago';state.temp=${out};state.rh=40;state.wind=3;state.cloud=1;state.thermostatIsolated=true;
+ const a=app();a.run(`forecast.timeZone='America/Chicago';state.temp=${out};state.rh=40;state.wind=3;state.cloud=1;
  r={start:new Date('2026-07-15T19:00Z'),initial:{temperature:[${initial},${initial}],rh:[30,30]},occupancy:'staying'};
  e=makeEnvelope(r.start,new Date(+r.start+${minutes}*60000),'Recovery test',30000);
  rows=scheduleWeather(e,r.start,e.windowEnd).map(x=>({...x,sleeping:false,occupants:2}));

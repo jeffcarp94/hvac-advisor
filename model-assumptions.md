@@ -1,3 +1,9 @@
+# v6.6.4 cabinet isolation and remote-action policy
+
+Cabinet isolation is installed and recorded without applying an additional modeled temperature offset. Remote access defaults on and means the EasyTouch has Wi-Fi and can be reached in the Micro-Air app. Currently-away mode requires fresh readings and the confirmed physical setup. HVAC Advisor supplies guidance and does not operate the thermostat.
+
+The planner first seeks a complete zero-remote-action plan. An in-person change may occur at departure, return, or before sleep. If a fixed setup falls short at return or for sleeping comfort, or presents a modeled equipment operating-limit or freezing concern, the planner may verify one timed thermostat mode, setpoint, or fan change during the absence. A daytime temperature excursion alone, energy savings, or a smaller target deviation does not justify it. The existing away comfort band still applies; the protection exception can be shown separately as a partial plan with the remaining comfort shortfall. Setup and exposure carry across the action. Windows and MaxxFans stay as configured, and no manual change is planned during sleep. Freeze-related inputs are the modeled evaporator icing screen and existing 65°F indoor protection floor. Neither establishes temperatures at tanks, pipes, or compartments.
+
 # v6.6.1 — Initial temperature recovery
 
 Measured indoor temperatures and manual outdoor temperature controls have no arbitrary minimum or maximum. Missing or nonfinite indoor readings are rejected; equipment eligibility checks and thermostat control/setpoint ranges remain separate. Recovery tests cover conditions below 40°F and above 110°F.

@@ -86,8 +86,55 @@ test('predeparture cooling cannot qualify by using sleeping comfort while still 
  const a=scenario({start:'2026-10-24T01:00Z',departure:'2026-10-24T02:59:50Z',back:'2026-10-24T03:00:10Z',temp:78});
  a.run(`r.initial.temperature=[72,72];planSetups=sleep=>[planSetup('ac',sleep)];result=runUnifiedPlan(r,e)`);
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),false);
- assert.equal(a.run('result.stages.current.recommended.setup.setpoints.cool'),72);
+ assert.equal(a.run('result.stages.current.recommended.setup.type'),'ac');
+ assert.equal(a.run('planRows(e,r).filter(row=>row.to<=+r.departure).every(row=>!row.sleeping&&row.occupants===2)'),true);
+ assert.equal(a.run('result.winner.trials.every(t=>t.segments.filter(s=>s.endMs<=+r.departure).every(s=>s.comfortLow===68&&s.comfortHigh===73))'),true);
  assert.equal(a.run('result.stages.night.recommendation'),null);
  assert.equal(a.run('result.winner.trials.every(t=>t.trace.every(p=>[p.bedroom,p.midCoach,p.rh,p.midRH,...p.water].every(Number.isFinite)))'),true);
  assert.equal(a.run('planRows(e,r).every(row=>row.dt>0)'),true);
+});
+
+function awayFixture({start='2026-10-24T11:58Z',back='2026-10-24T12:02Z',out=70,actual='passive',choices="withSetting(planSetup('ac',false,null,'High'),70)"}={}){
+ const a=app();
+ a.run(`forecast.timeZone='America/Chicago';state.temp=${out};state.rh=25;state.wind=2;state.cloud=0;solarLoad=()=>0;
+ const start=new Date('${start}'),back=new Date('${back}');
+ const r={start,reading:start,initial:{temperature:[71,71],rh:[30,30]},occupancy:'away',remote:true,departure:start,returnTime:back,
+   actualConfirmed:true,actual:withSetting(planSetup('${actual}',false,null,'Low'),65)};
+ shortlistVents=()=>[];stageSetups=()=>[${choices}];settingValues=()=>[];
+ const e=makeEnvelope(start,planBounds(start,r).end,'Synthetic remote fixture',300000);`);
+ return a;
+}
+
+test('already away: a suitable held setup wins even when remote access is available',()=>{
+ const a=awayFixture();
+ a.run('result=runUnifiedPlan(r,e);html=renderPlan(result)');
+ assert.equal(a.run('result.stages.remoteAction'),null);
+ assert.equal(a.run('result.winner.suitable'),true);
+ assert.equal(a.run('sameSetup(result.stages.departure.recommended.setup,r.actual)'),true);
+ assert.match(a.run('html'),/Keep your current setup/);
+});
+
+test('one remote change can prevent a return comfort miss and carries the actual setup until the action',()=>{
+ const a=awayFixture({start:'2026-10-24T10:55Z',back:'2026-10-24T12:10Z',out:84});
+ a.run('result=runUnifiedPlan(r,e);html=renderPlan(result)');
+ assert.equal(a.run('result.winner.suitable'),true);
+ assert.equal(a.run('result.winner.phases.length'),2);
+ assert.equal(a.run('result.winner.phases[0].setup.type'),'passive');
+ assert.equal(a.run('result.stages.remoteAction.setup.type'),'ac');
+ assert.ok(a.run('result.stages.remoteAction.time>+r.start&&result.stages.remoteAction.time<+r.returnTime'));
+ assert.match(a.run('html'),/One remote thermostat adjustment.*COOL at 70°F with High fan/s);
+ a.run("r.actual={...r.actual,config:{gaps:[0,0,0,4,0,0],fanZone:1}};result=runUnifiedPlan(r,e)");
+ assert.equal(a.run('result.stages.remoteAction'),null,'the open window cannot be closed remotely');
+ a.run("r.occupancy='leaving';r.remote=false;result=runUnifiedPlan(r,e)");
+ assert.equal(a.run('result.stages.remoteAction'),null);
+});
+
+test('coil icing justifies an immediate remote change even when return temperature is already in band',()=>{
+ const a=awayFixture({out:20,actual:'ac',choices:"planSetup('passive',false)"});
+ a.run('result=runUnifiedPlan(r,e);html=renderPlan(result)');
+ assert.equal(a.run('result.stages.remoteAction.time'),a.run('+r.start'));
+ assert.equal(a.run('result.stages.remoteAction.protection'),true);
+ assert.equal(a.run('result.stages.remoteAction.setup.type'),'passive');
+ assert.match(a.run('html'),/estimated coil-temperature margin/);
+ assert.equal(a.run('result.winner.trials.every(t=>t.equipmentEligible)'),true);
 });

@@ -53,10 +53,10 @@ test('AUTO control uses independent EasyTouch setpoints instead of a midpoint',(
   close(a.run('p.segments[0].t1'),65);assert.equal(a.run('p.segments[1].operation'),'hp');
   close(a.run('p.segments[1].t1'),68);
  });
-test('planned cabinet isolation has no invented numeric correction or insulation credit',()=>{
- const a=scenario();assert.equal(a.run('state.thermostatIsolated'),false);assert.match(a.run('spatialModelText(true)'),/planned/);
+test('installed cabinet isolation is recorded without a modeled correction',()=>{
+ const a=scenario();assert.equal(a.run('state.thermostatIsolated'),undefined);assert.match(a.run('spatialModelText(true)'),/Cabinet-void isolation is installed/);
  a.run(`before=simulatePlan([{time:+r.start,setup:withSetting(planSetup('furnace',true),63)}],e,r,AIR_SCENARIOS[0],rows);state.thermostatIsolated=true;after=simulatePlan([{time:+r.start,setup:withSetting(planSetup('furnace',true),63)}],e,r,AIR_SCENARIOS[0],rows)`);
- assert.deepEqual(a.run('before.finalZones'),a.run('after.finalZones'));assert.match(a.run('spatialModelText(true)'),/installed/);
+ assert.deepEqual(a.run('before.finalZones'),a.run('after.finalZones'));
 });
 
 test('unchanged effective controls preserve AUTO cycle and cached state across a stage label',()=>{

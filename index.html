@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.3 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.4 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.3</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.4</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -154,11 +154,10 @@
         <div id="returnFields" hidden><label class="field">Approximate return<input id="returnTime" type="datetime-local" onchange="planInputsChanged()"></label><p class="hint">Zero occupant heat or moisture while away. Comfort targets stay unchanged. Physical window and fan settings must remain fixed until return.</p></div>
     </div>
     <details class="input-section" id="planningOptions"><summary>Equipment & planning options</summary>
-        <label class="field"><input type="checkbox" id="thermostatIsolation" style="display:inline;width:auto" onchange="state.thermostatIsolated=this.checked;planInputsChanged()"> Thermostat cabinet isolation installed</label>
         <label class="field">Portable dehumidifier<select id="dehumidifierMode" onchange="equipmentInputsChanged()"><option value="enabled">Enabled — 50% RH setting</option><option value="off">Off</option></select></label>
         <p class="hint">MCD day shades remain down. One MaxxFan at a time. Active heating or cooling requires closed windows and closed/off MaxxFans.</p>
-        <label class="field"><input id="remoteAccess" type="checkbox" onchange="planInputsChanged()" style="display:inline;width:auto"> Remote thermostat access is available</label>
-        <p class="hint">Future capability; off for your current equipment. Read remote sensors in their app and enter values here. This app does not connect to or control equipment.</p>
+        <label class="field"><input id="remoteAccess" type="checkbox" checked onchange="planInputsChanged()" style="display:inline;width:auto"> Remote thermostat access is available</label>
+        <p class="hint">Leave checked when the EasyTouch has Wi-Fi and you can reach it in the Micro-Air app. Read remote sensors in their app and enter values here. This app does not connect to or control equipment.</p>
         <div id="actualSetup" hidden>
           <label class="field">Current thermostat mode<select id="actualMode" onchange="planInputsChanged()"><option value="passive">OFF</option><option value="ac">COOL</option><option value="hp">HEAT PUMP</option><option value="furnace">FURNACE</option><option value="auto">AUTO HEAT PUMP</option><option value="auto_furnace">AUTO FURNACE</option><option value="maxxfan">OFF — MaxxFan in AUTO</option></select></label>
           <label class="field">Current single-mode setpoint (°F)<input id="actualSetpoint" type="number" value="72" min="40" max="90" onchange="planInputsChanged()"></label>
@@ -214,7 +213,7 @@
 </div>
 
 <script>
-let state={thermostatIsolated:false,dehumidifierEnabled:true,indoorRH:null,weatherMode:'manual',period:'plan',temp:78,rh:65,cloud:1.0,wind:5,precip:'none',indoor:72,indoorCurrent:72};
+let state={dehumidifierEnabled:true,indoorRH:null,weatherMode:'manual',period:'plan',temp:78,rh:65,cloud:1.0,wind:5,precip:'none',indoor:72,indoorCurrent:72};
 let forecast={day:null,night:null,location:null,fetched:false,tempVals:null,humVals:null};
 
 // Owner floor plan 31808.jpg: pixel stations and the 73-inch bed reference.
@@ -1307,7 +1306,7 @@ function optimizeSequence(plan,envelope,request,rows,minTime=+request.start){
 function spatialModelText(detailed=false){
     if(!detailed)return '<p class="hint">Bed-area comfort takes priority. The front thermostat controls the equipment; its setting may differ from your indoor target.</p>';
     return '<p class="hint">'+
-        'Overhead delivery is uniform by volume; furnace delivery is 70% rear / 30% front. The open Ford cab contributes separate front-area heat loss and solar gain. Magneshades reduce solar gain only. Cabinet-void isolation is '+(state.thermostatIsolated?'installed':'planned')+'; no guessed sensor offset is applied.</p>'+envelopeAuditText();
+        'Overhead delivery is uniform by volume; furnace delivery is 70% rear / 30% front. The open Ford cab contributes separate front-area heat loss and solar gain. Magneshades reduce solar gain only. Cabinet-void isolation is installed; no guessed sensor offset is applied.</p>'+envelopeAuditText();
 }
 function frontOutlook(trials,from,to){
     const points=trials.flatMap(t=>t.trace.filter(p=>+p.time>=from&&+p.time<=to));
@@ -1877,7 +1876,7 @@ function planTrialReason(trial){return trial.unsafe[0]?.reason||trial.moistureRe
 function evaluatePlan(phases,envelope,request,rows){
     const trials=AIR_SCENARIOS.map(s=>{
         if(phases.length<2||!envelope.planCache)return simulatePlan(phases,envelope,request,s,rows);
-        const key=phases[0].setup.key+'|'+s.name;
+        const key=phases[0].setup.key+'|'+s.name+(request.occupancy==='staying'?'':'|'+(rows?.at(-1)?.to??'full'));
         let prefix=envelope.planCache.get(key);
         if(!prefix){
             prefix=simulatePlan([phases[0]],envelope,request,s,rows,null,true);
@@ -2033,11 +2032,11 @@ function stagePlan(prefix,setup,from,to,envelope,request,rows){
     return optimizePhase(original,original.phases.length-1,envelope,request,rows.filter(row=>row.to<=to),from,to,changed=>stagePlanRaw(prefix,changed,from,to,envelope,request,rows));
 }
 function stagePlanRaw(prefix,setup,from,to,envelope,request,rows){
-    setup=applyRecoverySetting(setup,request,from);
+    if(setup!==request.actual)setup=applyRecoverySetting(setup,request,from);
     const phases=[...prefix.filter(p=>p.time<from),{time:from,setup}],stageRows=rows.filter(row=>row.to<=to);
     const p=evaluatePlan(phases,envelope,request,stageRows),failed=p.trials.find(t=>!t.suitable||+t.trace.at(-1).time!==to);
     const available=request.occupancy!=='away'||setupChangeAllowed(request.actual,phases[0].setup,+request.start,request);
-    const idleHeat=['hp','furnace'].includes(setup.type)&&p.trials.every(t=>!t.segments.some(s=>s.startMs>=from&&s.startMs<to&&['hp','furnace'].includes(s.operation)&&s.duty>0));
+    const idleHeat=setup!==request.actual&&['hp','furnace'].includes(setup.type)&&p.trials.every(t=>!t.segments.some(s=>s.startMs>=from&&s.startMs<to&&['hp','furnace'].includes(s.operation)&&s.duty>0));
     const bedtime=planBounds(request.start,request).bedtime;
     return{...p,...targetMetrics(p.trials,from,to),setup,type:setup.type,suitable:available&&!failed&&!idleHeat,ready:bedtime&&to===+bedtime?p.ready:true,
         reason:!available?'This setup requires an unavailable physical adjustment while you are away.':failed?planTrialReason(failed):idleHeat?'Heating is not needed during this interval; this heating mode would remain idle.':''};
@@ -2048,10 +2047,12 @@ function* departureOvernight(prefix,nights,envelope,request,rows){
     const attempt=(time,setup,cool=null)=>{
         const phases=[...prefix.filter(p=>p.time<time),{time,setup:cool||setup}];
         if(cool)phases.push({time:bed,setup});
-        const trials=AIR_SCENARIOS.map((s,i)=>{
+        const simulate=(s,i)=>{
             const checkpoint=cached[i].checkpoints.find(p=>p.time===time);
             return checkpoint?simulatePlan(phases,envelope,request,s,rows,{time,carry:checkpoint,prefix:cached[i]}):simulatePlan(phases,envelope,request,s,rows);
-        });
+        };
+        const nominal=simulate(AIR_SCENARIOS[0],0);
+        const trials=nominal.suitable&&nominal.ready?[nominal,...AIR_SCENARIOS.slice(1).map((s,i)=>simulate(s,i+1))]:[nominal];
         return planFromTrials(phases,trials,envelope,request);
     };
     const times=new Set([bed,earliest]);
@@ -2079,12 +2080,95 @@ function* departureOvernight(prefix,nights,envelope,request,rows){
     annotateAutoPlans(plans);plans.sort(comparePlans);
     return{winner:plans[0],plans};
 }
+function returnComfort(plan,bounds,request){
+    const back=+request.returnTime,band=comfortPolicy(bounds.hasSleep&&back===+bounds.sleepFrom);
+    return plan.trials.every(t=>t.trace.some(p=>+p.time===back&&p.bedroom>=band.low-1e-6&&p.bedroom<=band.high+1e-6));
+}
+function missesSleepComfort(overnight,back){
+    return overnight?.plans.length&&overnight.plans.every(p=>p.trials.some(t=>
+        (t.comfortProblem&&+t.comfortProblem.time>=back)||(t.atBedtime&&!t.ready)));
+}
+function remoteTrigger(held,bounds,request,sleepMiss){
+    const back=+request.returnTime;
+    const protection=held.trials.flatMap(t=>t.unsafe.filter(u=>['heat-pump-cold','cooling-ice'].includes(u.issueCode))
+        .concat(t.trace.filter(p=>p.bedroom<C.comfortFloor-1e-6).slice(0,1).map(p=>({
+            time:p.time,reason:'Predicted bed-area temperature falls below the '+C.comfortFloor+'°F protection floor'
+        })))).filter(p=>+p.time>=+request.departure).sort((a,b)=>+a.time-+b.time)[0];
+    if(protection)return {time:+protection.time,reason:protection.reason,protection:true};
+    if(!returnComfort(held,bounds,request))return {time:back,reason:'The bedroom is predicted to miss its comfort range at return.'};
+    if(sleepMiss){
+        return {time:back,reason:'The fixed departure setup falls short of the projected sleep comfort requirements.'};
+    }
+    return null;
+}
+function* remoteDeparturePlan(fixedPlans,nights,envelope,request,rows,bounds){
+    const back=+request.returnTime,departure=+request.departure;
+    const setups=stageSetups(false,[]);
+    if(back===+bounds.bedtime)setups.push(...stageSetups(true,[]));
+    const stageRows=rows.filter(r=>r.to<=back);
+    const seen=new Set();
+    let protectionFallback=null;
+    for(const {current,plan,sleepMiss,choices} of fixedPlans){
+        const key=plan.phases.map(p=>p.setup.key).join(';');
+        if(seen.has(key))continue;
+        seen.add(key);
+        const held=planFromTrials(plan.phases,AIR_SCENARIOS.map(s=>simulatePlan(plan.phases,envelope,request,s,stageRows,null,false,true)),envelope,request);
+        const trigger=remoteTrigger(held,bounds,request,sleepMiss);
+        if(!trigger)continue;
+        const times=new Set();
+        if(request.occupancy==='away')times.add(departure);
+        for(let time=back-PLAN.searchMinutes*60000;time>departure;time-=PLAN.searchMinutes*60000)times.add(time);
+        const before=Math.min(back,trigger.time)-60000;
+        if(before>departure)times.add(before);
+        const nominal=simulatePlan(plan.phases,envelope,request,AIR_SCENARIOS[0],stageRows,null,true);
+        const checkpoints=new Map(nominal.checkpoints.map(p=>[p.time,p]));
+        const controls=[...setups,...choices];
+        const unique=controls.filter((s,i)=>controls.findIndex(other=>sameSetup(s,other))===i);
+        for(const time of [...times].filter(t=>t<=trigger.time).sort((a,b)=>b-a)){
+            if(nominal.failureTime!=null&&nominal.failureTime<time)continue;
+            const candidates=[],checkpoint=checkpoints.get(time);
+            for(const setup of unique){
+                if(sameSetup(plan.setup,setup)||!setupChangeAllowed(plan.setup,setup,time,request))continue;
+                const phases=plan.phases.filter(p=>p.time<time).concat({time,setup});
+                const resume=checkpoint&&time>departure?{time,carry:checkpoint,prefix:nominal}:null;
+                const screen=simulatePlan(phases,envelope,request,AIR_SCENARIOS[0],stageRows,resume);
+                yield {remote:time};
+                if(screen.suitable&&screen.ready&&returnComfort({trials:[screen]},bounds,request)){
+                    const p=evaluatePlan(phases,envelope,request,stageRows);
+                    if(p.suitable&&p.ready&&returnComfort(p,bounds,request)){candidates.push(p);continue;}
+                }
+                // An equipment or freeze concern can justify one protective
+                // action even when the return comfort band cannot be verified.
+                if(trigger.protection&&!protectionFallback&&screen.equipmentEligible&&screen.moistureEligible&&screen.floorCompliant){
+                    const trials=AIR_SCENARIOS.map(s=>simulatePlan(phases,envelope,request,s,stageRows,null,false,true));
+                    if(trials.every(t=>t.equipmentEligible&&t.moistureEligible&&t.floorCompliant)){
+                        const protectedPlan=planFromTrials(phases,trials,envelope,request);
+                        protectionFallback={current,plan:protectedPlan,overnight:null,complete:false,
+                            action:{time,setup,reason:trigger.reason,riskTime:trigger.time,protection:true,limited:true,
+                                before:readingAt(held,back,'bedroom'),after:readingAt(protectedPlan,back,'bedroom')}};
+                    }
+                }
+            }
+            candidates.sort(comparePlans);
+            for(const p of candidates){
+                const continuation=bounds.hasSleep?yield* departureOvernight(p.phases,nights,envelope,request,rows):null;
+                const complete=!continuation||!!(continuation.winner?.suitable&&continuation.winner.ready);
+                const action={time,setup:phaseControl(p.phases)(time),reason:trigger.reason,riskTime:trigger.time,
+                    protection:trigger.protection,before:readingAt(held,back,'bedroom'),after:readingAt(p,back,'bedroom')};
+                if(complete)return {current,plan:p,overnight:continuation,action,complete};
+                if(trigger.protection&&!protectionFallback)protectionFallback={current,plan:p,overnight:continuation,
+                    action:{...action,limited:true},complete:false};
+            }
+        }
+    }
+    return protectionFallback;
+}
 function* searchDeparturePlans(envelope,request){
     const bounds=planBounds(request.start,request),rows=planRows(envelope,request,.5,[+request.departure,+request.returnTime]);
     const vents=shortlistVents(envelope,request,false),nightVents=bounds.hasSleep?shortlistVents(envelope,request,true):[];
     const days=stageSetups(false,vents),nights=stageSetups(true,nightVents);
     const from=+request.start,departure=+request.departure,back=+request.returnTime;
-    const stages={current:null,departure:null,night:null,preparation:[],returnConditions:null};
+    const stages={current:null,departure:null,night:null,preparation:[],returnConditions:null,remoteAction:null};
     let currents=[];
     if(departure>from){
         const currentSetups=back===+bounds.bedtime?[...days,...stageSetups(true,vents).filter(s=>s.type==='ac')]:days;
@@ -2092,39 +2176,80 @@ function* searchDeparturePlans(envelope,request){
         currents.sort(comparePlans);
         stages.current={from,to:departure,recommended:null,options:stageGroup(currents,from,departure)};
     }else currents=[{suitable:true,ready:true,phases:[],setup:days[0],score:0,type:days[0].type}];
-    let selectedCurrent=null,selectedDeparture=null,departurePlans=[];
-    // Try another occupied setup if its predicted departure state is needed to
-    // obtain a fixed setup that covers the absence. No resets at departure.
-    const depSetups=back===+bounds.bedtime?[...days,...stageSetups(true,vents)]:days.slice();
-    if(request.occupancy==='away')depSetups.push(request.actual);
+    let selectedCurrent=null,selectedDeparture=null,departurePlans=[],overnight=null,complete=false,partialReady=false;
+    const depSetups=request.occupancy==='away'?[request.actual]:back===+bounds.bedtime?[...days,...stageSetups(true,vents)]:days;
+    const fixedPlans=[];
     for(const current of currents.filter(p=>p.suitable)){
         const prefix=departure>from?current.phases:[],tested=[];
-        for(const setup of depSetups){tested.push(stagePlan(prefix,setup,departure,back,envelope,request,rows));yield{departure:tested.length};}
+        for(const setup of depSetups){
+            tested.push(setup===request.actual?stagePlanRaw(prefix,setup,departure,back,envelope,request,rows):stagePlan(prefix,setup,departure,back,envelope,request,rows));
+            yield{departure:tested.length};
+        }
         tested.sort((a,b)=>comparePlans(a,b)||Number(sameSetup(current.setup,b.setup))-Number(sameSetup(current.setup,a.setup)));
-        const viable=tested.find(p=>p.suitable);
-        if(!selectedCurrent){selectedCurrent=current;departurePlans=tested;selectedDeparture=viable||null;}
-        if(viable&&(back!==+bounds.bedtime||viable.ready)){selectedCurrent=current;selectedDeparture=viable;departurePlans=tested;break;}
+        if(!selectedCurrent){selectedCurrent=current;departurePlans=tested;}
+        const choices=tested.map(p=>p.setup);
+        for(const plan of tested){
+            const entry={current,plan:{phases:plan.phases,setup:plan.setup},choices,sleepMiss:false,
+                suitable:plan.suitable,through:Math.min(...plan.trials.map(t=>t.failureTime??+t.trace.at(-1).time))};
+            if(request.remote)fixedPlans.push(entry);
+            if(!plan.suitable)continue;
+            if((!selectedDeparture&&current===selectedCurrent)||(plan.ready&&!partialReady)){
+                selectedCurrent=current;selectedDeparture=plan;departurePlans=tested;partialReady=plan.ready;
+            }
+            if(!plan.ready||!returnComfort(plan,bounds,request))continue;
+            const continuation=bounds.hasSleep?yield* departureOvernight(plan.phases,nights,envelope,request,rows):null;
+            if(plan===selectedDeparture)overnight=continuation;
+            if(continuation&&!(continuation.winner?.suitable&&continuation.winner.ready)){
+                entry.sleepMiss=missesSleepComfort(continuation,back);continue;
+            }
+            selectedCurrent=current;selectedDeparture=plan;departurePlans=tested;overnight=continuation;complete=true;break;
+        }
+        if(complete)break;
+    }
+    if(!complete&&request.remote){
+        // For someone still at the coach, a failed fixed setup need not be the
+        // starting setup. Prefer the ones that got farthest through the absence.
+        fixedPlans.sort((a,b)=>Number(b.suitable)-Number(a.suitable)||b.through-a.through);
+        const remote=yield* remoteDeparturePlan(fixedPlans,nights,envelope,request,rows,bounds);
+        if(remote){
+            selectedCurrent=remote.current;selectedDeparture=remote.plan;overnight=remote.overnight;
+            stages.remoteAction=remote.action;departurePlans=[];complete=remote.complete;
+        }
+    }
+    if(!selectedDeparture&&selectedCurrent){
+        const stageRows=rows.filter(row=>row.to<=back);
+        for(const candidate of departurePlans){
+            const trials=AIR_SCENARIOS.map(s=>simulatePlan(candidate.phases,envelope,request,s,stageRows,null,false,true));
+            if(!trials.every(t=>t.equipmentEligible&&t.moistureEligible&&t.floorCompliant))continue;
+            selectedDeparture=planFromTrials(candidate.phases,trials,envelope,request);
+            stages.partialDeparture=true;break;
+        }
     }
     if(stages.current&&selectedCurrent)stages.current.recommended=stageSummary(selectedCurrent,from,departure);
-    stages.departure={from:departure,to:back,recommended:selectedDeparture?stageSummary(selectedDeparture,departure,back):null,
-        options:stageGroup(departurePlans,departure,back),blocked:!selectedCurrent?'No current setup passes continuously through departure. Refresh readings before projecting the absence.':!selectedDeparture?'No single departure setup passes continuously through return. Refresh readings and revise the absence plan.':''};
+    stages.departure={from:departure,to:back,recommended:selectedDeparture?stageSummary({...selectedDeparture,setup:phaseControl(selectedDeparture.phases)(departure)},departure,back):null,
+        options:stageGroup(departurePlans,departure,back),blocked:!selectedCurrent?'No current setup passes continuously through departure. Refresh readings before projecting the absence.':!selectedDeparture?'No verified setup passes continuously through return. Reassess the setup in person on return.':''};
     let winner=selectedDeparture||(selectedCurrent?.trials?selectedCurrent:departurePlans[0])||currents[0],plans=winner?[winner]:[];
     if(selectedDeparture){
         stages.returnConditions={bedroom:readingAt(selectedDeparture,back,'bedroom'),front:readingAt(selectedDeparture,back,'midCoach'),
             humidity:readingAt(selectedDeparture,back,'rh'),frontRH:readingAt(selectedDeparture,back,'midRH')};
-        if(bounds.hasSleep){
-            const continuation=yield* departureOvernight(selectedDeparture.phases,nights,envelope,request,rows);
-            winner=continuation.winner;plans=continuation.plans;
+        if(overnight){
+            winner=overnight.winner;plans=overnight.plans;
             if(winner?.suitable&&winner.ready){
                 const result={winner,plans,bounds,envelope,request,current:null};
                 stages.night=periodComparisons(result,[],nights,rows).night;
                 stages.night.recommendation=stageSummary({...winner,setup:winner.nightSetup},+bounds.sleepFrom,+bounds.end);
-                stages.preparation=winner.phases.filter(p=>p.time>=back&&p.time<+bounds.sleepFrom&&!sameSetup(selectedDeparture.setup,p.setup));
+                const atReturn=phaseControl(selectedDeparture.phases)(back);
+                stages.preparation=winner.phases.filter(p=>p.time>=back&&p.time<+bounds.sleepFrom&&!sameSetup(atReturn,p.setup));
             }else stages.night={from:+bounds.sleepFrom,to:+bounds.end,projected:true,recommended:null,recommendation:null,
                 options:stageGroup(plans.map(p=>({...p,setup:p.nightSetup,type:p.nightType,suitable:p.suitable&&p.ready})),+bounds.sleepFrom,+bounds.end)};
         }
     }
-    if(winner&&(!selectedDeparture||bounds.hasSleep&&!stages.night?.recommendation)){
+    if(!stages.returnConditions&&winner?.phases.length&&winner.phases.some(p=>p.time===departure)){
+        const held=AIR_SCENARIOS.map(s=>simulatePlan(winner.phases,envelope,request,s,rows.filter(r=>r.to<=back),null,false,true));
+        const atReturn=field=>readingAt({trials:held},back,field);
+        stages.returnConditions={bedroom:atReturn('bedroom'),front:atReturn('midCoach'),humidity:atReturn('rh'),frontRH:atReturn('midRH')};
+    }
+    if(winner&&!complete){
         const previous=winner;winner={...previous,suitable:false};plans=[winner,...plans.filter(p=>p!==previous)];
     }
     return{winner,plans,bounds,envelope,request,current:null,stages,comparisons:{day:null,night:stages.night}};
@@ -2133,7 +2258,7 @@ function comfortPolicyText(){const s=COMFORT.sleeping,a=COMFORT.nonSleeping;retu
 function setpointSummary(){return 'Bed-area targets: awake/away '+COMFORT.nonSleeping.target+'°F ('+COMFORT.nonSleeping.low+'–'+COMFORT.nonSleeping.high+'°F); sleeping '+COMFORT.sleeping.target+'°F ('+COMFORT.sleeping.low+'–'+COMFORT.sleeping.high+'°F). Thermostat settings are selected in your plan.';}
 function renderDeparturePlan(result){
     const {stages,bounds,request,winner}=result;
-    const passed=!!stages.departure.recommended&&stages.departure.recommended.recoveryInfo?.complete!==false&&(!bounds.hasSleep||!!stages.night?.recommendation);
+    const passed=winner?.suitable&&winner.ready;
     let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+policyBadge(passed,true)+'</div>'+comfortPolicyText()+spatialModelText()+recoveryActionHTML(result.recoveryAction);
     const interval=(from,to)=>escapeHTML(formatStamp(new Date(from))+' → '+formatStamp(new Date(to)));
     const metrics=p=>'<p class="plan-metrics">Bedroom: '+escapeHTML(p.bedroom)+'°F · '+escapeHTML(p.humidity)+'% RH.<br>Front: '+escapeHTML(p.front)+'°F · '+escapeHTML(p.frontRH)+'% RH.'+(Number.isFinite(p.targetDeviation)?'<br>Average distance from indoor target: '+p.targetDeviation.toFixed(1)+'°F.':'')+'</p>';
@@ -2144,7 +2269,10 @@ function renderDeparturePlan(result){
         if(recommended?.setup){
             const keep=kind==='departure'&&stages.current?.recommended&&sameSetup(stages.current.recommended.setup,recommended.setup);
             out+='<div class="result-primary">'+escapeHTML(setupName(recommended.setup))+'</div>';
-            out+='<p class="hint">'+(keep?'Keep this setup when you leave. ':'')+escapeHTML(setupInstructions(recommended.setup))+'</p>'+recoveryNotice(recommended.recoveryInfo)+metrics(recommended);
+            const hold=kind==='departure'&&request.occupancy==='away';
+            const instruction=hold?(stages.remoteAction?.time===stage.from?'Apply the remote adjustment below.':'Keep your current setup'+(stages.remoteAction?' until the adjustment below.':'.')):setupInstructions(recommended.setup);
+            out+='<p class="hint">'+(keep?'Keep this setup when you leave. ':'')+escapeHTML(instruction)+'</p>'+recoveryNotice(recommended.recoveryInfo)+metrics(recommended);
+            if(kind==='departure'&&stages.partialDeparture)out+='<p class="hint">Best available fixed setup with the equipment, moisture and indoor protection checks met. Comfort is still unverified: '+escapeHTML(recommended.reason||'the bedroom may be outside the comfort range at return.')+'</p>';
         }else out+='<p class="hint">'+escapeHTML(stage.blocked||'No verified setup for this period. Refresh both readings and rebuild the plan before following this stage.')+'</p>';
         const options=stage.options.filter(p=>p.setup.type!==recommended?.setup?.type);
         for(const suitable of [true,false]){
@@ -2158,6 +2286,12 @@ function renderDeparturePlan(result){
     };
     html+=section('Recommended current mode',stages.current,'current');
     html+=section(request.occupancy==='away'?'Recommended mode while away':'Recommended departure mode',stages.departure,'departure');
+    if(stages.remoteAction){
+        const action=stages.remoteAction;
+        html+='<div class="mitigation-box"><strong>One remote thermostat adjustment at '+escapeHTML(formatStamp(new Date(action.time)))+
+            '</strong><p>'+escapeHTML(action.reason)+'</p><p>'+planActionText(action,request)+
+            '</p><p>Predicted bedroom at return: '+escapeHTML(action.before)+'°F if the setup is held; '+escapeHTML(action.after)+'°F with the adjustment.</p>'+(action.limited?'<p>This addresses the protection concern through return. Comfort still needs reassessment when you arrive.</p>':'')+'</div>';
+    }
     if(stages.returnConditions){
         const c=stages.returnConditions;
         html+='<p class="hint"><strong>Predicted conditions at return — '+escapeHTML(formatStamp(request.returnTime))+':</strong><br>Bedroom '+escapeHTML(c.bedroom)+'°F · '+escapeHTML(c.humidity)+'% RH; front '+escapeHTML(c.front)+'°F · '+escapeHTML(c.frontRH)+'% RH. Refresh both readings and rerun the app when you return.</p>';
@@ -2168,7 +2302,7 @@ function renderDeparturePlan(result){
         html+=section('Recommended overnight mode',stages.night||{from:+bounds.sleepFrom,to:+bounds.end,recommended:null,options:[],blocked:'Overnight alternatives need reassessment after the departure plan is verified.'},'overnight');
         if(stages.night?.recommendation)html+='<p class="hint">The overnight setup runs through 7 AM without manual changes. AUTO HEAT PUMP may use the propane furnace below the 42°F gas-changeover setting.</p>';
     }else html+='<p class="hint">No overnight recommendation: your return is at or after 7 AM. The departure setup is evaluated through your return time.</p>';
-    html+='<p class="hint">No occupant heat or moisture between departure and return. Non-sleeping comfort applies throughout the absence; any sleep-temperature setting is preparation. The departure setup remains fixed throughout your absence, even if remote controls are available.</p>';
+    html+='<p class="hint">No occupant heat or moisture between departure and return. Non-sleeping comfort applies throughout the absence; any sleep-temperature setting is preparation. '+(stages.remoteAction?'The remote adjustment above is the only planned change while away.':'Keep the departure setup fixed throughout your absence.')+'</p>';
     html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+interval(+bounds.start,+bounds.end)+' · '+escapeHTML(analysisTimeZone())+'. Temperature, water content, dehumidifier heat and exposure history carry continuously across departure, return and sleep preparation. Overnight alternatives share the displayed preparation.</p>'+spatialModelText(true)+'</details>';
     if(winner?.trials)html+=surfaceOutlook(winner.trials);
     return html+'</div>';
@@ -2177,7 +2311,7 @@ function renderDeparturePlan(result){
 function* searchPlans(envelope,request){
     const result=yield* searchPlansCore(envelope,request);
     const hasCurrent=result.stages?!!result.stages.current?.recommended||!!result.stages.departure.recommended:(result.winner.suitable&&result.winner.ready)||!!result.current;
-    if(!hasCurrent)result.recoveryAction=recoveryAction(envelope,request);
+    if(!hasCurrent&&request.occupancy!=='away')result.recoveryAction=recoveryAction(envelope,request);
     result.bedtimeRecovery=bedtimeRecovery(result,envelope,request);
     return result;
 }
@@ -2556,7 +2690,7 @@ function planActionText(phase,request){
     const setup=phase.setup;
     if(setup.type==='maxxfan'||setup.type==='passive'&&setup.config)return 'Keep the verified '+escapeHTML(setupName(setup))+' setup unchanged. No window or MaxxFan adjustment is required.';
     const mode={ac:'COOL',hp:'HEAT PUMP',furnace:'FURNACE',auto:'AUTO HEAT PUMP',auto_furnace:'AUTO FURNACE',passive:'OFF'}[setup.type],sp=setup.type==='ac'?setup.setpoints.cool:setup.setpoints.heat;
-    if(isAutoMode(setup.type))return 'In the Micro-Air app, select '+mode+'; set HEAT TO '+setup.setpoints.heat+'°F and COOL TO '+setup.setpoints.cool+'°F. Keep the verified window and MaxxFan arrangement unchanged.';
+    if(isAutoMode(setup.type))return 'In the Micro-Air app, select '+mode+'; set HEAT TO '+setup.setpoints.heat+'°F and COOL TO '+setup.setpoints.cool+'°F; set the fan to '+escapeHTML(setup.fan)+'. Keep the verified window and MaxxFan arrangement unchanged.';
     return 'In the remote thermostat app, select '+mode+(setup.type==='passive'?'':' at '+sp+'°F with '+setup.fan+' fan')+'. Keep the verified physical window and MaxxFan arrangement unchanged.';
 }
 function traceRange(plan,from,to,field){const v=plan.trials.flatMap(t=>t.trace.filter(p=>+p.time>=from&&+p.time<=to).map(p=>p[field]));return v.length?Math.min(...v).toFixed(1)+'–'+Math.max(...v).toFixed(1):'—';}
