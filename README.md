@@ -1,3 +1,9 @@
+# v6.6.4 — EasyTouch remote access and departure planning
+
+- Cabinet isolation is recorded as installed. The remote-access checkbox defaults on and represents whether the EasyTouch is reachable over Wi-Fi in the Micro-Air app.
+- Departure and currently-away plans prefer a verified setup with no remote actions. One timed thermostat change is available when it can prevent a return or sleep comfort miss, operation outside modeled equipment limits, or a modeled freezing concern. If only protection can be verified, the plan identifies the remaining comfort shortfall.
+- The thermostat adjustment is manual in the Micro-Air app. Windows and MaxxFans retain their physical setup during absence. Surface condensation remains advisory. Current protections screen coil icing and use an indoor temperature floor. The model does not predict plumbing compartment temperatures.
+
 # v6.6.1 — Heating and cooling recovery
 
 Measured indoor temperatures and manual outdoor temperature controls have no arbitrary minimum or maximum. Missing or nonfinite indoor readings are rejected; equipment eligibility checks and thermostat control/setpoint ranges remain separate. Recovery tests cover conditions below 40°F and above 110°F.
