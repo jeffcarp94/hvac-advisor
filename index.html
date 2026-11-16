@@ -2177,7 +2177,7 @@ function renderDeparturePlan(result){
 
 function* searchPlans(envelope,request){
     const result=yield* searchPlansCore(envelope,request);
-    const hasCurrent=result.stages?!!result.stages.current?.recommended||!!result.stages.departure.recommended:result.winner.suitable||!!result.current;
+    const hasCurrent=result.stages?!!result.stages.current?.recommended||!!result.stages.departure.recommended:(result.winner.suitable&&result.winner.ready)||!!result.current;
     if(!hasCurrent)result.recoveryAction=recoveryAction(envelope,request);
     return result;
 }
@@ -2193,10 +2193,13 @@ function recoveryAction(envelope,request){
         setup=applyRecoverySetting(setup,request,+request.start);
         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,setup,+request.start,request))continue;
         const trials=AIR_SCENARIOS.map(s=>simulatePlan([{time:+request.start,setup}],envelope,request,s,rows,null,false,true));
-        if(!trials.every((t,i)=>t.equipmentEligible&&t.moistureEligible&&(cold?t.finalIndoor>baseline[i].finalIndoor:t.finalIndoor<baseline[i].finalIndoor)))continue;
+        if(!trials.every((t,i)=>t.equipmentEligible&&t.moistureEligible&&(cold?t.didHeat&&t.finalIndoor>baseline[i].finalIndoor:t.didCool&&t.finalIndoor<baseline[i].finalIndoor)))continue;
         candidates.push({setup,trials,recoveryInfo:recoverySummary(trials),reviewAt,limited:true,request});
     }
-    candidates.sort((a,b)=>compareRecovery(a,b)||modePreference(a.setup)-modePreference(b.setup));
+    const usesAuxOnly=action=>['hp','auto'].includes(action.setup.type)&&
+        action.trials.every(t=>t.didHeat&&!t.segments.some(s=>s.operation==='hp'&&s.duty>0));
+    candidates.sort((a,b)=>compareRecovery(a,b)||Number(usesAuxOnly(a))-Number(usesAuxOnly(b))||
+        modePreference(a.setup)-modePreference(b.setup));
     const best=candidates[0];if(!best)return null;
     const firstRecovery=Math.min(...best.trials.map(t=>t.recoveryMinutes??Infinity));
     // Review when the fastest scenario enters comfort, before a rear/front
