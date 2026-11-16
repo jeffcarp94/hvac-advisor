@@ -34,11 +34,12 @@ test('bed-qualified plans prefer both areas comfortable; a dinette miss cannot d
  both={...bed,frontFits:true,targetRank:.2};bad={...both,suitable:false,targetRank:0};`);
  assert.ok(a.run('comparePlans(both,bed)')<0);assert.ok(a.run('comparePlans(bed,bad)')<0);
 });
-test('furnace setpoint is selected from bed response with front control and a visible dinette miss',()=>{
- const a=scenario();a.run(`seed=stagePlanRaw([],planSetup('furnace',true),+r.start,to,e,r,rows);p=stagePlan([],planSetup('furnace',true),+r.start,to,e,r,rows)`);
- assert.equal(a.run('seed.suitable'),false);assert.equal(a.run('p.suitable'),true);assert.equal(a.run('p.setup.setpoints.heat'),63);
- assert.equal(a.run('p.frontFits'),false);assert.ok(a.run('p.trials.every(t=>t.suitable&&t.trace.at(-1).time.getTime()===to)'));
- assert.ok(a.run('p.trials[0].finalZones.temperature[0]>66&&p.trials[0].finalZones.temperature[1]<64'));
+test('furnace maintenance cannot claim an ideal clamped setpoint with real hysteresis',()=>{
+ const a=scenario();a.run(`p=stagePlan([],planSetup('furnace',true),+r.start,to,e,r,rows);
+ old=stagePlanRaw([],withSetting(planSetup('furnace',true),63),+r.start,to,e,r,rows)`);
+ assert.equal(a.run('old.suitable'),false);
+ assert.equal(a.run('p.suitable'),false);
+ assert.ok(a.run('p.trials.some(t=>!t.comfortEligible)'));
  assert.match(a.run('frontOutlook(p.trials,+r.start,to)'),/Dinette comfort differs/);
 });
 test('AUTO control uses independent EasyTouch setpoints instead of a midpoint',()=>{
