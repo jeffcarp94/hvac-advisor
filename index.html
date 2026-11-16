@@ -2214,6 +2214,15 @@ function* searchDeparturePlans(envelope,request){
             stages.remoteAction=remote.action;departurePlans=[];complete=remote.complete;
         }
     }
+    if(!selectedDeparture&&selectedCurrent){
+        const stageRows=rows.filter(row=>row.to<=back);
+        for(const candidate of departurePlans){
+            const trials=AIR_SCENARIOS.map(s=>simulatePlan(candidate.phases,envelope,request,s,stageRows,null,false,true));
+            if(!trials.every(t=>t.equipmentEligible&&t.moistureEligible&&t.floorCompliant))continue;
+            selectedDeparture=planFromTrials(candidate.phases,trials,envelope,request);
+            stages.partialDeparture=true;break;
+        }
+    }
     if(stages.current&&selectedCurrent)stages.current.recommended=stageSummary(selectedCurrent,from,departure);
     stages.departure={from:departure,to:back,recommended:selectedDeparture?stageSummary({...selectedDeparture,setup:phaseControl(selectedDeparture.phases)(departure)},departure,back):null,
         options:stageGroup(departurePlans,departure,back),blocked:!selectedCurrent?'No current setup passes continuously through departure. Refresh readings before projecting the absence.':!selectedDeparture?'No verified setup passes continuously through return. Reassess the setup in person on return.':''};
@@ -2261,6 +2270,7 @@ function renderDeparturePlan(result){
             const hold=kind==='departure'&&request.occupancy==='away';
             const instruction=hold?(stages.remoteAction?.time===stage.from?'Apply the remote adjustment below.':'Keep your current setup'+(stages.remoteAction?' until the adjustment below.':'.')):setupInstructions(recommended.setup);
             out+='<p class="hint">'+(keep?'Keep this setup when you leave. ':'')+escapeHTML(instruction)+'</p>'+recoveryNotice(recommended.recoveryInfo)+metrics(recommended);
+            if(kind==='departure'&&stages.partialDeparture)out+='<p class="hint">Best available fixed setup with the equipment, moisture and indoor protection checks met. Comfort is still unverified: '+escapeHTML(recommended.reason||'the bedroom may be outside the comfort range at return.')+'</p>';
         }else out+='<p class="hint">'+escapeHTML(stage.blocked||'No verified setup for this period. Refresh both readings and rebuild the plan before following this stage.')+'</p>';
         const options=stage.options.filter(p=>p.setup.type!==recommended?.setup?.type);
         for(const suitable of [true,false]){
