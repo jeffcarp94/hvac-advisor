@@ -2193,7 +2193,7 @@ function* searchDeparturePlans(envelope,request){
                 suitable:plan.suitable,through:Math.min(...plan.trials.map(t=>t.failureTime??+t.trace.at(-1).time))};
             if(request.remote)fixedPlans.push(entry);
             if(!plan.suitable)continue;
-            if(!selectedDeparture){selectedCurrent=current;selectedDeparture=plan;departurePlans=tested;}
+            if(!selectedDeparture&&current===selectedCurrent)selectedDeparture=plan;
             if(!plan.ready||!returnComfort(plan,bounds,request))continue;
             const continuation=bounds.hasSleep?yield* departureOvernight(plan.phases,nights,envelope,request,rows):null;
             if(plan===selectedDeparture)overnight=continuation;
