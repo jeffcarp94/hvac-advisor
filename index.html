@@ -1876,7 +1876,7 @@ function planTrialReason(trial){return trial.unsafe[0]?.reason||trial.moistureRe
 function evaluatePlan(phases,envelope,request,rows){
     const trials=AIR_SCENARIOS.map(s=>{
         if(phases.length<2||!envelope.planCache)return simulatePlan(phases,envelope,request,s,rows);
-        const key=phases[0].setup.key+'|'+s.name+'|'+(rows?.at(-1)?.to??'full');
+        const key=phases[0].setup.key+'|'+s.name+(request.occupancy==='staying'?'':'|'+(rows?.at(-1)?.to??'full'));
         let prefix=envelope.planCache.get(key);
         if(!prefix){
             prefix=simulatePlan([phases[0]],envelope,request,s,rows,null,true);
