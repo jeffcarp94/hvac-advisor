@@ -2176,7 +2176,7 @@ function* searchDeparturePlans(envelope,request){
         currents.sort(comparePlans);
         stages.current={from,to:departure,recommended:null,options:stageGroup(currents,from,departure)};
     }else currents=[{suitable:true,ready:true,phases:[],setup:days[0],score:0,type:days[0].type}];
-    let selectedCurrent=null,selectedDeparture=null,departurePlans=[],overnight=null,complete=false;
+    let selectedCurrent=null,selectedDeparture=null,departurePlans=[],overnight=null,complete=false,partialReady=false;
     const depSetups=request.occupancy==='away'?[request.actual]:back===+bounds.bedtime?[...days,...stageSetups(true,vents)]:days;
     const fixedPlans=[];
     for(const current of currents.filter(p=>p.suitable)){
@@ -2193,7 +2193,9 @@ function* searchDeparturePlans(envelope,request){
                 suitable:plan.suitable,through:Math.min(...plan.trials.map(t=>t.failureTime??+t.trace.at(-1).time))};
             if(request.remote)fixedPlans.push(entry);
             if(!plan.suitable)continue;
-            if(!selectedDeparture&&current===selectedCurrent)selectedDeparture=plan;
+            if((!selectedDeparture&&current===selectedCurrent)||(plan.ready&&!partialReady)){
+                selectedCurrent=current;selectedDeparture=plan;departurePlans=tested;partialReady=plan.ready;
+            }
             if(!plan.ready||!returnComfort(plan,bounds,request))continue;
             const continuation=bounds.hasSleep?yield* departureOvernight(plan.phases,nights,envelope,request,rows):null;
             if(plan===selectedDeparture)overnight=continuation;

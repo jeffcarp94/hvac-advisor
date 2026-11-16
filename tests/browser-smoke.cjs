@@ -76,7 +76,11 @@ function weather(url){
   assert.match(departureText,/sleeping 67°F/);assert.match(departureText,/awake or unoccupied 71°F/);
   assert.equal(await page.evaluate(()=>lastPlan.winner.trials.every(t=>t.segments.every(s=>s.occupied!==0||!s.sleeping))),true);
   assert.match(departureText,/11:30 PM/);assert.match(departureText,/Predicted conditions at return/);
-  assert.equal(await page.evaluate(()=>lastPlan.winner.phases.every(p=>p.time<=+lastPlan.request.departure||p.time>=+lastPlan.request.returnTime)),true);
+  assert.equal(await page.evaluate(()=>{
+    const {request,winner,stages}=lastPlan;
+    const remote=winner.phases.filter(p=>p.time>+request.departure&&p.time<+request.returnTime);
+    return remote.length===(stages.remoteAction?1:0)&&(!remote.length||remote[0].time===stages.remoteAction.time);
+  }),true);
   assert.equal(await page.evaluate(()=>+lastPlan.bounds.sleepFrom===+lastPlan.request.returnTime),true);
   await page.screenshot({path:path.join(screens,'departure-late-return.png'),fullPage:true});
   await page.locator('#returnTime').fill('2026-10-23T07:00');

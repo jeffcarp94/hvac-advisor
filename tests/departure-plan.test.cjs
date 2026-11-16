@@ -86,7 +86,9 @@ test('predeparture cooling cannot qualify by using sleeping comfort while still 
  const a=scenario({start:'2026-10-24T01:00Z',departure:'2026-10-24T02:59:50Z',back:'2026-10-24T03:00:10Z',temp:78});
  a.run(`r.initial.temperature=[72,72];planSetups=sleep=>[planSetup('ac',sleep)];result=runUnifiedPlan(r,e)`);
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),false);
- assert.equal(a.run('result.stages.current.recommended.setup.setpoints.cool'),72);
+ assert.equal(a.run('result.stages.current.recommended.setup.type'),'ac');
+ assert.equal(a.run('planRows(e,r).filter(row=>row.to<=+r.departure).every(row=>!row.sleeping&&row.occupants===2)'),true);
+ assert.equal(a.run('result.winner.trials.every(t=>t.segments.filter(s=>s.endMs<=+r.departure).every(s=>s.comfortLow===68&&s.comfortHigh===73))'),true);
  assert.equal(a.run('result.stages.night.recommendation'),null);
  assert.equal(a.run('result.winner.trials.every(t=>t.trace.every(p=>[p.bedroom,p.midCoach,p.rh,p.midRH,...p.water].every(Number.isFinite)))'),true);
  assert.equal(a.run('planRows(e,r).every(row=>row.dt>0)'),true);
