@@ -1,3 +1,7 @@
+# v6.6.7 — EasyTouch logging fields
+
+Run logging records the displayed EasyTouch indoor temperature, its timestamp, and the saved Temperature Reading Adjustment. An empty EasyTouch time uses the YoLink reading time. The display difference is calculated against the front YoLink reading without applying the offset a second time. The fields are for observation and use the existing Sheet columns.
+
 # v6.6.6 — Run logging
 
 Optional Google Sheets logging is available under **Run logging**. Enter the deployed Apps Script URL and your private token, enable logging, and save. **Log readings only** sends current indoor readings without building a plan. Completed plan runs also log their outcome. Entries remain saved until the receiver confirms their event ID. See [receiver setup](tools/logging/README.md).
