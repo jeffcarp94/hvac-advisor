@@ -36,10 +36,12 @@ test('sleep forbids later thermostat or physical changes even when remote contro
 });
 test('AUTO readiness accepts normal cycling only after cooling target has been reached',()=>{
  const a=app();load(a,require('./fixtures/winterset-planning-regressions.json')[0]);
- a.run(`p=simulatePlan([{time:+r.start,setup:withSetting(planSetup('auto',true),{heat:63,cool:67})}],e,r);`);
+ // v6.6.11 places the Cube's heat in the front zone, so COOL TO 67 now drives the
+ // bedroom below the 65F floor before bedtime. 64/68 keeps the same readiness check.
+ a.run(`p=simulatePlan([{time:+r.start,setup:withSetting(planSetup('auto',true),{heat:64,cool:68})}],e,r);`);
  assert.equal(a.run('p.ready'),true);
  assert.ok(a.run('p.trace.some(p=>p.bedroom<=68.5)'));
- a.run(`late=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+planBounds(r.start).bedtime,setup:withSetting(planSetup('auto',true),{heat:63,cool:67})}],e,r);`);
+ a.run(`late=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+planBounds(r.start).bedtime,setup:withSetting(planSetup('auto',true),{heat:64,cool:68})}],e,r);`);
  assert.equal(a.run('late.ready'),false);
 });
 test('preparation search checks a fine-grid timing island after coarse proposals fail',()=>{

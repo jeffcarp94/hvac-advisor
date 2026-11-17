@@ -21,7 +21,8 @@ test('separate temperature and moisture readings initialize both zones without a
 test('front sensor governs HVAC calls while bedroom controls sleep comfort',()=>{
  const a=scenario('2026-10-24T11:55Z');a.run(`r.initial.temperature=[65,70];p=simulatePlan([{time:+r.start,setup:planSetup('furnace',true)}],e,r)`);
  assert.equal(a.run("p.segments.some(s=>s.operation==='furnace')"),false);
- a.run(`r.initial.temperature=[70,65];q=simulatePlan([{time:+r.start,setup:planSetup('furnace',true)}],e,r)`);
+ // EasyTouch heat starts at HEAT TO - 2 (66 - 2 = 64F) on the front sensor; a 65F front is above that threshold.
+ a.run(`r.initial.temperature=[70,63];q=simulatePlan([{time:+r.start,setup:planSetup('furnace',true)}],e,r)`);
  assert.equal(a.run("q.segments.some(s=>s.operation==='furnace')"),true);
 });
 test('occupancy changes exactly at departure and return, with unchanged targets',()=>{

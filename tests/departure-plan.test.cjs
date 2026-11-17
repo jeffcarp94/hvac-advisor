@@ -89,7 +89,8 @@ test('predeparture cooling cannot qualify by using sleeping comfort while still 
  assert.equal(a.run('result.stages.current.recommended.setup.type'),'ac');
  assert.equal(a.run('planRows(e,r).filter(row=>row.to<=+r.departure).every(row=>!row.sleeping&&row.occupants===2)'),true);
  assert.equal(a.run('result.winner.trials.every(t=>t.segments.filter(s=>s.endMs<=+r.departure).every(s=>s.comfortLow===68&&s.comfortHigh===73))'),true);
- assert.equal(a.run('result.stages.night.recommendation'),null);
+ // With no verified departure stage the overnight section is absent (null) and renders as needing reassessment.
+ assert.equal(a.run('result.stages.night?.recommendation??null'),null);
  assert.equal(a.run('result.winner.trials.every(t=>t.trace.every(p=>[p.bedroom,p.midCoach,p.rh,p.midRH,...p.water].every(Number.isFinite)))'),true);
  assert.equal(a.run('planRows(e,r).every(row=>row.dt>0)'),true);
 });
