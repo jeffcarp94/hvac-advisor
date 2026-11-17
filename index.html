@@ -94,7 +94,7 @@
 
         [hidden]{display:none!important;} input,select,button{font:inherit;} input,select{max-width:100%;min-width:0;}
         .field{display:block;margin:10px 0;font-size:13px;font-weight:600;} .field input,.field select{display:block;width:100%;padding:11px;margin-top:5px;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;}
-        .sensor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;} .sensor-title{font-size:14px;font-weight:800;margin:7px 0;}
+        .sensor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;} .sensor-title{font-size:14px;font-weight:800;margin:7px 0;}
         .hint{font-size:12px;line-height:1.5;color:var(--text-secondary);margin:7px 0;} details>summary{cursor:pointer;font-size:13px;font-weight:700;padding:8px 0;} details .diag-title{margin-top:8px;}
         .minor-btn{background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:12px;cursor:pointer;}
         .plan-stage{margin:18px 0;padding-top:14px;border-top:1px solid var(--border);}.plan-stage h3{font-size:15px;margin-bottom:8px;}.plan-stage .result-primary{font-size:20px;} .plan-step{border-left:3px solid var(--accent-blue);padding:0 0 16px 12px;margin:12px 0;} .plan-time{font-family:var(--font-mono);font-size:12px;color:var(--accent-blue);margin-bottom:5px;} .plan-step p{font-size:13px;line-height:1.55;margin:5px 0;} .plan-metrics{font-size:12px;line-height:1.6;color:var(--text-secondary);margin-top:10px;}
@@ -135,14 +135,14 @@
           <div><div class="sensor-title">Sleeping area</div>
             <label class="field">Temperature (°F)<input id="bedTemp" type="number" inputmode="decimal" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
             <label class="field">Humidity (%)<input id="bedRH" type="number" inputmode="decimal" min="1" max="100" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
-            <label class="field">YoLink last updated (optional)<input id="bedLastUpdated" type="datetime-local" aria-label="Bedroom YoLink last updated"></label>
           </div>
           <div><div class="sensor-title">Front / thermostat</div>
             <label class="field">Temperature (°F)<input id="frontTemp" type="number" inputmode="decimal" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
             <label class="field">Humidity (%)<input id="frontRH" type="number" inputmode="decimal" min="1" max="100" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
-            <label class="field">YoLink last updated (optional)<input id="frontLastUpdated" type="datetime-local" aria-label="Front YoLink last updated"></label>
           </div>
         </div>
+        <label class="field">Sleeping-area YoLink last updated (optional)<input id="bedLastUpdated" type="datetime-local" aria-label="Bedroom YoLink last updated"></label>
+        <label class="field">Front YoLink last updated (optional)<input id="frontLastUpdated" type="datetime-local" aria-label="Front YoLink last updated"></label>
         <label class="field">Readings taken at<input id="readingTime" type="datetime-local" onchange="planInputsChanged()"></label>
         <button class="minor-btn" onclick="freshReadings()">I have refreshed both readings now</button>
         <div class="hint" id="readingContext">Enter both sensor readings. Front temperature approximates the HVAC thermostat; bedroom conditions determine sleep comfort.</div>
