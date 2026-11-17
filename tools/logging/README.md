@@ -20,3 +20,7 @@ Install `Code.gs` in the dedicated spreadsheet’s bound script project. Save it
 The request is a plain-text POST with a JSON object containing `token` and `event`. The event uses the column names in `Code.gs` and schema version 1. Set fields ending in `_json` to JSON strings. The receiver creates the HVAC Run Log tab and writes headers. It preserves existing rows and returns the existing row number on replay.
 
 For token rotation, keep the retiring token in `HVAC_LOG_PREVIOUS_TOKEN` and set `HVAC_LOG_PREVIOUS_TOKEN_UNTIL_UTC` to its ISO UTC expiration. Replace `HVAC_LOG_TOKEN` with the new value.
+
+## Enable the app client
+
+In HVAC Advisor, expand **Run logging**, enter the deployed /exec URL and the same private token, check **Log runs to Google Sheets**, then save. With fresh indoor readings entered, **Log readings only** tests the authenticated path independently of the planner. The confirmation shows the Sheet row number. Queued items retry on the next run, a settings save, or when the device comes online. Items stay associated with their original receiver URL.

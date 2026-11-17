@@ -34,6 +34,7 @@ test('external weather/geocoding, non-GET and unrelated paths are never intercep
     assert.equal(w.request('https://api.zippopotam.us/us/50273',{mode:'cors'}),undefined);
     assert.equal(w.request('https://example.test/other/index.html'),undefined);
     assert.equal(w.request('https://example.test/hvac-advisor/api',{method:'POST'}),undefined);
+    assert.equal(w.request('https://example.test/hvac-advisor/tools/logging/ack-probe.html'),undefined);
 });
 
 test('each online navigation obtains fresh HTML, including a query-string launch',async()=>{

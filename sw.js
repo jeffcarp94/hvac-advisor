@@ -1,4 +1,4 @@
-const APP_VERSION = '6.6.5';
+const APP_VERSION = '6.6.6';
 const SCOPE_URL = self.registration.scope;
 const CACHE_PREFIX = 'hvac-advisor:' + new URL(SCOPE_URL).pathname + ':';
 const CACHE_NAME = CACHE_PREFIX + APP_VERSION;
@@ -26,6 +26,8 @@ self.addEventListener('fetch', event => {
     const url = new URL(request.url);
     // Weather/geocoding never consult the Cache API, including the legacy cache.
     if(request.method !== 'GET' || url.origin !== self.location.origin || !url.href.startsWith(SCOPE_URL)) return;
+    if(request.mode === 'navigate' && url.pathname !== new URL(SCOPE_URL).pathname &&
+        url.pathname !== new URL(appURL('index.html')).pathname) return;
     const assetURL = request.mode === 'navigate' ? appURL('index.html') : url.href;
     if(request.mode !== 'navigate' && !ASSETS.includes(assetURL)) return;
     event.respondWith((async () => {

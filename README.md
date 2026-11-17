@@ -1,3 +1,7 @@
+# v6.6.6 — Run logging
+
+Optional Google Sheets logging is available under **Run logging**. Enter the deployed Apps Script URL and your private token, enable logging, and save. **Log readings only** sends current indoor readings without building a plan. Completed plan runs also log their outcome. Entries remain saved until the receiver confirms their event ID. See [receiver setup](tools/logging/README.md).
+
 # v6.6.5 — WP0 test baseline
 
 - Restore Node and browser regression coverage for advisory-only condensation, natural recovery without unnecessary heat, and programmable EasyTouch AUTO pairs. See the [test baseline notes](model-assumptions.md#v665--wp0-test-baseline).
