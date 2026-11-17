@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.10 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.11 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.10</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.11</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -359,9 +359,20 @@ function solarAllocation(total,cabFactor=3,bodyCase=BODY_CASES[0]){
     const nominal=solarPeakGains(),gains=solarPeakGains(cabFactor,bodyCase),denominator=nominal[0]+nominal[1];
     return denominator?gains.map(v=>total*v/denominator):[0,0];
 }
+const GAIN_WATTS={multiPlusStandby:20,multiPlusConversion:0,cerboAndDisplay:6,sleepPhoneCharging:40,refrigerator:0};
+const WATTS_TO_BTU_H=3.412;
+const FURNACE_REAR_FRACTION=.7;
+function zoneInternalGains(occupantSensible,dehumidifier,sleeping,phoneCharging){
+    const rearOccupant=occupantSensible*(sleeping?1:M.fraction[0]);
+    const rearWatts=GAIN_WATTS.multiPlusStandby+GAIN_WATTS.multiPlusConversion+
+        (phoneCharging?GAIN_WATTS.sleepPhoneCharging:0);
+    const frontWatts=GAIN_WATTS.cerboAndDisplay+GAIN_WATTS.refrigerator;
+    return [rearOccupant+rearWatts*WATTS_TO_BTU_H,
+        occupantSensible-rearOccupant+dehumidifier+frontWatts*WATTS_TO_BTU_H];
+}
 function zoneHeatGains(internal,solar,hvac,operation,solarWeights=null){
-    const weights=solarWeights||solarAllocation(1),delivery=operation==='furnace'?[.7,.3]:M.fraction;
-    return M.fraction.map((f,z)=>internal*f+solar*weights[z]+hvac*delivery[z]);
+    const weights=solarWeights||solarAllocation(1),rearDelivery=operation==='furnace'?FURNACE_REAR_FRACTION:M.fraction[0];
+    return [internal[0]+solar*weights[0]+hvac*rearDelivery,internal[1]+solar*weights[1]+hvac*(1-rearDelivery)];
 }
 
 const M={volumeFt3:GEOMETRY.volume,fraction:GEOMETRY.fraction,mixCFM:60,ductMixCFM:120,
@@ -1228,12 +1239,12 @@ function selectChip(g,v,el){manualWeatherEdited();el.parentElement.querySelector
 // are sensitivity assumptions, not product ratings or calibrated probabilities.
 
 const WINDOW_SECTIONS=[
-    {id:'jeff1',name:'Jeff’s bedside window, first section',zone:0,side:-1,width:21.625,height:10.5,bed:'Jeff'},
-    {id:'jeff2',name:'Jeff’s bedside window, second section',zone:0,side:-1,width:21.625,height:10.5,bed:'Jeff'},
-    {id:'kim',name:'Kim’s bedside window',zone:0,side:1,width:16.875,height:25.25,bed:'Kim'},
-    {id:'sink',name:'sink window',zone:1,side:1,width:19.25,height:10.5},
-    {id:'dinette1',name:'dinette window, first section',zone:1,side:-1,width:21.625,height:10.5},
-    {id:'dinette2',name:'dinette window, second section',zone:1,side:-1,width:21.625,height:10.5}];
+    {id:'jeff1',name:'Jeff’s bedside window, first section',zone:0,side:'entry',width:21.625,height:10.5,bed:'Jeff'},
+    {id:'jeff2',name:'Jeff’s bedside window, second section',zone:0,side:'entry',width:21.625,height:10.5,bed:'Jeff'},
+    {id:'kim',name:'Kim’s bedside window',zone:0,side:'driver',width:16.875,height:25.25,bed:'Kim'},
+    {id:'sink',name:'sink window',zone:1,side:'entry',width:19.25,height:10.5},
+    {id:'dinette1',name:'dinette window, first section',zone:1,side:'driver',width:21.625,height:10.5},
+    {id:'dinette2',name:'dinette window, second section',zone:1,side:'driver',width:21.625,height:10.5}];
 const AIR_WEATHER_CASES=[
     {name:'working estimate',flow:1,windSign:0,mix:1,rhOffset:0,tempOffset:0,surfaceFactor:.8,cabFactor:3},
     {name:'restricted airflow / warmer',flow:.7,windSign:1,mix:.7,rhOffset:5,tempOffset:2,surfaceFactor:.85,cabFactor:4.5},
@@ -1408,7 +1419,7 @@ function ventilationNetwork(config,temperatures,tOut,wind,speed,scenario=AIR_SCE
     if(!config)return{incoming:[...background],outgoing:[...background],bulk:0,flows:Array(6).fill(0),exhaust:0,background};
     const areas=WINDOW_SECTIONS.map((section,i)=>openingArea(section,config.gaps[i])*scenario.flow);
     const dynamic=.5*1.2*Math.pow(wind*.44704*.5,2),cp=dynamic*.35*scenario.windSign;
-    const external=WINDOW_SECTIONS.map(section=>section.side*cp+1.2*9.81*.5*((temperatures[section.zone]-tOut)*5/9)/293);
+    const external=WINDOW_SECTIONS.map(section=>(section.side==='entry'?cp:-cp)+1.2*9.81*.5*((temperatures[section.zone]-tOut)*5/9)/293);
     // Open interior passage: one near-uniform pressure, two distinct thermal /
     // moisture zones. Bulk flow between zones follows the local mass balance.
     const fan=pressure=>speed===0?0:Math.min(C.maxxFanCFM,C.maxxFanCFM*speed*scenario.flow)*Math.sqrt(Math.max(0,1-Math.max(0,-.2*dynamic-pressure)/(M.fanShutoffPa*speed*speed)));
@@ -1509,6 +1520,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     const {start,end}=simulationBounds(envelope),rows=options.rows||scheduleWeather(envelope,start,end,options.maxStepMin||.5);
     if(!rows.length||rows.some(row=>!Number.isFinite(row.dt)||row.dt<=0))throw new Error('The calculation needs positive-duration intervals. Rebuild the plan with valid times.');
     const scenario=options.scenario||AIR_SCENARIOS[0];
+    const fallbackChargeEnd=rows[0].phoneCharging===undefined?sleepChargingStart(start)+2*3600000:0;
     const envelopeParts=envelopeAllocation(scenario.cabFactor??3,scenario.bodyCase),solarWeights=solarAllocation(1,scenario.cabFactor??3,scenario.bodyCase);
     let config=mode==='maxxfan'?(options.config||{fanZone:1,fanName:'Mid-coach MaxxFan',gaps:[0,0,0,4,0,0]}):null;
     let sp={...setpoints,fan:setpoints.fan??setpoints.cool},maxFan=options.fanSetting||(isOvernight?'Low':'Auto');
@@ -1583,7 +1595,11 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
                 workRows.splice(rowIndex,1,{...row,to:cut,dt:defrostRemaining/60},{...row,from:cut,dt:dt-defrostRemaining/60});rowIndex--;continue;}
             operation='defrost';
         }
-        const initialGains=meta+priorDehumHeat+row.solar*(solarWeights[0]+solarWeights[1]);
+        const sleeping=options.controlAt?row.sleeping:isOvernight;
+        const people=options.controlAt?row.occupants:2;
+        const charging=row.phoneCharging??(sleeping&&people>0&&row.from<fallbackChargeEnd);
+        const priorInternal=zoneInternalGains(meta,priorDehumHeat,sleeping,charging);
+        const initialGains=priorInternal[0]+priorInternal[1]+row.solar*(solarWeights[0]+solarWeights[1]);
         if(operation==='ac'||operation==='hp'||operation==='furnace'){
             const target=operation==='ac'?sp.cool:sp.heat;
             const capacity=operation==='ac'?C.acSensibleCapacity:operation==='furnace'?C.furnaceOutput:heatPumpCapacity(out);
@@ -1610,13 +1626,11 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         if(config&&speed>0)operation='maxxfan';
         const circulation=operation==='defrost'?0:circulationFraction(mode,maxFan,operation,duty);
         const mix=(M.mixCFM+M.ductMixCFM*circulation)*scenario.mix;
-        const sleeping=options.controlAt?row.sleeping:isOvernight;
-        const occupant=occupantLoad(sleeping,options.controlAt?row.occupants:2).moistureLbHr;
+        const occupant=occupantLoad(sleeping,people).moistureLbHr;
         const acRemoval=operation==='ac'&&duty>0?acMoistureRemoval(sharedW,duty):0;
         const outdoorCFM=air.incoming.reduce((sum,q)=>sum+q,0),outdoorW=humidityRatio(out,row.rh);
         const moisture=mixedMoistureStep(sharedW,t[1],occupant-acRemoval,outdoorCFM,outdoorW,dt,state.dehumidifierEnabled);
-        // Internal sensible gains share the small coach; location creates no bottleneck.
-        const gains=zoneHeatGains(meta+moisture.heatBTU,row.solar,q,operation,solarWeights);
+        const gains=zoneHeatGains(zoneInternalGains(meta,moisture.heatBTU,sleeping,charging),row.solar,q,operation,solarWeights);
         const nextT=coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,dt,1.08);
         if(thermostatMode(mode)&&operation!=='defrost'&&dt>1/60000){
             const sense=(values,hours)=>sensor?advanceComparisonSensor(sensorReading,t[1],values[1],hours,sensor):
@@ -1906,16 +1920,24 @@ function readPlanRequest(){
     }
     validatePlanRequest(request);return request;
 }
+function sleepChargingStart(start){
+    const local=localParts(start);
+    return +localDateTime(local,22,local.hour<7?-1:0);
+}
 function planRows(envelope,request,step=.5,extra=[]){
     const bounds=planBounds(request.start,request),base=scheduleWeather(envelope,request.start,bounds.end,step);
+    const chargeFrom=bounds.hasSleep?(bounds.bedtime?+bounds.sleepFrom:sleepChargingStart(request.start)):Infinity;
+    const chargeEnd=chargeFrom+2*3600000;
     const boundaries=[bounds.bedtime,request.departure,request.returnTime,...extra].filter(Boolean).map(Number);
+    if(chargeEnd>+request.start&&chargeEnd<+bounds.end)boundaries.push(chargeEnd);
     if(bounds.bedtime)for(let t=+bounds.bedtime-PLAN.searchMinutes*60000;t>+request.start;t-=PLAN.searchMinutes*60000)boundaries.push(t);
     const rows=[];
     for(const row of base){
         const cuts=[...new Set([row.from,...boundaries.filter(t=>t>row.from&&t<row.to),row.to])].sort((a,b)=>a-b);
         for(let i=1;i<cuts.length;i++){
-            const from=cuts[i-1],to=cuts[i],hour=localParts(new Date((from+to)/2)).hour;
-            rows.push({...row,from,to,dt:(to-from)/3600000,sleeping:bounds.hasSleep&&from>=+bounds.sleepFrom&&from<+bounds.end,occupants:isAwayAt(request,from)?0:2});
+            const from=cuts[i-1],to=cuts[i],occupants=isAwayAt(request,from)?0:2;
+            rows.push({...row,from,to,dt:(to-from)/3600000,sleeping:bounds.hasSleep&&from>=+bounds.sleepFrom&&from<+bounds.end,
+                occupants,phoneCharging:occupants>0&&from>=chargeFrom&&from<chargeEnd});
         }
     }
     return rows;
@@ -2901,7 +2923,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.10';
+const LOG_APP_VERSION='6.6.11';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
