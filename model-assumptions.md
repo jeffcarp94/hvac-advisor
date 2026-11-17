@@ -1,3 +1,7 @@
+# v6.6.7 — EasyTouch logging fields
+
+Run logging records the displayed EasyTouch indoor temperature, its timestamp, and the saved Temperature Reading Adjustment. An empty EasyTouch time uses the YoLink reading time. The display difference is calculated against the front YoLink reading without applying the offset a second time. The fields are for observation and use the existing Sheet columns.
+
 # v6.6.6 — Run logging
 
 Run logging observes planner inputs and outputs. The queue snapshots the weather inputs used by the current planner, keeps forward-planning values separate from measured indoor readings, and records the nominal prediction when the requested sample is in a verified trace. Weather fields unavailable in the current model and fields belonging to later work packages are recorded as missing. Logging settings and credentials stay on the main thread. The logging client follows the positive R1a acknowledgement test on the owner’s Pixel.

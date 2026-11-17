@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.6 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.7 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.6</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.7</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -210,6 +210,14 @@
         <label class="field"><span><input id="logEnabled" type="checkbox"> Log runs to Google Sheets</span></label>
         <label class="field">Apps Script web app URL<input id="logEndpoint" type="url" autocomplete="off"></label>
         <label class="field">Logging token<input id="logToken" type="password" autocomplete="off"></label>
+        <label class="field">EasyTouch displayed indoor temperature (°F)<input id="easyLogTemp" type="number" inputmode="numeric" step="1"></label>
+        <label class="field">EasyTouch reading time (optional)<input id="easyLogTime" type="datetime-local" onchange="updateEasyLogTimeHint()"></label>
+        <p class="hint" id="easyLogTimeHint">Leave the EasyTouch time blank to use the YoLink reading time.</p>
+        <label class="field">EasyTouch Temperature Reading Adjustment<select id="easyLogAdjustment" onchange="editEasyLogAdjustment()">
+            <option value="unknown">Unknown</option><option value="confirmed">Confirmed value</option><option value="not_set">Not set</option>
+        </select></label>
+        <label class="field" id="easyLogOffsetField" hidden>Confirmed adjustment (°F)<input id="easyLogOffset" type="number" step="1" onchange="saveEasyLogAdjustment()"></label>
+        <p class="hint" id="easyLogAdjustmentChanged"></p>
         <button type="button" onclick="saveLogSettings()">Save logging settings</button>
         <button type="button" onclick="logReadingsOnly()">Log readings only</button>
         <p id="logChanged" class="hint"></p>
@@ -2784,8 +2792,8 @@ function planInputsChanged(){
 function freshReadings(){document.getElementById('readingTime').value=inputDate(new Date());planInputsChanged();}
 function updatePlanUI(){
     const get=id=>document.getElementById(id);
-    if(formTimeZone&&formTimeZone!==analysisTimeZone())for(const id of ['readingTime','departureTime','returnTime','futureStart']){const field=get(id);if(field.value){try{field.value=inputDate(parseLocalInput(field.value,id,formTimeZone));}catch{field.value='';}}}
-    formTimeZone=analysisTimeZone();get('indoorHeading').textContent=get('planningMode').value==='future'?'Projected starting conditions':'Inside the RV now';
+    if(formTimeZone&&formTimeZone!==analysisTimeZone())for(const id of ['readingTime','departureTime','returnTime','futureStart','easyLogTime']){const field=get(id);if(field.value){try{field.value=inputDate(parseLocalInput(field.value,id,formTimeZone));}catch{field.value='';}}}
+    formTimeZone=analysisTimeZone();updateEasyLogTimeHint();get('indoorHeading').textContent=get('planningMode').value==='future'?'Projected starting conditions':'Inside the RV now';
     const remote=!!get('remoteAccess').checked,occupancy=get('occupancyMode').value||'staying';
     get('awayOption').disabled=!remote;
     if(occupancy==='away'&&!remote)get('occupancyMode').value='staying';
@@ -2841,9 +2849,10 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state,forecast});
     });
 }
-const LOG_APP_VERSION='6.6.6';
+const LOG_APP_VERSION='6.6.7';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
+const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
 const LOG_QUEUE_LIMIT=200;
 let logSending=false,logOverflow=false;
 
@@ -2895,9 +2904,69 @@ function saveLogSettings(){
     logStatus(enabled?'Logging enabled.':'Logging paused. Existing entries are kept.');
     if(enabled)void flushLogQueue();
 }
+function editEasyLogAdjustment(){
+    const confirmed=document.getElementById('easyLogAdjustment').value==='confirmed';
+    document.getElementById('easyLogOffsetField').hidden=!confirmed;
+    if(!confirmed||document.getElementById('easyLogOffset').value.trim())saveEasyLogAdjustment();
+}
+function easyLogInteger(id){
+    const value=document.getElementById(id).value.trim();
+    if(!value)return null;
+    const number=Number(value);
+    if(!Number.isSafeInteger(number))throw new Error('Enter EasyTouch values in whole degrees Fahrenheit.');
+    return number;
+}
+function easyLogAdjustment(){
+    const selection=document.getElementById('easyLogAdjustment').value;
+    if(selection!=='confirmed')return selection==='not_set'?'not_set':'unknown';
+    const offset=easyLogInteger('easyLogOffset');
+    if(offset===null)throw new Error('Enter the confirmed EasyTouch adjustment in °F.');
+    return offset;
+}
+function showEasyLogAdjustmentChanged(changed){
+    document.getElementById('easyLogAdjustmentChanged').textContent=changed?
+        'Adjustment last saved '+new Date(changed).toLocaleString():'';
+}
+function saveEasyLogAdjustment(){
+    let value;
+    try{value=easyLogAdjustment();}catch(error){logStatus(error.message);return;}
+    try{
+        const changed=new Date().toISOString();
+        saveLogStorage(EASY_LOG_ADJUSTMENT_KEY,{value,changed});
+        showEasyLogAdjustmentChanged(changed);
+    }catch{logStatus('The EasyTouch adjustment could not be saved on this device.');}
+}
+function updateEasyLogTimeHint(){
+    const easy=document.getElementById('easyLogTime').value;
+    const yolink=document.getElementById('readingTime').value;
+    let hint='Leave the EasyTouch time blank to use the YoLink reading time.';
+    if(easy&&yolink){
+        try{
+            const minutes=(parseLocalInput(easy,'EasyTouch time')-parseLocalInput(yolink,'YoLink time'))/60000;
+            hint=minutes===0?'EasyTouch and YoLink have the same reading time.':
+                'EasyTouch was read '+Math.abs(minutes)+' min '+(minutes<0?'before':'after')+' YoLink.';
+        }catch{hint='Check the EasyTouch and YoLink reading times.';}
+    }
+    document.getElementById('easyLogTimeHint').textContent=hint;
+}
+function easyLogFields(request){
+    const adjustment=easyLogAdjustment();
+    const temperature=request.future?null:easyLogInteger('easyLogTemp');
+    if(temperature===null)return {easytouch_adjustment:adjustment};
+    const time=document.getElementById('easyLogTime').value;
+    const reading=time?parseLocalInput(time,'the EasyTouch reading time'):request.reading;
+    return {easytouch_adjustment:adjustment,easytouch_display_f:temperature,
+        easytouch_time:reading.toISOString(),bias_obs_f:Number((temperature-request.initial.temperature[1]).toFixed(2))};
+}
 function initializeLogging(){
     try{
         fillLogSettings(readLogSettings());
+        const adjustment=loadLogStorage(EASY_LOG_ADJUSTMENT_KEY,{value:'unknown'});
+        const confirmed=Number.isSafeInteger(adjustment.value);
+        document.getElementById('easyLogAdjustment').value=confirmed?'confirmed':adjustment.value;
+        document.getElementById('easyLogOffsetField').hidden=!confirmed;
+        document.getElementById('easyLogOffset').value=confirmed?String(adjustment.value):'';
+        showEasyLogAdjustmentChanged(adjustment.changed);
         const count=readLogQueue().length;
         if(count)logStatus(count+' saved '+(count===1?'entry':'entries')+' awaiting confirmation.');
     }catch{logStatus('Logging storage could not be read on this device.');}
@@ -2977,7 +3046,7 @@ function captureLogEvent(type,request,envelope=null){
         front_temp_f:request.future?null:request.initial.temperature[1],front_rh:request.future?null:request.initial.rh[1],
         actual_mode:actual?.type,actual_heat_to:actual?.setpoints?.heat,actual_cool_to:actual?.setpoints?.cool,
         actual_fan:actual?.fan,windows_vents_json:actual?.config?JSON.stringify(actual.config):null,
-        dehumidifier:state.dehumidifierEnabled,occupancy:request.occupancy};
+        dehumidifier:state.dehumidifierEnabled,occupancy:request.occupancy,...easyLogFields(request)};
     if(envelope){
         const hourly=[];
         for(let time=+envelope.windowStart;time<+envelope.windowEnd;time+=3600000){
@@ -3045,7 +3114,7 @@ function logReadingsOnly(){
         const reading=parseLocalInput(field('readingTime'),'the reading time');
         const event=captureLogEvent('readings_only',{initial:{temperature,rh},reading,occupancy:field('occupancyMode')});
         if(event)enqueueLogEvent(event);
-    }catch{logStatus('Could not prepare the entry. Check the reading time and logging settings.');}
+    }catch(error){logStatus(error.message||'Could not prepare the readings entry.');}
 }
 
 async function analyze(){
