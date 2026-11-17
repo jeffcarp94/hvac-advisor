@@ -7,19 +7,19 @@ function decision(result){
  return hash({winner:plan(result.winner),plans:result.plans.map(plan),current:result.current&&{setup:result.current.setup,reviewAt:result.current.reviewAt,score:result.current.score,trials:result.current.trials.map(trial)}});
 }
 test('closed-coach whole-plan selection, ranking, preparation and trajectories are invariant to surface warnings',()=>{
- const a=app();a.ctx.job=require('./fixtures/winterset-2026-03-24.json');
+ const a=app();a.ctx.job=require('./fixtures/synthetic-surface-advisory.cjs');
  // Full window/fan search remains covered by browser CI on the same fixture.
  a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;shortlistVents=()=>[];
- r={start:new Date(job.start),reading:new Date(job.start),initial:{temperature:[72,72],rh:[54,52]},occupancy:'staying',remote:false};
- points=job.points.map(p=>({...p,time:new Date(p.time),tOut:Math.round(p.tOut),rh:Math.round(p.rh)}));
+ r={start:new Date(job.start),reading:new Date(job.start),initial:job.initial,occupancy:'staying',remote:false};
+ points=[{time:r.start,...job.weather}];
  function envelope(){return {windowStart:r.start,windowEnd:new Date(job.end),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};}
- originalSurface=surfaceAssessment;
  function calculate(){return runUnifiedPlan(r,envelope());}
  base=calculate();`);
  assert.equal(a.run('base.winner.suitable&&base.winner.ready'),true);
  assert.equal(a.run('base.winner.trials.length'),9);
  const expected=decision(a.run('base'));
- assert.ok(a.run('base.winner.trials.some(t=>t.condensationConcern)'));
+ assert.ok(a.run("base.winner.trials.some(t=>t.condensationConcern?.source==='surface')"));
+ assert.ok(a.run('base.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===Date.parse(job.end))'));
  a.run(`surfaceAssessment=()=>({surface:100,margin:100,surfaceRH:0,condensation:false});quiet=calculate()`);
  assert.equal(decision(a.run('quiet')),expected);
  assert.equal(a.run("surfaceOutlook(quiet.winner.trials)"),'');

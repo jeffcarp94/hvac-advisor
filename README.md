@@ -1,3 +1,8 @@
+# v6.6.5 — WP0 test baseline
+
+- Restore Node and browser regression coverage for advisory-only condensation, natural recovery without unnecessary heat, and programmable EasyTouch AUTO pairs. See the [test baseline notes](model-assumptions.md#v665--wp0-test-baseline).
+- The planner uses the same model, thresholds and ranking as v6.6.4.
+
 # v6.6.4 — EasyTouch remote access and departure planning
 
 - Cabinet isolation is recorded as installed. The remote-access checkbox defaults on and represents whether the EasyTouch is reachable over Wi-Fi in the Micro-Air app.

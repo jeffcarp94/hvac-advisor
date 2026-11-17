@@ -1,3 +1,16 @@
+# v6.6.5 — WP0 test baseline
+
+This release restores the checks used for the November 16 model scope. Model parameters, eligibility, control and ranking carry forward from v6.6.4. The app and service worker use the new version for deployment and cache checks.
+
+| Fixture | Baseline finding | Coverage in v6.6.5 |
+| --- | --- | --- |
+| March 24 Winterset, historical weather | The reference-plan completeness assertion failed on both the PR #16 head and main. It had assumed the historical forecast would continue to yield a qualifying whole plan. | The historical inputs remain archived. A distinct synthetic cold half-hour verifies that a qualifying nine-scenario plan reaches the end, shows an actual modeled surface warning, and gives identical decisions and trajectories when surface warnings are suppressed or intensified. |
+| October 23 synthetic manual-weather morning | OFF and passive recovery have the same target score. The selected setup calls for no heat in all nine scenarios. The former heating-call expectation was stale. | Assert OFF, zero heating and target fit at least as good as the passive comparison. Separate cold-bedroom coverage verifies an actual heating requirement. |
+| October 23 Winterset evening | The outdated scalar check still expected a single AUTO setting. EasyTouch AUTO uses two independent whole-degree settings. | Verify both AUTO settings against the existing bounds and spacing rule, verify single-mode settings against their ranges, and retain all nine checks for bounded current guidance when a full plan falls short. |
+| Winterset planning regressions | Version-only change in application code. | Keep the existing preparation, continuation and away-action tests in the release checks. |
+
+Sources are the repository fixtures, the planner call path and GitHub Actions runs [PR #16](https://github.com/jeffcarp94/hvac-advisor/actions/runs/43953760286) and [main](https://github.com/jeffcarp94/hvac-advisor/actions/runs/43954347430). The cold half-hour is a deterministic simulation fixture with assumed inputs. It provides no independent field validation of surface temperature or condensation.
+
 # v6.6.4 cabinet isolation and remote-action policy
 
 Cabinet isolation is installed and recorded without applying an additional modeled temperature offset. Remote access defaults on and means the EasyTouch has Wi-Fi and can be reached in the Micro-Air app. Currently-away mode requires fresh readings and the confirmed physical setup. HVAC Advisor supplies guidance and does not operate the thermostat.
