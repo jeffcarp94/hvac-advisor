@@ -12,31 +12,39 @@
 </style>
 <main>
   <h1>Logging acknowledgement test</h1>
-  <form>
+  <form novalidate>
     <label for="endpoint">Apps Script web app URL</label>
     <input id="endpoint" type="url" autocomplete="off" autocapitalize="off" required>
     <p><button type="submit">Send test request</button></p>
   </form>
-  <output role="status"></output>
+  <output role="status" aria-live="polite"></output>
 </main>
-<script>
+<script type="module">
   const form = document.querySelector('form');
   const endpoint = document.querySelector('#endpoint');
   const button = document.querySelector('button');
-  const status = document.querySelector('output');
+  const result = document.querySelector('output');
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    const url = new URL(endpoint.value);
-    if (url.origin !== 'https://script.google.com' ||
-        !/^\/macros\/s\/[\w-]+\/exec$/.test(url.pathname) || url.search || url.hash) {
-      status.textContent = 'Enter the deployed Apps Script URL ending in /exec.';
+    let url;
+    try {
+      url = new URL(endpoint.value.trim());
+    } catch {
+      result.textContent = 'Paste the Apps Script web app URL ending in /exec, then try again.';
+      endpoint.focus();
       return;
     }
-    const eventId = crypto.randomUUID();
+    if (url.origin !== 'https://script.google.com' ||
+        !/^\/macros\/s\/[\w-]+\/exec$/.test(url.pathname) || url.search || url.hash) {
+      result.textContent = 'Enter the deployed Apps Script URL ending in /exec.';
+      return;
+    }
+    let eventId;
     button.disabled = true;
-    status.textContent = 'Waiting for a reply…';
+    result.textContent = 'Waiting for a reply…';
     try {
+      eventId = crypto.randomUUID();
       const reply = await fetch(url, {
         method: 'POST',
         mode: 'cors',
@@ -47,19 +55,19 @@
         signal: AbortSignal.timeout(20000)
       });
       if (!reply.ok) {
-        status.textContent = 'No confirmation. HTTP ' + reply.status + '.';
+        result.textContent = 'No confirmation. HTTP ' + reply.status + '.';
         return;
       }
       const data = await reply.json();
       const matched = data?.ok === true && data.event_id === eventId;
-      status.textContent = matched
+      result.textContent = matched
         ? 'Confirmed. The browser read the matching event ID ' + eventId + '.'
         : 'Unconfirmed. The response did not acknowledge event ID ' + eventId + '.';
     } catch (error) {
       const reason = error.name === 'TimeoutError' ? 'The request timed out.' :
         error instanceof SyntaxError ? 'The browser received a non-JSON response.' :
         'The browser could not read the response. Check deployment access and network connectivity.';
-      status.textContent = 'Unconfirmed. ' + reason + ' Test event ID ' + eventId + '.';
+      result.textContent = 'Unconfirmed. ' + reason + (eventId ? ' Test event ID ' + eventId + '.' : '');
     } finally {
       button.disabled = false;
     }
