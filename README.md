@@ -1,3 +1,11 @@
+# v6.6.14 — Test baseline, bounded absence search and WP1–WP4 acceptance coverage
+
+- **Bounded absence search.** From v6.6.4 the departure search ran a full overnight search for every viable current×departure pair until one qualified, then repeated the cross product for the one-remote-change search. When no overnight plan qualified (for example a steady 45°F night), it did not finish in practice. Up to 6 overnight continuations and 6 fixed setups for the remote search are now checked, in the existing preference order. A deterministic budget of simulated work, about 25 s on a 2-core reference machine, is split 60/40 between fixed setups and the remote search. The plan says when a result came from a bounded search. Staying plans are unchanged. See [the evidence](model-assumptions.md#v6614--test-baseline-and-bounded-absence-search).
+- **Test baseline.** The full Node suite now completes; before this release it never finished in CI after v6.6.4. Six inherited failures are resolved without weakening assertions. Three expectations were stale against the installed control model. Three relied on nights where, since v6.6.2, no plan qualifies; they now use a labeled synthetic clear 60°F night.
+- **Phone layout.** The YoLink last-updated fields widened the page beyond the viewport. They now sit full width below the paired readings.
+- **WP1–WP4 acceptance items.** Optional **Use phone compass** (magnetic heading, owner confirmation required), Apps Script receiver tests, queue survival across app upgrades, a check that Worker messages carry no logging credentials, and a furnace duct-layout test.
+- **Known limitation (owner decision pending):** with the front-sensed EasyTouch cycle, the modeled bedroom often swings outside the 65–69°F sleep band. Few overnight plans qualify across all nine cases.
+
 # v6.6.13 — WP6 capacity comparison
 
 Experimental related-model heating and cooling outputs are available to the offline comparison runner. The normal planner still uses its existing capacities and heat-source dispatch. The optional EasyTouch outdoor reading is stored in the existing log column. See the [comparison report](model-assumptions.md#v6613--wp6-capacity-comparison).
