@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.8 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.9 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.8</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.9</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -135,10 +135,12 @@
           <div><div class="sensor-title">Sleeping area</div>
             <label class="field">Temperature (°F)<input id="bedTemp" type="number" inputmode="decimal" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
             <label class="field">Humidity (%)<input id="bedRH" type="number" inputmode="decimal" min="1" max="100" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
+            <label class="field">YoLink last updated (optional)<input id="bedLastUpdated" type="datetime-local" aria-label="Bedroom YoLink last updated"></label>
           </div>
           <div><div class="sensor-title">Front / thermostat</div>
             <label class="field">Temperature (°F)<input id="frontTemp" type="number" inputmode="decimal" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
             <label class="field">Humidity (%)<input id="frontRH" type="number" inputmode="decimal" min="1" max="100" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
+            <label class="field">YoLink last updated (optional)<input id="frontLastUpdated" type="datetime-local" aria-label="Front YoLink last updated"></label>
           </div>
         </div>
         <label class="field">Readings taken at<input id="readingTime" type="datetime-local" onchange="planInputsChanged()"></label>
@@ -209,6 +211,33 @@
 
     <button class="analyze-btn" id="analyzeBtn" onclick="analyze()">Build my HVAC plan</button>
 
+    <details class="input-section" id="parkingObservations"><summary>Parking observations</summary>
+        <p class="hint">Heading and tree cover are recorded only and are not yet used in calculations.</p>
+        <label class="field">Direction the front faces<select id="parkingHeading" onchange="editParkingLog()"></select></label>
+        <div class="sensor-grid">
+            <label class="field">Front (windshield end)<select id="tree_front" onchange="editParkingLog()"></select></label>
+            <label class="field">Rear<select id="tree_rear" onchange="editParkingLog()"></select></label>
+            <label class="field">Driver side<select id="tree_driver" onchange="editParkingLog()"></select></label>
+            <label class="field">Entry-door side<select id="tree_entry" onchange="editParkingLog()"></select></label>
+            <label class="field">Overhead (roof)<select id="tree_overhead" onchange="editParkingLog()"></select></label>
+        </div>
+        <p class="hint">Choose the cover you expect during the plan. In leaf-off season, choose the level that matches what you actually see.</p>
+        <button type="button" class="minor-btn" onclick="confirmParkingLog()">Confirm parking details</button>
+        <button type="button" class="minor-btn" onclick="newParkingPosition()">New parking position</button>
+    </details>
+    <p id="parkingStatus" class="hint" role="status"></p>
+    <details class="input-section" id="comfortObservations"><summary>Comfort observations (optional)</summary>
+        <label class="field">Bedroom<select id="voteBedroom"><option value="">No vote</option><option>Too cold</option><option>Comfortable</option><option>Too warm</option></select></label>
+        <label class="field">Front<select id="voteFront"><option value="">No vote</option><option>Too cold</option><option>Comfortable</option><option>Too warm</option></select></label>
+        <label class="field">Context<select id="voteContext"><option value="">Choose context</option><option>Awake in bed</option><option>Awake elsewhere</option><option>Recalled sleep comfort</option></select></label>
+        <label class="field">Vote time (defaults to now)<input id="voteTime" type="datetime-local"></label>
+        <label class="field">HVAC mode at vote time<select id="voteMode">
+            <option value="">Use current confirmed setup if available</option><option value="passive">Off</option><option value="ac">Cool</option><option value="hp">Heat pump</option><option value="furnace">Furnace</option><option value="auto">Auto heat pump</option><option value="auto_furnace">Auto furnace</option><option value="maxxfan">MaxxFan</option>
+        </select></label>
+        <label class="field">Heat setting at vote time (°F)<input id="voteHeat" type="number" step="1"></label>
+        <label class="field">Cool setting at vote time (°F)<input id="voteCool" type="number" step="1"></label>
+        <label class="field">Fan at vote time<select id="voteFan"><option value="">Unknown</option><option>Auto</option><option>Low</option><option>Medium</option><option>High</option><option>Off</option></select></label>
+    </details>
     <details class="input-section" id="loggingOptions"><summary>Run logging</summary>
         <label class="field"><span><input id="logEnabled" type="checkbox"> Log runs to Google Sheets</span></label>
         <label class="field">Apps Script web app URL<input id="logEndpoint" type="url" autocomplete="off"></label>
@@ -2793,8 +2822,8 @@ function planInputsChanged(){
 function freshReadings(){document.getElementById('readingTime').value=inputDate(new Date());planInputsChanged();}
 function updatePlanUI(){
     const get=id=>document.getElementById(id);
-    if(formTimeZone&&formTimeZone!==analysisTimeZone())for(const id of ['readingTime','departureTime','returnTime','futureStart','easyLogTime']){const field=get(id);if(field.value){try{field.value=inputDate(parseLocalInput(field.value,id,formTimeZone));}catch{field.value='';}}}
-    formTimeZone=analysisTimeZone();updateEasyLogTimeHint();get('indoorHeading').textContent=get('planningMode').value==='future'?'Projected starting conditions':'Inside the RV now';
+    if(formTimeZone&&formTimeZone!==analysisTimeZone())for(const id of ['readingTime','departureTime','returnTime','futureStart','easyLogTime','bedLastUpdated','frontLastUpdated','voteTime']){const field=get(id);if(field.value){try{field.value=inputDate(parseLocalInput(field.value,id,formTimeZone));}catch{field.value='';}}}
+    formTimeZone=analysisTimeZone();updateEasyLogTimeHint();if(window.location.protocol!=='worker:')refreshParkingLogStatus();get('indoorHeading').textContent=get('planningMode').value==='future'?'Projected starting conditions':'Inside the RV now';
     const remote=!!get('remoteAccess').checked,occupancy=get('occupancyMode').value||'staying';
     get('awayOption').disabled=!remote;
     if(occupancy==='away'&&!remote)get('occupancyMode').value='staying';
@@ -2850,7 +2879,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state,forecast});
     });
 }
-const LOG_APP_VERSION='6.6.8';
+const LOG_APP_VERSION='6.6.9';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
@@ -2959,7 +2988,90 @@ function easyLogFields(request){
     return {easytouch_adjustment:adjustment,easytouch_display_f:temperature,
         easytouch_time:reading.toISOString(),bias_obs_f:Number((temperature-request.initial.temperature[1]).toFixed(2))};
 }
+const PARKING_LOG_KEY='hvac-advisor-log-parking-v1';
+const PARKING_LOG_FIELDS=['tree_front','tree_rear','tree_driver','tree_entry','tree_overhead'];
+const PARKING_HEADINGS='N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW'.split(' ');
+let parkingLog={heading:'Unknown',cover:{},location:null,confirmed:false,changed:null};
+
+function parkingLogLocation(){
+    const lat=forecast._lat,lon=forecast._lon;
+    if(!forecast.fetched||!Number.isFinite(lat)||!Number.isFinite(lon))return null;
+    return {lat,lon};
+}
+function parkingLogMoved(previous,current){
+    if(!previous||!current)return false;
+    const radians=Math.PI/180;
+    const deltaLat=(current.lat-previous.lat)*radians,deltaLon=(current.lon-previous.lon)*radians;
+    const halfChord=Math.sin(deltaLat/2)**2+
+        Math.cos(previous.lat*radians)*Math.cos(current.lat*radians)*Math.sin(deltaLon/2)**2;
+    return 2*3958.8*Math.asin(Math.sqrt(Math.min(1,halfChord)))>1;
+}
+function refreshParkingLogStatus(){
+    const changed=parkingLog.changed?' Last saved '+new Date(parkingLog.changed).toLocaleString()+'.':'';
+    const moved=parkingLogMoved(parkingLog.location,parkingLogLocation());
+    const message=moved?'Location changed by more than 1 mile. Review and confirm heading and tree cover.':
+        parkingLog.confirmed?'Parking details confirmed.':'Confirm heading and tree cover for this parking position.';
+    document.getElementById('parkingStatus').textContent=message+changed;
+}
+function persistParkingLog(next){
+    parkingLog={...next,changed:new Date().toISOString()};
+    try{saveLogStorage(PARKING_LOG_KEY,parkingLog);}
+    catch{logStatus('Parking details are available for this visit but could not be saved.');}
+    refreshParkingLogStatus();
+}
+function parkingLogInput(){
+    const get=id=>document.getElementById(id).value;
+    return {heading:get('parkingHeading')||'Unknown',
+        cover:Object.fromEntries(PARKING_LOG_FIELDS.map(id=>[id,get(id)||null]))};
+}
+function editParkingLog(){
+    persistParkingLog({...parkingLog,...parkingLogInput(),confirmed:false});
+}
+function confirmParkingLog(){
+    persistParkingLog({...parkingLogInput(),location:parkingLogLocation(),confirmed:true});
+}
+function newParkingPosition(){
+    persistParkingLog({...parkingLog,confirmed:false,location:null});
+}
+function initializeParkingLog(){
+    const heading=document.getElementById('parkingHeading');
+    heading.innerHTML=['Unknown',...PARKING_HEADINGS].map(value=>'<option>'+value+'</option>').join('');
+    for(const id of PARKING_LOG_FIELDS){
+        document.getElementById(id).innerHTML='<option value="">Select cover</option>'+
+            ['None','Partial','Full'].map(value=>'<option>'+value+'</option>').join('');
+    }
+    try{parkingLog=loadLogStorage(PARKING_LOG_KEY,parkingLog);}
+    catch{logStatus('Saved parking details could not be read.');}
+    heading.value=parkingLog.heading;
+    for(const id of PARKING_LOG_FIELDS)document.getElementById(id).value=parkingLog.cover[id]||'';
+    refreshParkingLogStatus();
+}
+function captureParkingLog(){
+    const confirmed=parkingLog.confirmed&&!parkingLogMoved(parkingLog.location,parkingLogLocation());
+    return {heading:parkingLog.heading,heading_confirmed:confirmed,...parkingLog.cover};
+}
+function logObservationTime(id){
+    const time=document.getElementById(id).value;
+    return time?parseLocalInput(time,id).toISOString():null;
+}
+function captureComfortVote(now,actual){
+    const get=id=>document.getElementById(id).value;
+    const bedroom=get('voteBedroom'),front=get('voteFront');
+    if(!bedroom&&!front)return {};
+    const context=get('voteContext');
+    if(!context)throw new Error('Choose a context for the comfort vote.');
+    const mode=get('voteMode');
+    const heat=easyLogInteger('voteHeat'),cool=easyLogInteger('voteCool');
+    const fan=get('voteFan');
+    // Use a confirmed existing setup only when the owner did not supply a separate vote-time setup.
+    const setup=mode?{actual_mode:mode,actual_heat_to:heat,actual_cool_to:cool,actual_fan:fan||null}:
+        {actual_mode:actual?.type,actual_heat_to:actual?.setpoints?.heat,actual_cool_to:actual?.setpoints?.cool,actual_fan:actual?.fan};
+    return {...setup,vote_bedroom:bedroom||null,vote_front:front||null,
+        vote_context:context,vote_time:logObservationTime('voteTime')||now.toISOString()};
+}
+
 function initializeLogging(){
+    initializeParkingLog();
     try{
         fillLogSettings(readLogSettings());
         const adjustment=loadLogStorage(EASY_LOG_ADJUSTMENT_KEY,{value:'unknown'});
@@ -3039,7 +3151,7 @@ function captureLogEvent(type,request,envelope=null){
     const event={schema_version:1,event_id:crypto.randomUUID(),event_type:type,event_utc:now.toISOString(),
         event_local:inputDate(now),tz:analysisTimeZone(),app_version:LOG_APP_VERSION,
         run_status:type==='plan'?'error':null,zip:document.getElementById('zipInput').value.trim()||null,
-        lat:envelope?.lat,lon:envelope?.lon,place:usedForecast?forecast.location:null,
+        lat:envelope?.lat??parkingLogLocation()?.lat,lon:envelope?.lon??parkingLogLocation()?.lon,place:forecast.fetched?forecast.location:null,
         nws_issue_utc:usedForecast&&forecast.issuedAt?new Date(forecast.issuedAt).toISOString():null,
         nws_fetch_utc:usedForecast&&forecast.fetchedAt?new Date(forecast.fetchedAt).toISOString():null,
         reading_utc:request.future?null:request.reading.toISOString(),
@@ -3047,7 +3159,10 @@ function captureLogEvent(type,request,envelope=null){
         front_temp_f:request.future?null:request.initial.temperature[1],front_rh:request.future?null:request.initial.rh[1],
         actual_mode:actual?.type,actual_heat_to:actual?.setpoints?.heat,actual_cool_to:actual?.setpoints?.cool,
         actual_fan:actual?.fan,windows_vents_json:actual?.config?JSON.stringify(actual.config):null,
-        dehumidifier:state.dehumidifierEnabled,occupancy:request.occupancy,...easyLogFields(request)};
+        dehumidifier:state.dehumidifierEnabled,occupancy:request.occupancy,...easyLogFields(request),
+        bed_last_updated:request.future?null:logObservationTime('bedLastUpdated'),
+        front_last_updated:request.future?null:logObservationTime('frontLastUpdated'),
+        ...captureParkingLog(),...captureComfortVote(now,actual)};
     if(envelope){
         const hourly=[];
         for(let time=+envelope.windowStart;time<+envelope.windowEnd;time+=3600000){

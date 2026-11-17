@@ -97,3 +97,44 @@ test('EasyTouch logging records the displayed value, paired time and adjustment 
     assert.equal(reloaded.element('easyLogOffset').value, '-4');
     assert.equal(reloaded.element('easyLogTemp').value, '');
 });
+
+test('parking confirmation persists and both a location move and parking reset invalidate it', () => {
+    const a = loggingApp();
+    a.element('parkingHeading').value = 'ENE';
+    a.element('tree_driver').value = 'Partial';
+    a.run(`forecast={...forecast,fetched:true,_lat:41.3,_lon:-94};confirmParkingLog();`);
+    assert.equal(a.run('captureParkingLog().heading_confirmed'), true);
+    assert.equal(a.run('captureParkingLog().tree_driver'), 'Partial');
+    const reloaded = app();
+    reloaded.ctx.localStorage = a.ctx.localStorage;
+    reloaded.run(`forecast={...forecast,fetched:true,_lat:41.305,_lon:-94};initializeLogging();`);
+    assert.equal(reloaded.element('parkingHeading').value, 'ENE');
+    assert.equal(reloaded.run('captureParkingLog().heading_confirmed'), true);
+    reloaded.run('forecast._lat=41.32;refreshParkingLogStatus()');
+    assert.match(reloaded.element('parkingStatus').textContent, /more than 1 mile/);
+    assert.equal(reloaded.run('captureParkingLog().heading_confirmed'), false);
+    reloaded.run('confirmParkingLog();newParkingPosition()');
+    assert.equal(reloaded.run('captureParkingLog().heading_confirmed'), false);
+    assert.equal(reloaded.run('captureParkingLog().heading'), 'ENE');
+});
+
+test('readings log keeps separate YoLink timestamps and records the reported vote setup', () => {
+    const a = loggingApp();
+    a.element('bedLastUpdated').value = '2026-10-21T11:55';
+    a.element('frontLastUpdated').value = '2026-10-21T11:57';
+    a.element('voteBedroom').value = 'Too warm';
+    a.element('voteContext').value = 'Awake in bed';
+    a.element('voteTime').value = '2026-10-21T11:59';
+    a.element('voteMode').value = 'ac';
+    a.element('voteCool').value = '70';
+    a.element('voteFan').value = 'Low';
+    a.run(`forecast={...forecast,fetched:true,timeZone:'America/Chicago'};
+        e=captureLogEvent('readings_only',{reading:new Date(),initial:{temperature:[68,69],rh:[50,48]},occupancy:'staying'});`);
+    assert.equal(a.run('e.bed_last_updated'), '2026-10-21T16:55:00.000Z');
+    assert.equal(a.run('e.front_last_updated'), '2026-10-21T16:57:00.000Z');
+    assert.equal(a.run('e.vote_time'), '2026-10-21T16:59:00.000Z');
+    assert.equal(a.run('e.vote_bedroom'), 'Too warm');
+    assert.equal(a.run('e.actual_mode'), 'ac');
+    assert.equal(a.run('e.actual_cool_to'), 70);
+    assert.equal(a.run('e.actual_fan'), 'Low');
+});
