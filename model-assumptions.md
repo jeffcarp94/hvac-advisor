@@ -1,3 +1,7 @@
+# v6.6.6 — Run logging
+
+Run logging observes planner inputs and outputs. The queue snapshots the weather inputs used by the current planner, keeps forward-planning values separate from measured indoor readings, and records the nominal prediction when the requested sample is in a verified trace. Weather fields unavailable in the current model and fields belonging to later work packages are recorded as missing. Logging settings and credentials stay on the main thread. The logging client follows the positive R1a acknowledgement test on the owner’s Pixel.
+
 # v6.6.5 — WP0 test baseline
 
 This release restores the checks used for the November 16 model scope. Model parameters, eligibility, control and ranking carry forward from v6.6.4. The app and service worker use the new version for deployment and cache checks.

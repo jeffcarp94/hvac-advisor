@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.5 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.6 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.5</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.6</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -206,6 +206,15 @@
 
     <button class="analyze-btn" id="analyzeBtn" onclick="analyze()">Build my HVAC plan</button>
 
+    <details class="input-section" id="loggingOptions"><summary>Run logging</summary>
+        <label class="field"><span><input id="logEnabled" type="checkbox"> Log runs to Google Sheets</span></label>
+        <label class="field">Apps Script web app URL<input id="logEndpoint" type="url" autocomplete="off"></label>
+        <label class="field">Logging token<input id="logToken" type="password" autocomplete="off"></label>
+        <button type="button" onclick="saveLogSettings()">Save logging settings</button>
+        <button type="button" onclick="logReadingsOnly()">Log readings only</button>
+        <p id="logChanged" class="hint"></p>
+    </details>
+    <p id="logStatus" class="hint" role="status" aria-live="polite"></p>
     <div id="resultStatus" role="status" aria-live="polite" style="font-size:12px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px;"></div>
     <div class="results" id="results"></div>
 
@@ -2832,15 +2841,224 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state,forecast});
     });
 }
+const LOG_APP_VERSION='6.6.6';
+const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
+const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
+const LOG_QUEUE_LIMIT=200;
+let logSending=false,logOverflow=false;
+
+function logStatus(message){
+    document.getElementById('logStatus').textContent=message;
+}
+function loadLogStorage(key,fallback){
+    const raw=localStorage.getItem(key);
+    return raw===null?fallback:JSON.parse(raw);
+}
+function saveLogStorage(key,value){
+    localStorage.setItem(key,JSON.stringify(value));
+}
+function readLogSettings(){
+    return loadLogStorage(LOG_SETTINGS_KEY,{enabled:false,url:'',token:''});
+}
+function readLogQueue(){
+    const queue=loadLogStorage(LOG_QUEUE_KEY,[]);
+    if(!Array.isArray(queue))throw new Error('Invalid stored queue.');
+    return queue;
+}
+function normalizeLogEndpoint(value){
+    const url=new URL(value.trim());
+    if(url.origin!=='https://script.google.com'||url.username||url.password||
+        !/^\/macros\/s\/[\w-]+\/exec\/?$/.test(url.pathname))throw new Error('Enter the deployed Apps Script URL ending in /exec.');
+    return url.origin+url.pathname.replace(/\/$/,'');
+}
+function fillLogSettings(settings){
+    document.getElementById('logEnabled').checked=settings.enabled;
+    document.getElementById('logEndpoint').value=settings.url;
+    document.getElementById('logToken').value=settings.token;
+    document.getElementById('logChanged').textContent=settings.changed?
+        'Last saved '+new Date(settings.changed).toLocaleString():'';
+}
+function saveLogSettings(){
+    const enabled=document.getElementById('logEnabled').checked;
+    const field=document.getElementById('logEndpoint').value;
+    const token=document.getElementById('logToken').value;
+    let url='';
+    try{
+        if(enabled||field.trim())url=normalizeLogEndpoint(field);
+        if(enabled&&(token.length<32||token.length>256))throw new Error('Enter your logging token (32–256 characters).');
+    }catch(error){logStatus(error.message);return;}
+    try{
+        const settings={enabled,url,token,changed:new Date().toISOString()};
+        saveLogStorage(LOG_SETTINGS_KEY,settings);
+        fillLogSettings(settings);
+    }catch{logStatus('Logging settings could not be saved on this device.');return;}
+    logStatus(enabled?'Logging enabled.':'Logging paused. Existing entries are kept.');
+    if(enabled)void flushLogQueue();
+}
+function initializeLogging(){
+    try{
+        fillLogSettings(readLogSettings());
+        const count=readLogQueue().length;
+        if(count)logStatus(count+' saved '+(count===1?'entry':'entries')+' awaiting confirmation.');
+    }catch{logStatus('Logging storage could not be read on this device.');}
+    window.addEventListener('online',()=>{void flushLogQueue();});
+}
+function enqueueLogEvent(event){
+    try{
+        const settings=readLogSettings();
+        if(!settings.enabled)return false;
+        const queue=readLogQueue();
+        if(queue.length>=LOG_QUEUE_LIMIT){
+            queue.splice(0,queue.length-LOG_QUEUE_LIMIT+1);
+            logOverflow=true;
+        }
+        queue.push({event,url:settings.url,state:'queued'});
+        saveLogStorage(LOG_QUEUE_KEY,queue);
+    }catch{logStatus('This entry could not be saved on this device.');return false;}
+    void flushLogQueue();
+    return true;
+}
+async function flushLogQueue(){
+    if(logSending)return;
+    logSending=true;
+    const notice=message=>logStatus((logOverflow?'Queue full. Oldest unconfirmed entries were dropped. ':'')+message);
+    try{
+        while(true){
+            const settings=readLogSettings(),queue=readLogQueue();
+            if(!settings.enabled||!queue.length)return;
+            const index=queue.findIndex(entry=>entry.url===settings.url);
+            if(index<0){notice('Saved entries await confirmation from their original receiver.');return;}
+            if(navigator.onLine===false){notice(queue.length+' saved for retry when online.');return;}
+            const entry=queue[index],id=entry.event.event_id;
+            queue[index]={...entry,state:'attempted'};
+            saveLogStorage(LOG_QUEUE_KEY,queue);
+            notice('Sending '+queue.length+' saved '+(queue.length===1?'entry…':'entries…'));
+            let acknowledgement;
+            try{
+                const response=await fetch(normalizeLogEndpoint(settings.url),{
+                    method:'POST',headers:{'Content-Type':'text/plain'},credentials:'omit',
+                    redirect:'follow',signal:AbortSignal.timeout(20000),
+                    body:JSON.stringify({token:settings.token,event:entry.event})
+                });
+                if(response.ok)acknowledgement=await response.json();
+            }catch{}
+            if(acknowledgement?.ok!==true||acknowledgement.event_id!==id){
+                notice(acknowledgement?.code==='unauthorized'?
+                    'Receiver rejected the token. Saved entries will retry after settings are updated.':
+                    'Receiver did not confirm the entry. It is saved for retry.');
+                return;
+            }
+            const remaining=readLogQueue().filter(item=>item.event.event_id!==id);
+            saveLogStorage(LOG_QUEUE_KEY,remaining);
+            notice('Confirmed'+(Number.isInteger(acknowledgement.row)?' in row '+acknowledgement.row:'')+
+                (remaining.length?'. '+remaining.length+' awaiting confirmation.':'.'));
+        }
+    }catch{notice('Logging storage could not be updated. Check device storage before retrying.');}
+    finally{logSending=false;}
+}
+function logWeatherPoint(envelope,time){
+    const point=lookupEnvelopeAt(envelope,time);
+    return {valid_time:new Date(point.time).toISOString(),temperature_f:point.tOut,rh_pct:point.rh,
+        dew_point_f:dewPt(point.tOut,point.rh),wind_mph:point.wind??envelope.wind??'missing',
+        wind_gust_mph:'missing',sky_cover_pct:'missing',solar_cloud_factor:point.cloud??envelope.cloud??'missing'};
+}
+function captureLogEvent(type,request,envelope=null){
+    if(!readLogSettings().enabled)return null;
+    const now=new Date(),usedForecast=envelope?.source==='forecast';
+    const actual=request.actual;
+    const event={schema_version:1,event_id:crypto.randomUUID(),event_type:type,event_utc:now.toISOString(),
+        event_local:inputDate(now),tz:analysisTimeZone(),app_version:LOG_APP_VERSION,
+        run_status:type==='plan'?'error':null,zip:document.getElementById('zipInput').value.trim()||null,
+        lat:envelope?.lat,lon:envelope?.lon,place:usedForecast?forecast.location:null,
+        nws_issue_utc:usedForecast&&forecast.issuedAt?new Date(forecast.issuedAt).toISOString():null,
+        nws_fetch_utc:usedForecast&&forecast.fetchedAt?new Date(forecast.fetchedAt).toISOString():null,
+        reading_utc:request.future?null:request.reading.toISOString(),
+        bed_temp_f:request.future?null:request.initial.temperature[0],bed_rh:request.future?null:request.initial.rh[0],
+        front_temp_f:request.future?null:request.initial.temperature[1],front_rh:request.future?null:request.initial.rh[1],
+        actual_mode:actual?.type,actual_heat_to:actual?.setpoints?.heat,actual_cool_to:actual?.setpoints?.cool,
+        actual_fan:actual?.fan,windows_vents_json:actual?.config?JSON.stringify(actual.config):null,
+        dehumidifier:state.dehumidifierEnabled,occupancy:request.occupancy};
+    if(envelope){
+        const hourly=[];
+        for(let time=+envelope.windowStart;time<+envelope.windowEnd;time+=3600000){
+            hourly.push({sample_utc:new Date(time).toISOString(),...logWeatherPoint(envelope,time)});
+        }
+        event.forecast_hourly_json=JSON.stringify({source:envelope.source,samples:hourly});
+        if(!request.future&&usedForecast){
+            const time=+request.reading,period=periodAt(time);
+            const temp=intervalAt(forecast.intervals.temperature,time);
+            const humidity=intervalAt(forecast.intervals.humidity,time);
+            if(period&&temp&&humidity){
+                const rh=Math.round(Math.max(humidity.value,period.rainFloor?90:0));
+                event.forecast_at_reading_json=JSON.stringify({sample_utc:request.reading.toISOString(),
+                    valid_time:new Date(Math.max(period.start,temp.start,humidity.start)).toISOString(),
+                    temperature_f:Math.round(temp.value),rh_pct:rh,dew_point_f:dewPt(Math.round(temp.value),rh),
+                    wind_mph:period.wind??'missing',wind_gust_mph:'missing',sky_cover_pct:'missing',
+                    solar_cloud_factor:period.cloud??'missing'});
+            }
+        }
+    }
+    return event;
+}
+function prepareRunLog(request,envelope){
+    try{return captureLogEvent('plan',request,envelope);}
+    catch{logStatus('Could not prepare a log entry. The plan can still run.');return null;}
+}
+function finishRunLog(event,result,nextAction){
+    try{recordRunLog(event,result,nextAction);}
+    catch{logStatus('Could not prepare the completed run for logging.');}
+}
+function recordRunLog(event,result,nextAction){
+    if(!event)return;
+    if(result){
+        const complete=result.winner.suitable&&result.winner.ready;
+        const current=result.stages?.current?.recommended;
+        const partial=result.current||result.recoveryAction||result.stages?.departure?.recommended||current;
+        event.run_status=complete?'qualified':partial?'partial':'none';
+        const plan=complete?result.winner:result.current||current||result.stages?.departure?.recommended;
+        if(plan){
+            event.recommended_setup_json=JSON.stringify(complete?plan.phases:plan.setup||null);
+            const trace=plan.trials?.[0]?.trace||[];
+            const sample=time=>{
+                if(!trace.length||!Number.isFinite(time)||time<+trace[0].time||time>+trace.at(-1).time)return null;
+                const point=trace.find(p=>+p.time>=time);
+                return JSON.stringify({valid_time:new Date(point.time).toISOString(),bed_temp_f:point.bedroom,
+                    front_temp_f:point.midCoach,bed_rh:point.rh,front_rh:point.midRH});
+            };
+            const start=+result.request.start;
+            event.prediction_30min_json=sample(start+1800000);
+            event.prediction_2h_json=sample(start+7200000);
+            event.prediction_next_action_json=sample(nextAction);
+        }
+    }
+    enqueueLogEvent(event);
+}
+function logReadingsOnly(){
+    try{
+        if(!readLogSettings().enabled){logStatus('Enable and save logging before sending readings.');return;}
+        const field=id=>document.getElementById(id).value.trim();
+        const temperature=['bedTemp','frontTemp'].map(id=>field(id)===''?NaN:Number(field(id)));
+        const rh=['bedRH','frontRH'].map(id=>Number(field(id)));
+        if(temperature.some(v=>!Number.isFinite(v))||rh.some(v=>!Number.isFinite(v)||v<1||v>100)){
+            logStatus('Enter both indoor temperatures and humidity readings from 1–100%.');return;
+        }
+        const reading=parseLocalInput(field('readingTime'),'the reading time');
+        const event=captureLogEvent('readings_only',{initial:{temperature,rh},reading,occupancy:field('occupancyMode')});
+        if(event)enqueueLogEvent(event);
+    }catch{logStatus('Could not prepare the entry. Check the reading time and logging settings.');}
+}
+
 async function analyze(){
     if(planBusy)return;
     let request;
     try{request=readPlanRequest();}catch(error){showAnalysisError(error);return;}
+    let logEvent;
     planBusy=true;const button=document.getElementById('analyzeBtn');button.disabled=true;button.textContent='Calculating your plan…';
     invalidateResults('Checking the connected daytime and overnight plan…');const revision=planRevision;
     try{
         await new Promise(resolve=>setTimeout(resolve,0));
         const bounds=planBounds(request.start,request),envelope=makeEnvelope(request.start,bounds.end,'HVAC Plan',THERMAL_STEP_MIN*60000);
+        logEvent=prepareRunLog(request,envelope);
         let result;
         if(typeof Worker!=='undefined')result=await calculateInWorker(request,envelope);
         else{
@@ -2852,8 +3070,9 @@ async function analyze(){
         const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
         const futureActions=[...(result.bedtimeRecovery?.switchAt?[result.bedtimeRecovery.verified?result.bedtimeRecovery.switchAt:result.bedtimeRecovery.bedtime]:[]),...(result.recoveryAction?[result.recoveryAction.reviewAt]:[]),...(result.current?[result.current.reviewAt]:result.winner.phases.slice(1).map(p=>p.time)),request.departure&&+request.departure,request.returnTime&&+request.returnTime].filter(t=>t>Date.now());
         resultRecorded(envelope,Math.min(...futureActions),request);
+        finishRunLog(logEvent,result,Math.min(...futureActions));
         container.scrollIntoView({behavior:'smooth',block:'start'});
-    }catch(error){if(revision===planRevision)showAnalysisError(error);}
+    }catch(error){if(revision===planRevision){finishRunLog(logEvent||prepareRunLog(request,null),null);showAnalysisError(error);}}
     finally{planBusy=false;button.disabled=false;button.textContent='Build my HVAC plan';}
 }
 function initializePlan(){
@@ -2862,6 +3081,7 @@ function initializePlan(){
     updatePlanUI();
 }
 initializePlan();
+if(window.location.protocol!=='worker:')initializeLogging();
 
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBanner').style.display='block';});
