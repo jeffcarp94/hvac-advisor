@@ -24,6 +24,10 @@
   const endpoint = document.querySelector('#endpoint');
   const button = document.querySelector('button');
   const result = document.querySelector('output');
+  const deploymentId = new URLSearchParams(location.hash.slice(1)).get('deployment');
+  if (deploymentId && /^[A-Za-z0-9_-]+$/.test(deploymentId)) {
+    endpoint.value = 'https://script.google.com/macros/s/' + deploymentId + '/exec';
+  }
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -36,10 +40,11 @@
       return;
     }
     if (url.origin !== 'https://script.google.com' ||
-        !/^\/macros\/s\/[\w-]+\/exec$/.test(url.pathname) || url.search || url.hash) {
+        !/^\/macros\/s\/[\w-]+\/exec\/?$/.test(url.pathname) || url.username || url.password) {
       result.textContent = 'Enter the deployed Apps Script URL ending in /exec.';
       return;
     }
+    url = new URL(url.pathname.replace(/\/$/, ''), url.origin);
     let eventId;
     button.disabled = true;
     result.textContent = 'Waiting for a reply…';
