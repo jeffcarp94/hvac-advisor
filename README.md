@@ -1,3 +1,7 @@
+# v6.6.9 — Parking and comfort observations
+
+Heading and anticipated tree cover are owner observations saved on this device. Moving more than one mile from the last confirmed weather location or selecting New parking position requires reconfirmation. The location estimate comes from the weather lookup, so use New parking position for moves within the same ZIP. Optional per-run observations include each YoLink app update timestamp and bedroom/front comfort votes with the reported vote-time HVAC setup. The planner does not use these observations in calculations.
+
 # v6.6.8 — EasyTouch reading placement
 
 Enter the EasyTouch displayed temperature and optional reading time alongside the YoLink readings. Run logging retains the Temperature Reading Adjustment as a device-local setting.
