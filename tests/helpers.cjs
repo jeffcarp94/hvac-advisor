@@ -15,7 +15,8 @@ function app(){
         }
         return elements.get(id);
     };
-    const ctx=vm.createContext({Date:Clock,Intl,URL,AbortController,setTimeout,clearTimeout,setInterval(){},console,
+    // Native context globals avoid proxy overhead in long planner comparisons (Node 24).
+    const ctx=Object.assign(vm.createContext(vm.constants.DONT_CONTEXTIFY),{Date:Clock,Intl,URL,AbortController,setTimeout,clearTimeout,setInterval(){},console,
         navigator:{},document:{getElementById:getElement,querySelectorAll:()=>[],addEventListener(){},hidden:false},
         window:{location:{protocol:'https:',reload(){}},addEventListener:(type,fn)=>listeners.set(type,fn)},
         fetch:async()=>{throw new Error('Unexpected network request');}});

@@ -53,6 +53,8 @@ function weather(url){
   assert.equal(await page.locator('#logEnabled').isChecked(),false);
   assert.equal(await page.locator('#logToken').getAttribute('type'),'password');
   assert.equal(await page.locator('#indoorHeading').locator('..').locator('#easyLogTemp').isVisible(),true);
+  assert.equal(await page.locator('#indoorHeading').locator('..').locator('#easyLogOutdoor').isVisible(),true);
+  assert.equal(await page.locator('#easyLogOutdoor').getAttribute('step'),'1');
   assert.equal(await page.locator('#loggingOptions #easyLogTemp').count(),0);
   assert.equal(await page.locator('#loggingOptions #easyLogAdjustment').isVisible(),true);
   assert.equal(await page.locator('#easyLogOffset').isVisible(),false);

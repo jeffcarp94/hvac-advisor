@@ -38,7 +38,7 @@ Run `node tools/compare-capacity.cjs` under Node 24. It prints the highest-ranke
 
 The evaluated sensitivities did not change the highest-ranked fixed mode or complete fixed qualification. Selected nominal furnace minutes rose by up to 7.21 min in the March sensitivity cases and 6.81 min in the falling-temperature case. The rising-temperature case used 16.59 min of furnace on both nominal models. The comparison logs runtime, not fuel volume.
 
-The full synthetic surface-advisory search also selected the same qualified AUTO HEAT PUMP plan (HEAT TO 67°F, COOL TO 71°F, Low fan) with a 65.41°F minimum in both models. AUTO FURNACE and FURNACE qualified as alternatives. Other full searches remain pending. D2 remains pending full plan review and the owner’s performance-release decision. The incompatible cooling input combinations are also open. No production switch or coil eligibility change is included.
+The nine original full-search comparisons are complete. Two qualify with each nominal model. The synthetic bedtime-preparation plan changes its controls and passes the heating-capacity range, but fails both bundled airflow/coil extremes. Added currently-away and no-Wi-Fi cases are also recorded. See the [full comparison report](reports/wp6-capacity-comparison.md) and [machine-readable evidence](reports/wp6-capacity-comparison.json) for exact phases, full-window diagnostics, sensitivity limits, alternatives and verification status. The full test suite and browser/PWA verification remain unresolved. D2 remains pending the owner’s performance-release decision. No production capacity switch or coil eligibility change is included.
 
 # v6.6.12 — WP5 forecast precision and altitude
 
