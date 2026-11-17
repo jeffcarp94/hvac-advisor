@@ -151,19 +151,19 @@ function weather(url){
    await page.screenshot({path:path.join(screens,'winterset-'+scheme+'.png'),fullPage:true});
   }
   await page.evaluate(()=>{resultContext.expires=Date.now();checkResultValidity();});assert.equal(await page.locator('#results').innerText(),'');
-  // Historical cold-surface warning must coexist with a complete Worker plan.
-  const moistureFixture=require('./fixtures/winterset-2026-03-24.json');
+  // A synthetic cold overnight interval must qualify with a real surface warning.
+  const moistureFixture=require('./fixtures/synthetic-surface-advisory.cjs');
   const advisoryResult=await page.evaluate(async job=>{
    const start=new Date(job.start),end=new Date(job.end);state.dehumidifierEnabled=true;
-   const request={start,reading:start,initial:{temperature:[72,72],rh:[54,52]},occupancy:'staying',remote:false};
-   const points=job.points.map(p=>({...p,time:new Date(p.time),tOut:Math.round(p.tOut),rh:Math.round(p.rh)}));
-   const envelope={windowStart:start,windowEnd:end,timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,source:'historical-era5',singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
+   const request={start,reading:start,initial:job.initial,occupancy:'staying',remote:false};
+   const points=job.points.map(p=>({...p,time:new Date(p.time)}));
+   const envelope={windowStart:start,windowEnd:end,timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,source:'synthetic',singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
    const result=await calculateInWorker(request,envelope);
    const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
-   document.getElementById('resultStatus').textContent='Historical March 24 regression — paired readings and ERA5 weather';
+   document.getElementById('resultStatus').textContent='Synthetic two-hour overnight interval';
    return {suitable:result.winner.suitable,ready:result.winner.ready,mode:result.winner.nightType,
     full:result.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+end),
-    warning:result.winner.trials.some(t=>t.condensationConcern)};
+    warning:result.winner.trials.some(t=>t.condensationConcern?.source==='surface')};
   },moistureFixture);
   assert.equal(advisoryResult.suitable,true);assert.equal(advisoryResult.ready,true);assert.equal(advisoryResult.full,true);assert.equal(advisoryResult.warning,true);
   await page.locator('#planCard').waitFor({state:'visible'});
@@ -173,18 +173,18 @@ function weather(url){
   assert.doesNotMatch(advisoryText,/Condensation margin fails/);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
   await page.screenshot({path:path.join(screens,'condensation-advisory-plan.png'),fullPage:true});
-  // The historical preparation case must render every action selected by the current target policy.
-  const preparationJob=require('./fixtures/winterset-planning-regressions.json')[1];
+  // A complete preparation case must render every action selected by the Worker.
+  const preparationJob=require('./fixtures/synthetic-bedtime-preparation.cjs');
   const preparationResult=await page.evaluate(async job=>{
    const start=new Date(job.start),end=new Date(job.end);
-   const request={start,reading:start,initial:{temperature:[72,72],rh:[54,52]},occupancy:'staying',remote:false};
-   const points=job.points.map(p=>({...p,time:new Date(p.time),tOut:Math.round(p.tOut),rh:Math.round(p.rh)}));
+   const request={start,reading:start,initial:job.initial,occupancy:'staying',remote:false};
+   const points=job.points.map(p=>({...p,time:new Date(p.time)}));
    const envelope={windowStart:start,windowEnd:end,timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
    const result=await calculateInWorker(request,envelope),p=result.winner;
    const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
    return {suitable:p.suitable,ready:p.ready,phases:p.phases.length,night:p.nightType,full:p.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+end),targetRank:p.targetRank,actions:p.phases.filter((phase,i)=>i===0||!sameSetup(p.phases[i-1].setup,phase.setup)).length};
   },preparationJob);
-  assert.equal(preparationResult.suitable,true);assert.equal(preparationResult.ready,true);assert.equal(preparationResult.full,true);assert.ok(Number.isFinite(preparationResult.targetRank));
+  assert.equal(preparationResult.suitable,true,JSON.stringify(preparationResult));assert.equal(preparationResult.ready,true);assert.equal(preparationResult.full,true);assert.ok(Number.isFinite(preparationResult.targetRank));
   assert.ok(await page.locator('#planCard .plan-step').count()>=preparationResult.actions);
   const preparationText=await page.locator('#results').innerText();
   assert.match(preparationText,/sleeping 67°F/);assert.match(preparationText,/awake or unoccupied 71°F/);
@@ -200,12 +200,12 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.6.4'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.6.5'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
   await oldContext.close();}
-  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.6.4','6.0.0 → 6.6.4'],errors},null,2));
+  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.6.5','6.0.0 → 6.6.5'],errors},null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
 

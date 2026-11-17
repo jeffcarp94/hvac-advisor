@@ -50,14 +50,15 @@ test('current guidance ends at departure and never certifies an unvalidated abse
  assert.ok(a.run('c'));assert.equal(a.run('c.reviewAt'),Date.parse(winterset.request.start)+15*60000);
  assert.equal(a.run('c.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+r.departure)'),true);
 });
-test('current guidance favors target fit over the former natural-recovery preference',()=>{
+test('current guidance chooses OFF when natural recovery matches the best target fit',()=>{
  const a=setup();a.run(`r.start=new Date('2026-10-23T12:30Z');r.reading=r.start;r.initial={temperature:[67,67],rh:[30,30]};
  state.temp=70;state.rh=25;state.wind=2;state.cloud=1;state.weatherMode='manual';e=makeEnvelope(r.start,planBounds(r.start).end,'Morning',300000);
  c=currentRecommendation(e,r,[])`);
  assert.equal(a.run('c.trials.every(t=>t.suitable)'),true);
  a.run(`rows=planRows(e,r,.5,[c.reviewAt]).filter(row=>row.to<=c.reviewAt);off=AIR_SCENARIOS.map(s=>simulatePlan([{time:+r.start,setup:planSetup('passive',false)}],e,r,s,rows));`);
  assert.ok(a.run('c.targetRank<=targetMetrics(off).targetRank'));
- assert.ok(a.run('c.trials.some(t=>t.didHeat)'));
+ assert.equal(a.run('c.setup.type'),'passive');
+ assert.equal(a.run('c.trials.every(t=>!t.didHeat)'),true);
 });
 test('current guidance warms an initially cold bedroom with a warmer front sensor',()=>{
  const a=setup();a.run('r.initial.temperature=[64,72];c=currentRecommendation(e,r,[])');
@@ -80,11 +81,17 @@ test('Winterset evening gives verified current guidance when body uncertainty pr
  assert.equal(a.run('result.winner.trials[0].suitable'),true);
  assert.ok(a.run('result.winner.trials.some(t=>!t.suitable)'));
  assert.ok(a.run('Number.isFinite(result.current.targetRank)'));
- assert.ok(a.run('result.winner.phases.every(p=>p.setup.type===\"passive\"||settingValues(p.setup).includes(p.setup.setpoints[p.setup.type===\"auto\"?\"auto\":p.setup.type===\"ac\"?\"cool\":p.setup.type===\"maxxfan\"?\"fan\":\"heat\"]))'));
+ a.run(`function programmable(setup){
+  if(setup.type==='passive')return true;
+  if(isAutoMode(setup.type))return validDualSetpoints(setup.setpoints);
+  const field=setup.type==='ac'?'cool':setup.type==='maxxfan'?'fan':'heat';
+  return settingValues(setup).includes(setup.setpoints[field]);
+ }`);
+ assert.ok(a.run('result.winner.phases.every(p=>programmable(p.setup))&&programmable(result.current.setup)'));
  assert.equal(a.run('result.current.trials.length'),9);
  assert.equal(a.run('result.current.reviewAt'),+new Date(winterset.request.start)+30*60000);
  assert.equal(a.run('result.current.trials.every(t=>t.suitable&&+t.trace.at(-1).time===result.current.reviewAt&&t.moisture.humidMax===0)'),true);
- assert.match(a.run('html'),/Select (COOL|AUTO|HEAT PUMP|FURNACE) at \d+°F/);assert.match(a.run('html'),/Bed-area comfort takes priority/);assert.match(a.run('html'),/dew point/);
+ assert.match(a.run('html'),/Select (COOL|HEAT PUMP|FURNACE) at \d+°F|Select AUTO (HEAT PUMP|FURNACE); set HEAT TO \d+°F and COOL TO \d+°F/);assert.match(a.run('html'),/Bed-area comfort takes priority/);assert.match(a.run('html'),/dew point/);
  assert.doesNotMatch(a.run('html'),/No suitable current setup/);
  assert.match(a.run('html'),/Overnight needs reassessment|complete overnight setup has not been verified/);
 });
