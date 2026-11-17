@@ -146,7 +146,9 @@ test('full-night search verifies bedtime and the entire night after passive cool
  const a=scenario('2026-10-24T02:30Z');a.run(`state.temp=60;state.rh=20;r.initial={temperature:[69,69],rh:[35,35]};e=makeEnvelope(r.start,planBounds(r.start).end,'Full night',300000);result=runUnifiedPlan(r,e)`);
  assert.equal(a.run('result.winner.suitable'),true);assert.equal(a.run('result.winner.ready'),true);
  assert.equal(a.run('result.winner.trials.every(t=>t.suitable&&t.ready&&+t.trace.at(-1).time===+result.bounds.end)'),true);
- assert.equal(a.run('result.winner.nightSetup.setpoints.cool'),68);assert.equal(a.run('result.winner.nightSetup.setpoints.heat'),66);
+ // Since v6.6.2's 2F EasyTouch gaps, HEAT PUMP 66/68 swings the bedroom out of the sleep band;
+ // AUTO 67/71 after the MaxxFan cooldown is the only qualifying overnight setup.
+ assert.equal(a.run('result.winner.nightSetup.type'),'auto');assert.equal(a.run('result.winner.nightSetup.setpoints.cool'),71);assert.equal(a.run('result.winner.nightSetup.setpoints.heat'),67);
  assert.match(a.run('renderPlan(result)'),/Bedroom at 10 PM/);
 });
 

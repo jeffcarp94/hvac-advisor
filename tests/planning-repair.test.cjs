@@ -45,13 +45,15 @@ test('AUTO readiness accepts normal cycling only after cooling target has been r
  assert.equal(a.run('late.ready'),false);
 });
 test('preparation search checks a fine-grid timing island after coarse proposals fail',()=>{
- const a=app();load(a,require('./fixtures/winterset-planning-regressions.json')[0]);
- // Use COOL to isolate timing coverage from the changed AUTO hysteresis.
+ // The October 2025 fixture has no qualifying fixed COOL night under the v6.6.2+
+ // EasyTouch cycle, so a labeled synthetic clear 60F night supplies a night setup
+ // that qualifies at every switch time. Awake COOL, overnight AUTO 67/71.
  // Retain the working body and all three weather cases.
  // A synthetic narrow readiness window supplies a non-monotonic timing oracle;
  // real temperature, humidity and equipment checks must still pass inside it.
+ const a=app();load(a,require('./fixtures/synthetic-clear-60f-night.cjs'));
  a.run(`AIR_SCENARIOS.splice(3);island=+planBounds(r.start,r).bedtime-15*60000;
- planSetups=sleep=>[withSetting(planSetup('ac',sleep,null,'Low'),sleep?66:71)];
+ planSetups=sleep=>[sleep?withSetting(planSetup('auto',true,null,'Low'),{heat:67,cool:71}):withSetting(planSetup('ac',false,null,'Low'),71)];
  optimizePhase=plan=>plan;shortlistVents=()=>[];
  originalSimulate=simulatePlan;simulatePlan=(...args)=>{
   const p=originalSimulate(...args),sleepPhase=args[0].find(phase=>phase.setup.sleepComfort);
