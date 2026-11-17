@@ -74,6 +74,10 @@ function weather(url){
   for(const id of ['bedTemp','frontTemp'])await page.locator('#'+id).fill('68');for(const id of ['bedRH','frontRH'])await page.locator('#'+id).fill('35');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:180000});
   assert.match(await page.locator('#results').innerText(),/Your HVAC plan/i);assert.match(await page.locator('#resultStatus').innerText(),/Manual weather/);
+  await page.locator('#sensorComparison summary').click();
+  assert.match(await page.locator('#sensorPrior').innerText(),/cannot change your live recommendation/);
+  assert.equal(await page.locator('#sensorLag').inputValue(),'5');
+  await page.locator('#sensorComparison summary').click();
   await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-manual-light.png'),fullPage:true});
   const before=await page.locator('#readingTime').inputValue();
   await page.locator('#zipInput').fill('50273');await page.locator('#retrieveBtn').click();await page.waitForFunction(()=>forecast.fetched&&!weatherLoading);
@@ -227,12 +231,12 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.6.9'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.6.10'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
   await oldContext.close();}
-  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.6.9','6.0.0 → 6.6.9'],errors},null,2));
+  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.6.10','6.0.0 → 6.6.10'],errors},null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
 

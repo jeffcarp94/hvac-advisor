@@ -1,3 +1,9 @@
+# v6.6.10 — EasyTouch sensor comparison
+
+After building a plan, expand **EasyTouch sensor comparison** to run a separate experiment for a selected offset and 0–10 minute lag. The live recommendation, eligibility and logged plan are independent of the experiment. The comparison reports setup changes and nominal predicted heating and cooling call times.
+
+The current pair of readings supplies the bias when present. Otherwise the provisional garage prior uses +7°F referenced to an assumed 0°F garage adjustment. If the current adjustment is unknown, −4°F to +10°F is an illustrative sensitivity range, with +3°F as the initial test. The starting lag of 5 minutes is the midpoint of the specified range, with no field calibration. The sensor starts at front air plus bias and follows a first-order lag driven by a linear ramp over each thermal step. A synthetic zero-lag heating case produced one 2.79-minute call followed by 177 minutes idle. This is a short call, with no rapid restart. The comparison flags short completed calls for review.
+
 # v6.6.9 — Parking and comfort observations
 
 Heading and anticipated tree cover are owner observations saved on this device. Moving more than one mile from the last confirmed weather location or selecting New parking position requires reconfirmation. The location estimate comes from the weather lookup, so use New parking position for moves within the same ZIP. Optional per-run observations include each YoLink app update timestamp and bedroom/front comfort votes with the reported vote-time HVAC setup. The planner does not use these observations in calculations.
