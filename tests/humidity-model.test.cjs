@@ -61,7 +61,7 @@ test('dehumidifier removal uses one shared volume without a front/rear transport
 test('cached handoffs preserve moisture totals, prior heat and accumulated dehumidifier runtime',()=>{
  const a=app();a.run(`forecast.timeZone='America/Chicago';state.temp=60;state.rh=70;state.wind=2;state.cloud=0;
  r={start:new Date('2026-10-24T02:55Z'),reading:new Date('2026-10-24T02:55Z'),initial:{temperature:[69,71],rh:[60,58]},occupancy:'staying',remote:false};
- e=makeEnvelope(r.start,planBounds(r.start).end,'Moisture carry',300000);ph=[{time:+r.start,setup:planSetup('ac',false)},{time:+r.start+5*60000,setup:planSetup('auto',true)}];rows=planRows(e,r);
+ e=makeEnvelope(r.start,planBounds(r.start).end,'Moisture carry',300000);e.elevationM=1000;ph=[{time:+r.start,setup:planSetup('ac',false)},{time:+r.start+5*60000,setup:planSetup('auto',true)}];rows=planRows(e,r);
  direct=evaluatePlan(ph,e,r,rows);e.planCache=new Map();cached=evaluatePlan(ph,e,r,rows);`);
  assert.equal(a.run('JSON.stringify(direct.trials.map(t=>({trace:t.trace,moisture:t.moisture})))'),a.run('JSON.stringify(cached.trials.map(t=>({trace:t.trace,moisture:t.moisture})))'));
 });
@@ -69,7 +69,8 @@ test('cached handoffs preserve moisture totals, prior heat and accumulated dehum
 test('active AC and dehumidifier coupling converges as the timestep is refined',()=>{
  const a=app();a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;
  e={windowStart:new Date('2026-10-24T03:00Z'),windowEnd:new Date('2026-10-24T05:00Z'),wind:2,cloud:0,points:[{time:new Date('2026-10-24T03:00Z'),tOut:78,rh:85,wind:2,cloud:0}]};
- ps=[.5,.25,.125].map(maxStepMin=>zoneProfile('ac',e,true,confirmedSetpoints(true),C.metaSleep,72,{maxStepMin,initialZones:{temperature:[72,72],rh:[70,70]},fanSetting:'Low',frontControl:true}));`);
+ ps=[.5,.25,.0625].map(maxStepMin=>zoneProfile('ac',e,true,confirmedSetpoints(true),C.metaSleep,72,{maxStepMin,initialZones:{temperature:[72,72],rh:[70,70]},fanSetting:'Low',frontControl:true}));`);
+ assert.ok(a.run('ps[2].segments.length>ps[0].segments.length'));
  for(const p of ['ps[0]','ps[1]']){
   assert.ok(a.run(`Math.abs(${p}.finalIndoor-ps[2].finalIndoor)`)<.05);
   assert.ok(a.run(`Math.abs(${p}.finalZones.water[0]-ps[2].finalZones.water[0])`)<.00002);

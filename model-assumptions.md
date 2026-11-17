@@ -1,3 +1,30 @@
+# v6.6.12 — WP5 forecast precision and altitude
+
+NWS grid estimated site elevation in meters supplies standard-atmosphere pressure, P = 101325 × (1 − 2.25577e−5 × z)^5.25588 Pa. Missing or implausible elevation uses the labeled sea-level fallback. The modeled range of valid site elevation is −500 to 9,000 m, an engineering sanity check. The grid elevation is an official estimate and may differ from the actual parking spot. This is an engineering pressure approximation without observed barometric pressure. At 1,000 m it gives about 89.9 kPa and raises modeled humidity ratio at 70°F/50% RH to about 1.13× its sea-level value.
+
+Airflow volume remains in CFM. The density ratio is P/101325 multiplied by the absolute temperature ratio relative to 70°F. Apply the ratio once when converting outdoor or interzone CFM to sensible conductance or atmospheric airflow to dry-air mass flow. The existing 1.08, 4.5, 0.075 and 1.2 reference values are modeling conventions, not new measurements. The baseline leakage term is removed at reference density from the existing envelope UA before adding its live airflow term. Zone dry-air storage uses initial zone density and stays fixed through the horizon, preserving the existing shared water inventory. Outdoor moisture transport uses outdoor density, evaporator transport uses front-return density, and mixing conductance uses mean indoor density. Pressure also sets the psychrometric conversions used by the humidistat, coil checks and surface advisory. The legacy analytical routines retain reference defaults when pressure is absent.
+
+Grid wind and gusts are converted to mph. Valid zero is calm, while missing speed can use the low end of the existing forecast-text range. When both are missing the existing zero-mph preview default is labeled in the diagnostic and logged as missing. Grid sky cover supplies the existing solar factor through 1 − sky percent/100. Missing values use the prior text mapping, or its existing 0.6 default when period text is unavailable. Solar geometry is the existing estimated model. Temperature and RH still require full coverage. Weather intervals include starts and ends, retain decimals, and preserve the rain humidity floor. Exact 42°F heat-source dispatch remains unchanged. NWS grid data is official, while fallback and rendering choices are engineering conventions. [NWS API](https://www.weather.gov/documentation/services-web-api)
+
+## WP4 follow-up validation
+
+Concurrent cooling with dehumidifier removal limits thermal/moisture substeps to 7.5 seconds. This is a numerical resolution control, with other operating conditions using the normal integration step. The convergence test compares normal and 15-second scheduling against a separate 3.75-second reference, retaining the existing 0.05°F tolerance and water/runtime checks.
+
+The original synthetic fixtures remain available in v6.6.11 history. They cannot be used as positive qualification checks on the revised model. The positive condensation case uses a 90-minute synthetic interval with 60°F after the cold start. The positive cooling-preparation case uses synthetic 60°F overnight weather, 1°F cooler than the earlier fixture. The test criteria and model limits are unchanged.
+
+## Controlled before and after
+
+This fixed-setup comparison reruns the checked-in pre-WP5 inputs with the same nine-case solver and six closed-coach default settings. It measures solver effects only, since the archived inputs lack the new grid wind/sky fields and elevation. The nominal minimum may be from a terminated trial. These are simulated values without independent field validation.
+
+| Fixture | v6.6.11 | WP5, original inputs |
+| --- | --- | --- |
+| March 24 Winterset historical weather | AUTO, 0/9, minimum 68.44°F | AUTO, 0/9, 68.46°F |
+| October 1, 2025 reconstructed weather | COOL, 0/9, 70.54°F | COOL, 0/9, 70.53°F |
+| May 8 reconstructed weather | OFF, 0/9, 71.17°F | OFF, 0/9, 71.17°F |
+| October 23 Winterset saved forecast | COOL, 0/9, 72.00°F | COOL, 0/9, 72.00°F |
+| Synthetic surface advisory | AUTO, 8/9, 67.38°F | AUTO, 8/9, 67.37°F |
+| Synthetic bedtime preparation | OFF, 0/9, 72.00°F | OFF, 0/9, 72.00°F |
+
 # v6.6.11 — WP4 internal heat sources and window sides
 
 WP4 updates the spatial sources in the live two-temperature simulation. The previous model allocated the 313.49 BTU/h sleeping-occupant sensible load as 140.11 rear / 173.38 front. A 640 BTU/h example dehumidifier contribution was 286.04 rear / 353.96 front. Both used the volume split (431.11 / 533.46 ft³; 44.6945% rear). The new model allocates that sleeping load entirely to the rear and the measured-state dehumidifier model's electrical plus condensation heat entirely to the front. Awake sensible heat retains the volume split. Occupant vapor and dehumidifier water removal still use the common moisture balance.

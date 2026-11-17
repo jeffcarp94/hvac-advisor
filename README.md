@@ -1,3 +1,7 @@
+# v6.6.12 — WP5 forecast precision and altitude
+
+The solver uses NWS grid temperature, humidity, wind, sky cover and estimated elevation with labeled fallbacks. It keeps outdoor precision at the 42°F heat-source boundary, records wind gusts, and adjusts airflow and moisture calculations for site pressure. Concurrent cooling and dehumidification now use finer internal steps. See the [validation results](model-assumptions.md#v6612--wp5-forecast-precision-and-altitude).
+
 # v6.6.11 — WP4 internal heat sources and window sides
 
 Sleeping occupants and phone charging add heat in the rear, while the Cube's electrical and condensation heat enters the front. The model adds inverter and monitor standby heat, uses the owner-confirmed window sides, and retains the existing furnace delivery estimate. See [the before/after assessment](model-assumptions.md#v6611--wp4-internal-heat-sources-and-window-sides).

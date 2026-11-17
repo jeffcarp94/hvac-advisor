@@ -29,13 +29,17 @@ test('Current preserves constant NWS intervals instead of creating a ramp',()=>{
     assert.equal(a.run("lookupEnvelopeAt(buildCurrentEnvelope(new Date('2026-10-21T12:00Z'),new Date('2026-10-21T16:00Z')),new Date('2026-10-21T15:00Z')).tOut"),68);
 });
 
-test('requires complete temperature, RH and period-weather coverage, including gaps between samples',()=>{
+test('requires complete temperature and humidity coverage and labels missing optional fields',()=>{
     for(const layer of ['temperature','humidity']){
         const a=app();fixture(a);
         a.run(`forecast.intervals.${layer}=[{start:Date.parse('2026-10-21T17:00Z'),end:Date.parse('2026-10-21T17:10Z'),value:50},{start:Date.parse('2026-10-21T17:20Z'),end:Date.parse('2026-10-21T19:00Z'),value:50}]`);
         assert.throws(()=>a.run("makeEnvelope(new Date('2026-10-21T17:00Z'),new Date('2026-10-21T19:00Z'),'Test',3600000)"),/coverage is incomplete/);
     }
-    const a=app();fixture(a);a.run('forecast.periods[0].wind=null');assert.throws(()=>a.run('buildEnvelope(false)'),/coverage/);
+    const a=app();fixture(a);a.run('forecast.periods=[];e=buildEnvelope(false)');
+    assert.equal(a.run('e.points[0].wind'),0);
+    assert.equal(a.run('e.points[0].windSource'),'missing');
+    assert.equal(a.run('e.points[0].skySource'),'missing');
+    assert.match(a.run('weatherProvenance(e)'),/Wind is missing/);
 });
 
 test('null RH is not replaced by nearest or invented humidity',()=>{
@@ -148,12 +152,22 @@ test('complete ZIP retrieval uses discovered grid endpoint and records location/
         if(url.includes('zippopotam'))body={places:[{latitude:'41.3',longitude:'-94.0','place name':'Winterset','state abbreviation':'IA'}]};
         else if(url.includes('/points/'))body={properties:{forecast:'https://api.weather.gov/forecast-fixture',forecastGridData:'https://api.weather.gov/grid-fixture',timeZone:'America/Chicago'}};
         else if(url.includes('/forecast-fixture'))body={properties:{updateTime:'2026-10-21T16:00Z',periods:[{name:'Fixture',startTime:'2026-10-21T00:00Z',endTime:'2026-10-24T00:00Z',isDaytime:true,temperature:50,temperatureUnit:'F',windSpeed:'5 mph',shortForecast:'Clear',probabilityOfPrecipitation:{value:0}}]}};
-        else body={properties:{updateTime:'2026-10-21T16:00Z',temperature:{uom:'wmoUnit:degC',values:[{validTime:'2026-10-21T00:00Z/P3D',value:10}]},relativeHumidity:{uom:'wmoUnit:percent',values:[{validTime:'2026-10-21T00:00Z/P3D',value:50}]}}};
+        else{
+            const field=(uom,value)=>({uom,values:[{validTime:'2026-10-21T00:00Z/P3D',value}]});
+            body={properties:{updateTime:'2026-10-21T16:00Z',elevation:{uom:'wmoUnit:m',value:1000},
+                temperature:field('wmoUnit:degC',10),relativeHumidity:field('wmoUnit:percent',50),
+                windSpeed:field('wmoUnit:km_h-1',16.09344),windGust:field('wmoUnit:km_h-1',24.14016),
+                skyCover:field('wmoUnit:percent',40)}};
+        }
         return{ok:true,json:async()=>body};
     };
     await a.run('retrieveWeather()');
     assert.equal(a.run('forecast.location'),'Winterset, IA');assert.equal(a.run('forecast.fetched'),true);
     assert.equal(a.run('forecast.timeZone'),'America/Chicago');assert.equal(calls.length,4);
+    assert.equal(a.run('forecast.elevationM'),1000);
+    assert.equal(a.run('gridWeatherAt(Date.now()).wind'),10);
+    assert.equal(a.run('gridWeatherAt(Date.now()).gust'),15);
+    assert.equal(a.run('gridWeatherAt(Date.now()).cloud'),.6);
     assert.ok(calls.every(c=>c.cache==='no-store'));assert.match(a.element('weatherStatus').textContent,/Forecast retrieved/);
 });
 
@@ -168,3 +182,42 @@ test('a late successful request cannot restore forecast after a manual edit',asy
 });
 
 
+
+test('grid wind, gust and sky preserve zero, units, gaps and unrounded changeover temperatures',()=>{
+    const a=app();fixture(a);
+    a.run(`start=Date.parse('2026-10-21T17:00Z');
+        entry=(i,value)=>({validTime:new Date(start+i*60000).toISOString()+'/PT1M',value});
+        series=(uom,values)=>({uom,values:values.map((v,i)=>entry(i,v))});
+        forecast.elevationM=gridElevation({uom:'wmoUnit:m',value:1000});
+        forecast.intervals.temperature=decodeIntervals(series('wmoUnit:degF',[41.9,42,42.1]).values,v=>v,'temperature',-150,160);
+        forecast.intervals.wind=optionalWeatherIntervals(series('wmoUnit:km_h-1',[0,16.09344,null]),WIND_CONVERSIONS,'wind',0,300);
+        forecast.intervals.gust=optionalWeatherIntervals(series('wmoUnit:km_h-1',[24.14016,null,0]),WIND_CONVERSIONS,'gust',0,300);
+        forecast.intervals.sky=optionalWeatherIntervals(series('wmoUnit:percent',[0,101,40.5]),{'wmoUnit:percent':v=>v},'sky',0,100);
+        e=makeEnvelope(new Date(start),new Date(start+180000),'Grid edge',3600000);`);
+    assert.equal(a.run('e.elevationM'),1000);
+    assert.equal(a.run('e.points.map(p=>p.tOut).join(",")'),'41.9,42,42.1');
+    assert.equal(a.run('e.points.map(p=>heatSourceForPumpMode(p.tOut)).join(",")'),'furnace,hp,hp');
+    assert.equal(a.run('e.points[0].wind'),0);
+    assert.equal(a.run('e.points[0].windSource'),'grid');
+    assert.equal(a.run('e.points[1].wind'),10);
+    assert.equal(a.run('e.points[2].wind'),5);
+    assert.equal(a.run('e.points[2].windSource'),'period');
+    assert.equal(a.run('e.points[0].gust'),15);
+    assert.equal(a.run('e.points[1].gust'),null);
+    assert.equal(a.run('e.points[2].gust'),0);
+    assert.equal(a.run('e.points[0].cloud'),1);
+    assert.equal(a.run('e.points[1].skySource'),'period');
+    assert.equal(a.run('e.points[2].cloud'),.595);
+    assert.match(a.run('weatherProvenance(e)'),/unrounded/);
+    assert.equal(a.run('gridElevation({uom:"wmoUnit:m",value:null})'),null);
+});
+
+test('1000 m pressure and psychrometric round trip account for lower air density',()=>{
+    const a=app();a.run('p=sitePressurePa(1000);w=humidityRatio(70,50,p)');
+    assert.ok(Math.abs(a.run('p')-89875)<25);
+    assert.ok(Math.abs(a.run('w/humidityRatio(70,50)')-1.13)<.01);
+    assert.ok(Math.abs(a.run('rhFromRatio(70,w,p)')-50)<1e-9);
+    assert.ok(Math.abs(a.run('dpFromRatio(w,p)-dewPt(70,50)'))<.1);
+    assert.equal(a.run('densityScale(101325,70)'),1);
+    assert.ok(a.run('densityScale(p,90)<densityScale(p,70)'));
+});
