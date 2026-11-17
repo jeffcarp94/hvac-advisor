@@ -2252,7 +2252,15 @@ function currentRecommendation(envelope,request,plans){
     }
     return current;
 }
-function planSetups(sleep,vents=[]){return ['passive','ac','hp','furnace','auto','auto_furnace'].map(t=>planSetup(t,sleep)).concat(vents.map(c=>planSetup('maxxfan',sleep,c)));}
+// Owner direction (Nov 17 2026): when no closed-coach plan qualifies, try overnight
+// heating with one section of Jeff's bedside window half open (2"). The owner can
+// close it during the night if the model is wrong. Fallback only; never first choice.
+const WINDOW_FALLBACK_CONFIG=Object.freeze({gaps:Object.freeze([2,0,0,0,0,0]),fanZone:0,windowFallback:true});
+let WINDOW_FALLBACK=false;
+function planSetups(sleep,vents=[]){
+    if(WINDOW_FALLBACK&&sleep)return ['hp','furnace','auto','auto_furnace'].map(t=>planSetup(t,true,WINDOW_FALLBACK_CONFIG));
+    return ['passive','ac','hp','furnace','auto','auto_furnace'].map(t=>planSetup(t,sleep)).concat(vents.map(c=>planSetup('maxxfan',sleep,c)));
+}
 function shortlistVents(envelope,request,sleep){
     if(request.occupancy==='away')return request.actual.type==='maxxfan'?[request.actual.config]:[];
     const bounds=planBounds(request.start,request),limit=!sleep&&bounds.bedtime?+bounds.bedtime:Infinity;
@@ -2597,8 +2605,20 @@ function renderDeparturePlan(result){
     return html+'</div>';
 }
 
+function planQualified(result){return !!(result?.winner?.suitable&&result.winner.ready);}
+function* windowFallbackSearch(result,envelope,request){
+    const bounds=planBounds(request.start,request);
+    if(!bounds.hasSleep||planQualified(result))return result;
+    WINDOW_FALLBACK=true;
+    try{
+        if(!planSetups(true,[]).some(setup=>setup.config?.windowFallback))return result;
+        const fallback=yield* searchPlansCore(envelope,request);
+        if(planQualified(fallback)&&fallback.winner.phases.some(phase=>phase.setup.config?.windowFallback)){fallback.windowFallback=true;return fallback;}
+        result.windowFallbackTried=true;return result;
+    }finally{WINDOW_FALLBACK=false;}
+}
 function* searchPlans(envelope,request){
-    const result=yield* searchPlansCore(envelope,request);
+    const result=yield* windowFallbackSearch(yield* searchPlansCore(envelope,request),envelope,request);
     const hasCurrent=result.stages?!!result.stages.current?.recommended||!!result.stages.departure.recommended:(result.winner.suitable&&result.winner.ready)||!!result.current;
     if(!hasCurrent&&request.occupancy!=='away')result.recoveryAction=recoveryAction(envelope,request);
     result.bedtimeRecovery=bedtimeRecovery(result,envelope,request);
@@ -2973,7 +2993,9 @@ function renderPeriodComparisons(period,night=false){
     return html+'</div>';
 }
 function setupName(setup){return systemDisplayName({type:setup.type,variant:setup.config?.fanName});}
-function setupInstructions(setup){if(setup.type==='passive'&&setup.config)return 'Keep the thermostat and roof fans OFF. Leave '+windowInstruction(setup.config)+'; the window arrangement stays fixed.';return candidateSetup({type:setup.type,setpoints:setup.setpoints,fanSpeed:setup.fan,variant:setup.config?.fanName,config:setup.config},setup.sleepComfort);}
+function windowFallbackInstruction(){return 'Open one section of Jeff’s bedside window half open (2″). Keep all other windows and both MaxxFans closed/off. If the bedroom feels cold overnight, close the window.';}
+function setupInstructions(setup){if(setup.config?.windowFallback)return setupForMode(setup.type,setup.setpoints,setup.fan,setup.sleepComfort).replace(/Close windows and MaxxFans\.\s*/,'').trim()+' '+windowFallbackInstruction();
+    if(setup.type==='passive'&&setup.config)return 'Keep the thermostat and roof fans OFF. Leave '+windowInstruction(setup.config)+'; the window arrangement stays fixed.';return candidateSetup({type:setup.type,setpoints:setup.setpoints,fanSpeed:setup.fan,variant:setup.config?.fanName,config:setup.config},setup.sleepComfort);}
 function planActionText(phase,request){
     if(!isAwayAt(request,phase.time)||request.occupancy==='leaving'&&phase.time===+request.departure)return escapeHTML(setupInstructions(phase.setup));
     const setup=phase.setup;
@@ -3007,7 +3029,13 @@ function currentOutlook(current,bounds){
     if(protection.length)html+='<p class="hint">Later operating or moisture concern: '+escapeHTML(protection.join(' '))+'</p>';
     return html+surfaceOutlook(p.trials);
 }
-function renderPlan(result){
+function windowFallbackNote(result){
+    if(result.windowFallback)return '<div class="mitigation-box" id="windowFallbackNote"><strong>Bedroom window fallback</strong>No closed-coach setup kept the bedroom within the sleeping range in every tested case. This plan opens one section of Jeff’s bedside window half open (2″) with overnight heating. If the bedroom feels cold, close the window.</div>';
+    if(result.windowFallbackTried)return '<p class="hint" id="windowFallbackNote">Overnight heating with one section of Jeff’s bedside window half open (2″) was also checked and did not qualify.</p>';
+    return '';
+}
+function renderPlan(result){return windowFallbackNote(result)+renderPlanCore(result);}
+function renderPlanCore(result){
     if(result.stages)return renderDeparturePlan(result);
     if(result.bedtimeRecovery&&!result.bedtimeRecovery.overnight)return bedtimeRecoveryHTML(result.bedtimeRecovery);
     const {winner:p,bounds,request}=result,initial=p.phases[0],sleepFrom=bounds.bedtime?+bounds.bedtime:+bounds.start;
