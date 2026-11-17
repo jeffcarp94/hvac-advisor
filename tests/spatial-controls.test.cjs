@@ -10,10 +10,10 @@ test('scale geometry includes open cab and overhead output is uniform per served
  const a=app();close(a.run('M.volumeFt3[0]'),431.1094631498402,1);close(a.run('M.volumeFt3[1]'),533.4600,1);
  close(a.run('M.fraction.reduce((s,x)=>s+x,0)'),1);
  for(const op of ['ac','hp']){
-  a.run(`q=zoneHeatGains(0,0,10000,'${op}')`);close(a.run('q[0]+q[1]'),10000);
+  a.run(`q=zoneHeatGains([0,0],0,10000,'${op}')`);close(a.run('q[0]+q[1]'),10000);
   close(a.run('q[0]/M.volumeFt3[0]'),a.run('q[1]/M.volumeFt3[1]'));
  }
- a.run("q=zoneHeatGains(0,0,10000,'furnace')");close(a.run('q[0]'),7000);close(a.run('q[1]'),3000);
+ a.run("q=zoneHeatGains([0,0],0,10000,'furnace')");close(a.run('q[0]'),7000);close(a.run('q[1]'),3000);
 });
 test('cab uncertainty changes total load while preserving independent RV-body conductance',()=>{
  const a=app();const body=a.run('envelopeAllocation().body'),rear=a.run('envelopeAllocation().rear');let previous;
@@ -27,7 +27,7 @@ test('cab uncertainty changes total load while preserving independent RV-body co
 test('shade coefficients alter solar only and gains conserve energy in each distribution',()=>{
  const a=app();const ua=a.run('envelopeAllocation().front');const solar=a.run('solarLoad(1,true)');
  a.run('C.cabGlassSHGC=.05');assert.equal(a.run('envelopeAllocation().front'),ua);assert.ok(a.run('solarLoad(1,true)')<solar);
- for(const op of ['ac','hp','furnace','off']){a.run(`q=zoneHeatGains(300,4200,-1000,'${op}')`);close(a.run('q[0]+q[1]'),3500);}
+ for(const op of ['ac','hp','furnace','off']){a.run(`q=zoneHeatGains([100,200],4200,-1000,'${op}')`);close(a.run('q[0]+q[1]'),3500);}
 });
 test('bed-qualified plans prefer both areas comfortable; a dinette miss cannot defeat bed eligibility',()=>{
  const a=app();a.run(`bed={suitable:true,ready:true,frontFits:false,targetRank:0,score:0,type:'furnace'};
@@ -70,4 +70,52 @@ test('unchanged effective controls preserve AUTO cycle and cached state across a
  assert.deepEqual(a.run('direct.finalZones'),a.run('divided.finalZones'));
  assert.deepEqual(a.run('divided.finalZones'),a.run('cached.trials[0].finalZones'));
  assert.equal(a.run('direct.coolMinutes'),a.run('divided.coolMinutes'));
+});
+
+test('internal sensible gains reconcile by source and follow occupancy',()=>{
+ const a=app();
+ a.run(`base=zoneInternalGains(0,0,false,false);
+   awake=zoneInternalGains(100,0,false,false);
+   asleep=zoneInternalGains(100,0,true,false);
+   wet=zoneInternalGains(100,640,true,false);
+   charging=zoneInternalGains(100,640,true,true);`);
+ close(a.run('base[0]'),20*3.412);
+ close(a.run('base[1]'),6*3.412);
+ close(a.run('awake[0]-base[0]'),a.run('100*M.fraction[0]'));
+ close(a.run('awake[1]-base[1]'),a.run('100*M.fraction[1]'));
+ close(a.run('asleep[0]-base[0]'),100);
+ close(a.run('asleep[1]-base[1]'),0);
+ close(a.run('wet[0]-asleep[0]'),0);
+ close(a.run('wet[1]-asleep[1]'),640);
+ close(a.run('charging[0]-wet[0]'),40*3.412);
+ close(a.run('charging[1]-wet[1]'),0);
+ close(a.run('charging[0]+charging[1]'),740+66*3.412);
+});
+
+test('charging follows occupied sleep, including delayed return and a late-night rebuild',()=>{
+ const a=scenario();
+ a.run(`r.start=new Date('2026-10-24T02:00Z');
+   r.occupancy='leaving';r.departure=new Date('2026-10-24T02:30Z');
+   r.returnTime=new Date('2026-10-24T04:13Z');
+   e=makeEnvelope(r.start,planBounds(r.start,r).end,'Synthetic charging schedule',300000);
+   scheduled=planRows(e,r,7);`);
+ assert.equal(a.run('scheduled.filter(row=>row.occupants===0).every(row=>!row.phoneCharging)'),true);
+ assert.equal(a.run('scheduled.find(row=>row.phoneCharging).from'),Date.parse('2026-10-24T04:13Z'));
+ assert.equal(a.run('scheduled.filter(row=>row.phoneCharging).at(-1).to'),Date.parse('2026-10-24T06:13Z'));
+ a.run(`r={...r,occupancy:'staying',start:new Date('2026-10-24T06:30Z')};
+   e=makeEnvelope(r.start,planBounds(r.start,r).end,'Synthetic late sleep',300000);
+   scheduled=planRows(e,r);`);
+ assert.equal(a.run('scheduled.some(row=>row.phoneCharging)'),false);
+});
+
+test('owner-confirmed window sides change wind pressure with the same pane and solar geometry',()=>{
+ const a=scenario();
+ a.run(`config={gaps:[4,0,4,0,0,0],fanZone:1};
+   windward=ventilationNetwork(config,[72,72],72,12,0,{...AIR_SCENARIOS[0],windSign:1});
+   leeward=ventilationNetwork(config,[72,72],72,12,0,{...AIR_SCENARIOS[0],windSign:-1});`);
+ assert.equal(a.run("WINDOW_SECTIONS.filter(p=>p.side==='entry').map(p=>p.id).join(',')"),'jeff1,jeff2,sink');
+ assert.equal(a.run("WINDOW_SECTIONS.filter(p=>p.side==='driver').map(p=>p.id).join(',')"),'kim,dinette1,dinette2');
+ assert.ok(a.run('windward.flows[0]>0&&windward.flows[2]<0'));
+ assert.ok(a.run('leeward.flows[0]<0&&leeward.flows[2]>0'));
+ assert.equal(a.run("WINDOW_SECTIONS.filter(p=>p.bed).map(p=>p.id).join(',')"),'jeff1,jeff2,kim');
 });

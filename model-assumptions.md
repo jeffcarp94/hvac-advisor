@@ -1,3 +1,34 @@
+# v6.6.11 — WP4 internal heat sources and window sides
+
+WP4 updates the spatial sources in the live two-temperature simulation. The previous model allocated the 313.49 BTU/h sleeping-occupant sensible load as 140.11 rear / 173.38 front. A 640 BTU/h example dehumidifier contribution was 286.04 rear / 353.96 front. Both used the volume split (431.11 / 533.46 ft³; 44.6945% rear). The new model allocates that sleeping load entirely to the rear and the measured-state dehumidifier model's electrical plus condensation heat entirely to the front. Awake sensible heat retains the volume split. Occupant vapor and dehumidifier water removal still use the common moisture balance.
+
+| Source | Placement and schedule | Basis and confidence |
+| --- | --- | --- |
+| Occupants | Existing sensible load, shared by volume awake and entirely rear asleep. Zero when away. | Owner observation for location (high). Existing activity load and awake allocation are engineering estimates (medium). |
+| Midea Cube | Existing humidistat and electrical plus latent-to-sensible output, entirely front. | Owner-confirmed location (high). Output uses the existing engineering model (medium). |
+| MultiPlus 12/3000/120-50 | 20 W standby in the rear, continuously. Additional conversion loss is 0 until an AC load is modeled. | OEM 120 V MultiPlus datasheet for standby (high at its rated condition). Installed operating mode is unconfirmed (low for actual draw). Scope bound 8–30 W reserved for WP13. [OEM datasheet](https://www.victronenergy.com.au/upload/documents/Datasheet-Multiplus-inverter-charger_2kVA-and-3kVA-120V-US-EN.pdf) |
+| Cerbo GX and GX Touch | 6 W continuously in the front. | Community examples and provisional placement (low). Scope bound 4–7 W reserved for WP13. |
+| Phones | 40 W in the rear for the first two hours of occupied sleep, starting at delayed return when applicable. An overnight rebuild uses the same 10 PM local charging start unless delayed return is known. | Engineering assumption (low). Scope bound 20–60 W reserved for WP13. |
+| Refrigerator | 0 W into the modeled interior. | Owner reports outward venting (high). Neglecting incidental interior heat is a simplification (low). |
+| Furnace | Retains 70% rear, 30% front. Two rear outlets serve the aisle and bathroom, and the front outlet is under the sink. | Owner-reported outlet geometry (high). The fractional split is an engineering estimate (medium), with 60–85% rear reserved for WP13. |
+
+Power conversion is 3.412 BTU/h per watt. The entry-door side now has Jeff's bedside panes and the sink pane. The driver side has Kim's pane and the two dinette panes. This is an owner observation (high). The existing opposite wind pressure signs and bedside draft weighting remain engineering estimates. Solar glazing and shade calculations are independent of the window-side correction in this release.
+
+## Before and after
+
+This controlled comparison uses each checked-in weather fixture, the same paired starting readings and all nine scenarios, with only the six default closed-coach fixed setups and the existing initial recovery adjustments. The result is the highest-ranked fixed setup, so it does not establish the recommendation of the full search. Temperatures refer to the nominal run through its verified end or stopping point. The historical starting readings for March, October 2025 and May use the existing reconstructed 72°F / 72°F and 54% / 52% RH pair.
+
+| Fixture | Before v6.6.10 | WP4 | Binding change |
+| --- | --- | --- | --- |
+| March 24 Winterset, historical ERA5 | AUTO, 0/9 qualified, 69.87°F nominal minimum | AUTO, 0/9, 68.44°F | Sustained severe bedroom warmth remains binding. |
+| October 1, 2025, historical reconstruction | COOL, 0/9, 72.00°F | COOL, 0/9, 70.54°F | The highest-ranked fixed trial now hits the severe warm-duration limit. |
+| May 8, 2026, historical reconstruction | OFF, 0/9, 71.38°F | OFF, 0/9, 71.17°F | Sustained severe bedroom warmth remains binding. |
+| October 23 Winterset, saved forecast | OFF, 0/9, 72.00°F | COOL, 0/9, 72.00°F | The highest-ranked fixed setup changes. Daytime bedroom warmth still prevents full qualification. |
+| Synthetic surface advisory | AUTO, 9/9, 67.11°F | AUTO, 8/9, 67.38°F | One case now remains above the sleeping band. |
+| Synthetic bedtime preparation | OFF, 0/9, 71.93°F | OFF, 0/9, 72.00°F | This fixture needs a timed preparation search. The fixed-plan result remains unqualified. |
+
+Source-allocation, delayed-return charging, pressure direction, moisture balance and cache parity are covered in the targeted tests. No independent field temperatures validate these predicted changes. In the wet-cooling convergence fixture the nominal 30-second run ends at 68.293°F, compared with 68.188°F at 15 seconds and 68.140°F at 7.5 seconds. The 0.153°F difference exceeds the existing 0.05°F regression threshold. The tolerance and model inputs remain in place for investigation. The full closed-coach search also no longer yields a qualified winner in the synthetic surface-advisory fixture. Its invariant comparison is therefore blocked at the qualification precondition. The recorded warning still does not gate the solver. The targeted three-stage COOL preparation fixture also no longer produces a qualified overnight heating sequence. These three checks are release blockers, and the full suite and browser checks require completion before deployment.
+
 # v6.6.10 — EasyTouch sensor comparison
 
 After building a plan, expand **EasyTouch sensor comparison** to run a separate experiment for a selected offset and 0–10 minute lag. The live recommendation, eligibility and logged plan are independent of the experiment. The comparison reports setup changes and nominal predicted heating and cooling call times.

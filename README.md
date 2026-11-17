@@ -1,3 +1,7 @@
+# v6.6.11 — WP4 internal heat sources and window sides
+
+Sleeping occupants and phone charging add heat in the rear, while the Cube's electrical and condensation heat enters the front. The model adds inverter and monitor standby heat, uses the owner-confirmed window sides, and retains the existing furnace delivery estimate. See [the before/after assessment](model-assumptions.md#v6611--wp4-internal-heat-sources-and-window-sides).
+
 # v6.6.10 — EasyTouch sensor comparison
 
 After building a plan, expand **EasyTouch sensor comparison** to run a separate experiment for a selected offset and 0–10 minute lag. The live recommendation, eligibility and logged plan are independent of the experiment. The comparison reports setup changes and nominal predicted heating and cooling call times.
