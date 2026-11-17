@@ -1,3 +1,7 @@
+# v6.6.8 — EasyTouch reading placement
+
+Enter the EasyTouch displayed temperature and optional reading time alongside the YoLink readings. Run logging retains the Temperature Reading Adjustment as a device-local setting.
+
 # v6.6.7 — EasyTouch logging fields
 
 Run logging records the displayed EasyTouch indoor temperature, its timestamp, and the saved Temperature Reading Adjustment. An empty EasyTouch time uses the YoLink reading time. The display difference is calculated against the front YoLink reading without applying the offset a second time. The fields are for observation and use the existing Sheet columns.
