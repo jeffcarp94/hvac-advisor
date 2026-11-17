@@ -1,3 +1,45 @@
+# v6.6.13 — WP6 capacity comparison
+
+Comparison only. The experimental path is enabled by an explicit comparison envelope, with separate solver/cache state. The active app still uses its existing heating and cooling capacities and changeover policy. The EasyTouch outdoor reading is optional and logged as observed; it does not drive the solver.
+
+## Owner-selected equipment assumption, November 17, 2026
+
+Jeff selected B59186 as the working model after reviewing the available candidates and explaining that retrieving the nameplate is difficult. The exact installed model remains unverified. Use the B59186 Brisk II family for this application, with 459186 retained as a plausible family alternative. Control compatibility supplies the technical basis; search visibility and retail listings are supporting context.
+
+The nameplate is optional corroboration for this project. Its absence no longer blocks completing the comparison. The D2 decision on adopting experimental heating and cooling performance follows review of the full planner results.
+
+Use 15,000 BTU/h nominal total cooling and 280 CFM nominal high-fan airflow. The 2,822 W heating anchor at 7°C remains a related-model proxy, with sensitivity from 0.85 to 1.25 times the anchor, approximately 8,185–12,036 BTU/h. This is an engineering sensitivity range, not a published spread between B59186 and 459186. Preserve the 200–290 CFM airflow sensitivity and report invalid coil combinations explicitly. Installed airflow, delivered heating and net blower-heat accounting remain uncertain.
+
+## Sources and assumptions
+
+- The [Dometic installation manual](https://media.dometic.com/externalassets/brisk-ii-evolution-15k-with-heat-pump_9105304481_71275.pdf) confirms 15,000 BTU/h nominal cooling and a 29.0 oz R-410A charge for the candidate models in its table. Multiple configurations share those values; the owner-selected B59186 assumption is recorded above.
+- The scope's 2,822 W heating anchor at 7°C comes from the related B59196 rating. The original product listing was unavailable during implementation. The anchor is a tier-4 proxy carried forward from the approved comparison scope, with low-to-medium confidence for the installed unit. The 280 CFM high-fan value is a [retailer proxy](https://steedtrailerparts.com/product/dometic-air-conditioners-b59196-xx1c0-brisk-air-ii-heat-pump-15k-btu/), with low confidence for installed duct airflow. The scope's separate 295 m³/h figure has an unverified basis and is not treated as evaporator airflow.
+- Curves are pinned to [EnergyPlus v24.2.0, EMSCurveOverride_PackagedTerminalHeatPump.idf](https://github.com/NREL/EnergyPlus/blob/v24.2.0/testfiles/EMSCurveOverride_PackagedTerminalHeatPump.idf), objects HPACCoolCapFT, HPACCoolCapFFF, HPACHeatCapFT and HPACHeatCapFFF. These are example shapes from a technical reference, not measured Dometic curves. Input domain clamps are flagged. The estimated condenser roof increment is zero nominally and can be tested through 10°F times the existing solar fraction.
+- Cooling uses a gross-coil comparison boundary with 15,000 BTU/h at 27°C dry bulb, 19°C wet bulb and 35°C outdoors. The 95% leaving RH assumption gives rated bypass factor 0.0712 and SHR about 0.658, or about 9,863 BTU/h sensible and 5,137 latent. This is inferred from the psychrometric balance, not a factory SHR. Airflow adjusts bypass factor by the NTU relation. The modeled condensate rate follows dry-air mass flow times the humidity-ratio drop. The comparison assumes full sensible output when the apparatus dew point is above the entering dew point. An installed net blower-heat correction has not been measured.
+- The cooling sensitivity inputs cannot be sampled independently as written. At 200 CFM, both 90% and 95% rated leaving RH yield no saturation intersection with the inlet-to-outlet process line. At 95%, the minimum separation is approximately 0.000047 lb/lb of dry air at 29.24°F. At 98% the bypass factor is valid, about 0.049. These are model feasibility results, not installed measurements. The model reports invalid points and applies no replacement. The later sampled design needs an explicit decision on correlated or feasible-only draws.
+- Heating normalizes the example curve at 7°C and preserves 2,822 W at high reference airflow. Low/medium flow fractions of 0.68/0.82 and the −15%/+25% heating sensitivity are approved comparison assumptions. The reference heating curve uses a 9,629 BTU/h approximate anchor compared with about 13,800 BTU/h in the existing model near 44.6°F.
+- The experimental changeover uses outdoor scenario air as a proxy for rooftop sensor temperature. Switch to furnace at or below 42°F plus the tested offset and switch back only above that threshold plus the tested hysteresis. Initial source is an explicit input for sensitivity. Furnace-only and AUTO FURNACE dispatch remain separate. Test cases include both initial sources and both extremes of each input. The original cooling eligibility rules continue to govern the comparison runs.
+
+## Comparison runs
+
+Run `node tools/compare-capacity.cjs` under Node 24. It prints the highest-ranked of the six fixed closed-coach defaults with the approved initial recovery settings, plus the sensitivity results. Run with `--full --case=<fixture-name>` to use the normal plan search independently for the current and experimental models. These controlled fixed-setup results do not establish the result of the full scheduler. Exact phase settings, furnace minutes, recovery, water residual and qualifying alternatives are in the runner output. The hot profile is synthetic and uses the existing solar geometry, which has no heading input yet. No comparison results have independent field validation.
+
+| Fixture | Highest-ranked fixed setup, current → experimental | Minimum bedroom, current → experimental | Experimental qualification |
+| --- | --- | --- | --- |
+| March Winterset, historical | AUTO → AUTO | 66.54 → 66.54°F | Fails warm duration |
+| October 2025 Winterset, reconstruction | COOL → COOL | 70.13 → 70.16°F | Fails warm duration |
+| May Winterset, reconstruction | OFF → OFF | 64.99 → 64.99°F | Fails warm duration in at least one member |
+| October Winterset, saved forecast | COOL → COOL | 70.22 → 70.25°F | Fails warm duration |
+| Surface advisory, synthetic | OFF → OFF | 65.04 → 65.04°F | Qualifies; FURNACE also qualifies |
+| Bedtime preparation, synthetic | OFF → OFF | 70.22 → 70.22°F | Fixed setup fails; requires timed search |
+| Hot afternoon, synthetic | OFF → OFF | 78.00 → 78.00°F | Fails recovery |
+| Falling temperatures, synthetic | HEAT PUMP → HEAT PUMP | 65.32 → 65.32°F | Fails warm duration |
+| Rising temperatures, synthetic | HEAT PUMP → HEAT PUMP | 65.23 → 65.23°F | Fails warm duration |
+
+The evaluated sensitivities did not change the highest-ranked fixed mode or complete fixed qualification. Selected nominal furnace minutes rose by up to 7.21 min in the March sensitivity cases and 6.81 min in the falling-temperature case. The rising-temperature case used 16.59 min of furnace on both nominal models. The comparison logs runtime, not fuel volume.
+
+The nine original full-search comparisons are complete. Two qualify with each nominal model. The synthetic bedtime-preparation plan changes its controls and passes the heating-capacity range, but fails both bundled airflow/coil extremes. Added currently-away and no-Wi-Fi cases are also recorded. See the [full comparison report](reports/wp6-capacity-comparison.md) and [machine-readable evidence](reports/wp6-capacity-comparison.json) for exact phases, full-window diagnostics, sensitivity limits, alternatives and verification status. The full test suite and browser/PWA verification remain unresolved. D2 remains pending the owner’s performance-release decision. No production capacity switch or coil eligibility change is included.
+
 # v6.6.12 — WP5 forecast precision and altitude
 
 NWS grid estimated site elevation in meters supplies standard-atmosphere pressure, P = 101325 × (1 − 2.25577e−5 × z)^5.25588 Pa. Missing or implausible elevation uses the labeled sea-level fallback. The modeled range of valid site elevation is −500 to 9,000 m, an engineering sanity check. The grid elevation is an official estimate and may differ from the actual parking spot. This is an engineering pressure approximation without observed barometric pressure. At 1,000 m it gives about 89.9 kPa and raises modeled humidity ratio at 70°F/50% RH to about 1.13× its sea-level value.

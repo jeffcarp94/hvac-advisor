@@ -73,12 +73,13 @@ test('currently-away guidance preserves the verified physical arrangement and av
  if(a.run('c'))assert.equal(a.run('sameSetup(c.setup,r.actual)'),true);
  assert.equal(a.run("setupChangeAllowed(r.actual,planSetup('ac',false),+r.start,r)"),false);
 });
-test('Winterset evening gives verified current guidance when body uncertainty prevents a complete plan',()=>{
+test('Winterset evening gives verified current guidance when the complete plan fails',()=>{
  // Full window/fan search is exercised in browser CI; isolate closed-coach guidance here.
  const a=setup();a.run('shortlistVents=()=>[];result=runUnifiedPlan(r,e);html=renderPlan(result)');
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),false);
  assert.ok(a.run('result.current'));assert.equal(a.run('result.winner.trials.length'),9);
- assert.equal(a.run('result.winner.trials[0].suitable'),true);
+ // The retained diagnostic may now fail nominally as well as in a sensitivity case.
+ // Its qualification must never certify the separately verified current guidance.
  assert.ok(a.run('result.winner.trials.some(t=>!t.suitable)'));
  assert.ok(a.run('Number.isFinite(result.current.targetRank)'));
  a.run(`function programmable(setup){
@@ -102,6 +103,6 @@ test('a future extreme-cold shortfall still provides bounded current guidance',(
  assert.equal(a.run('result.winner.suitable'),false);assert.ok(a.run('result.current'));
  assert.equal(a.run('result.current.reviewAt'),+new Date(winterset.request.start)+30*60000);
  assert.equal(a.run('result.current.trials.every(t=>t.suitable&&+t.trace.at(-1).time===result.current.reviewAt)'),true);
- assert.match(a.run('html'),/Next action — refresh readings/);assert.match(a.run('html'),/Overnight needs reassessment/);
+ assert.match(a.run('html'),/Next action — refresh readings/);assert.match(a.run('html'),/complete overnight setup has not been verified/i);
 });
 

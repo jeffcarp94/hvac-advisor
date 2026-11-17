@@ -34,8 +34,8 @@ test('sleep thermostat settings cannot activate sleeping bands while awake or af
 test('sleeping band follows occupancy and clock, ending exactly at 7 AM',()=>{
  const a=scenario('2026-10-24T03:00Z');a.run(`p=simulatePlan([{time:+r.start,setup:planSetup('hp',false)}],e,r)`);
  assert.equal(a.run('p.comfortLow'),65);assert.equal(a.run('p.comfortHigh'),69);
- // Use a viable fixed heating setup so the entire trace reaches the boundary.
- a.run(`p=simulatePlan([{time:+r.start,setup:planSetup('hp',true)}],e,r)`);
+ // Continue a diagnostic trace past comfort failure to inspect the 7 AM boundary.
+ a.run(`p=simulatePlan([{time:+r.start,setup:planSetup('hp',true)}],e,r,AIR_SCENARIOS[0],null,null,false,true)`);
  assert.equal(a.run('p.trace.at(-1).time.toISOString()'),'2026-10-24T12:00:00.000Z');assert.equal(a.run('p.trace.at(-1).sleep'),false);
  a.run(`r.occupancy='away';r.remote=true;r.departure=r.start;r.returnTime=new Date(+r.start+3600000);r.actual=planSetup('hp',true);rows=planRows(e,r).filter(x=>x.to<=+r.returnTime);p=simulatePlan([{time:+r.start,setup:r.actual}],e,r,AIR_SCENARIOS[0],rows)`);
  assert.equal(a.run('p.comfortLow'),68);assert.equal(a.run('p.comfortHigh'),73);

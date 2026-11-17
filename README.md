@@ -1,3 +1,7 @@
+# v6.6.13 — WP6 capacity comparison
+
+Experimental related-model heating and cooling outputs are available to the offline comparison runner. The normal planner still uses its existing capacities and heat-source dispatch. The optional EasyTouch outdoor reading is stored in the existing log column. See the [comparison report](model-assumptions.md#v6613--wp6-capacity-comparison).
+
 # v6.6.12 — WP5 forecast precision and altitude
 
 The solver uses NWS grid temperature, humidity, wind, sky cover and estimated elevation with labeled fallbacks. It keeps outdoor precision at the 42°F heat-source boundary, records wind gusts, and adjusts airflow and moisture calculations for site pressure. Concurrent cooling and dehumidification now use finer internal steps. See the [validation results](model-assumptions.md#v6612--wp5-forecast-precision-and-altitude).
