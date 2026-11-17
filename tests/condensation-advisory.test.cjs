@@ -11,7 +11,7 @@ test('closed-coach whole-plan selection, ranking, preparation and trajectories a
  // Full window/fan search remains covered by browser CI on the same fixture.
  a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;shortlistVents=()=>[];
  r={start:new Date(job.start),reading:new Date(job.start),initial:job.initial,occupancy:'staying',remote:false};
- points=[{time:r.start,...job.weather}];
+ points=job.points.map(p=>({...p,time:new Date(p.time)}));
  function envelope(){return {windowStart:r.start,windowEnd:new Date(job.end),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};}
  function calculate(){return runUnifiedPlan(r,envelope());}
  base=calculate();`);

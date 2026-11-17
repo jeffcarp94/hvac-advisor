@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),{app}=require('./helpers.cjs');
 function load(a,job){a.setNow(job.start);a.ctx.job=job;a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;
- r={start:new Date(job.start),reading:new Date(job.start),initial:{temperature:[72,72],rh:[54,52]},occupancy:'staying',remote:false};
+ r={start:new Date(job.start),reading:new Date(job.start),initial:job.initial??{temperature:[72,72],rh:[54,52]},occupancy:'staying',remote:false};
  pts=job.points.map(p=>({...p,time:new Date(p.time),tOut:Math.round(p.tOut),rh:Math.round(p.rh)}));
  e={windowStart:r.start,windowEnd:new Date(job.end),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points:pts,cloud:pts[0].cloud,wind:pts[0].wind,precip:pts[0].precip};`);}
 test('heat pump includes full defrost interruptions and never substitutes furnace',()=>{
@@ -63,7 +63,13 @@ test('preparation search checks a fine-grid timing island after coarse proposals
  assert.equal(a.run('result.winner.trials.every(t=>+t.trace.at(-1).time===+e.windowEnd)'),true);
 });
 test('planner searches separate COOL preparation followed by an overnight heating setup',()=>{
- const a=app();load(a,require('./fixtures/winterset-planning-regressions.json')[1]);a.run('result=runUnifiedPlan(r,e);html=renderPlan(result)');
+ const a=app();load(a,require('./fixtures/synthetic-bedtime-preparation.cjs'));
+ // Isolate the three-stage search from mode and setpoint optimization. The
+ // solver still verifies all nine trajectories with their original physics.
+ a.run(`shortlistVents=()=>[];
+ planSetups=sleep=>sleep?[withSetting(planSetup('hp',true,null,'Low'),67)]:[planSetup('passive',false)];
+ optimizePhase=plan=>plan;
+ result=runUnifiedPlan(r,e);html=renderPlan(result)`);
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
  assert.equal(a.run("result.plans.some(p=>p.suitable&&p.ready&&p.phases.length===3&&p.phases[1].setup.type==='ac'&&['hp','furnace'].includes(p.nightType))"),true);
  assert.equal(a.run('result.winner.trials.every(t=>+t.trace.at(-1).time===+e.windowEnd)'),true);

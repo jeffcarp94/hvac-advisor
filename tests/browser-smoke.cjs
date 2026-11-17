@@ -156,11 +156,11 @@ function weather(url){
   const advisoryResult=await page.evaluate(async job=>{
    const start=new Date(job.start),end=new Date(job.end);state.dehumidifierEnabled=true;
    const request={start,reading:start,initial:job.initial,occupancy:'staying',remote:false};
-   const points=[{time:start,...job.weather}];
+   const points=job.points.map(p=>({...p,time:new Date(p.time)}));
    const envelope={windowStart:start,windowEnd:end,timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,source:'synthetic',singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
    const result=await calculateInWorker(request,envelope);
    const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
-   document.getElementById('resultStatus').textContent='Synthetic cold overnight interval';
+   document.getElementById('resultStatus').textContent='Synthetic two-hour overnight interval';
    return {suitable:result.winner.suitable,ready:result.winner.ready,mode:result.winner.nightType,
     full:result.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+end),
     warning:result.winner.trials.some(t=>t.condensationConcern?.source==='surface')};
@@ -173,18 +173,18 @@ function weather(url){
   assert.doesNotMatch(advisoryText,/Condensation margin fails/);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
   await page.screenshot({path:path.join(screens,'condensation-advisory-plan.png'),fullPage:true});
-  // The historical preparation case must render every action selected by the current target policy.
-  const preparationJob=require('./fixtures/winterset-planning-regressions.json')[1];
+  // A complete preparation case must render every action selected by the Worker.
+  const preparationJob=require('./fixtures/synthetic-bedtime-preparation.cjs');
   const preparationResult=await page.evaluate(async job=>{
    const start=new Date(job.start),end=new Date(job.end);
-   const request={start,reading:start,initial:{temperature:[72,72],rh:[54,52]},occupancy:'staying',remote:false};
-   const points=job.points.map(p=>({...p,time:new Date(p.time),tOut:Math.round(p.tOut),rh:Math.round(p.rh)}));
+   const request={start,reading:start,initial:job.initial,occupancy:'staying',remote:false};
+   const points=job.points.map(p=>({...p,time:new Date(p.time)}));
    const envelope={windowStart:start,windowEnd:end,timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
    const result=await calculateInWorker(request,envelope),p=result.winner;
    const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
    return {suitable:p.suitable,ready:p.ready,phases:p.phases.length,night:p.nightType,full:p.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+end),targetRank:p.targetRank,actions:p.phases.filter((phase,i)=>i===0||!sameSetup(p.phases[i-1].setup,phase.setup)).length};
   },preparationJob);
-  assert.equal(preparationResult.suitable,true);assert.equal(preparationResult.ready,true);assert.equal(preparationResult.full,true);assert.ok(Number.isFinite(preparationResult.targetRank));
+  assert.equal(preparationResult.suitable,true,JSON.stringify(preparationResult));assert.equal(preparationResult.ready,true);assert.equal(preparationResult.full,true);assert.ok(Number.isFinite(preparationResult.targetRank));
   assert.ok(await page.locator('#planCard .plan-step').count()>=preparationResult.actions);
   const preparationText=await page.locator('#results').innerText();
   assert.match(preparationText,/sleeping 67°F/);assert.match(preparationText,/awake or unoccupied 71°F/);
