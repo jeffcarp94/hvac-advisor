@@ -2,9 +2,17 @@
 
 Comparison only. The experimental path is enabled by an explicit comparison envelope, with separate solver/cache state. The active app still uses its existing heating and cooling capacities and changeover policy. The EasyTouch outdoor reading is optional and logged as observed; it does not drive the solver.
 
+## Owner-selected equipment assumption, November 17, 2026
+
+Jeff selected B59186 as the working model after reviewing the available candidates and explaining that retrieving the nameplate is difficult. The exact installed model remains unverified. Use the B59186 Brisk II family for this application, with 459186 retained as a plausible family alternative. Control compatibility supplies the technical basis; search visibility and retail listings are supporting context.
+
+The nameplate is optional corroboration for this project. Its absence no longer blocks completing the comparison. The D2 decision on adopting experimental heating and cooling performance follows review of the full planner results.
+
+Use 15,000 BTU/h nominal total cooling and 280 CFM nominal high-fan airflow. The 2,822 W heating anchor at 7°C remains a related-model proxy, with sensitivity from 0.85 to 1.25 times the anchor, approximately 8,185–12,036 BTU/h. This is an engineering sensitivity range, not a published spread between B59186 and 459186. Preserve the 200–290 CFM airflow sensitivity and report invalid coil combinations explicitly. Installed airflow, delivered heating and net blower-heat accounting remain uncertain.
+
 ## Sources and assumptions
 
-- The [Dometic installation manual](https://media.dometic.com/externalassets/brisk-ii-evolution-15k-with-heat-pump_9105304481_71275.pdf) confirms 15,000 BTU/h nominal cooling and a 29.0 oz R-410A charge for the candidate models in its table. Multiple configurations share those values; the installed nameplate must identify the actual model.
+- The [Dometic installation manual](https://media.dometic.com/externalassets/brisk-ii-evolution-15k-with-heat-pump_9105304481_71275.pdf) confirms 15,000 BTU/h nominal cooling and a 29.0 oz R-410A charge for the candidate models in its table. Multiple configurations share those values; the owner-selected B59186 assumption is recorded above.
 - The scope's 2,822 W heating anchor at 7°C comes from the related B59196 rating. The original product listing was unavailable during implementation. The anchor is a tier-4 proxy carried forward from the approved comparison scope, with low-to-medium confidence for the installed unit. The 280 CFM high-fan value is a [retailer proxy](https://steedtrailerparts.com/product/dometic-air-conditioners-b59196-xx1c0-brisk-air-ii-heat-pump-15k-btu/), with low confidence for installed duct airflow. The scope's separate 295 m³/h figure has an unverified basis and is not treated as evaporator airflow.
 - Curves are pinned to [EnergyPlus v24.2.0, EMSCurveOverride_PackagedTerminalHeatPump.idf](https://github.com/NREL/EnergyPlus/blob/v24.2.0/testfiles/EMSCurveOverride_PackagedTerminalHeatPump.idf), objects HPACCoolCapFT, HPACCoolCapFFF, HPACHeatCapFT and HPACHeatCapFFF. These are example shapes from a technical reference, not measured Dometic curves. Input domain clamps are flagged. The estimated condenser roof increment is zero nominally and can be tested through 10°F times the existing solar fraction.
 - Cooling uses a gross-coil comparison boundary with 15,000 BTU/h at 27°C dry bulb, 19°C wet bulb and 35°C outdoors. The 95% leaving RH assumption gives rated bypass factor 0.0712 and SHR about 0.658, or about 9,863 BTU/h sensible and 5,137 latent. This is inferred from the psychrometric balance, not a factory SHR. Airflow adjusts bypass factor by the NTU relation. The modeled condensate rate follows dry-air mass flow times the humidity-ratio drop. The comparison assumes full sensible output when the apparatus dew point is above the entering dew point. An installed net blower-heat correction has not been measured.
@@ -30,7 +38,7 @@ Run `node tools/compare-capacity.cjs` under Node 24. It prints the highest-ranke
 
 The evaluated sensitivities did not change the highest-ranked fixed mode or complete fixed qualification. Selected nominal furnace minutes rose by up to 7.21 min in the March sensitivity cases and 6.81 min in the falling-temperature case. The rising-temperature case used 16.59 min of furnace on both nominal models. The comparison logs runtime, not fuel volume.
 
-The full synthetic surface-advisory search also selected the same qualified AUTO HEAT PUMP plan (HEAT TO 67°F, COOL TO 71°F, Low fan) with a 65.41°F minimum in both models. AUTO FURNACE and FURNACE qualified as alternatives. Other full searches remain pending. D2 remains pending the nameplate and full plan review. The incompatible cooling input combinations are also open. No production switch or coil eligibility change is included.
+The full synthetic surface-advisory search also selected the same qualified AUTO HEAT PUMP plan (HEAT TO 67°F, COOL TO 71°F, Low fan) with a 65.41°F minimum in both models. AUTO FURNACE and FURNACE qualified as alternatives. Other full searches remain pending. D2 remains pending full plan review and the owner’s performance-release decision. The incompatible cooling input combinations are also open. No production switch or coil eligibility change is included.
 
 # v6.6.12 — WP5 forecast precision and altitude
 
