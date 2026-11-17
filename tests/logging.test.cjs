@@ -81,12 +81,14 @@ test('completed attempts with no qualified plan and calculation errors both crea
 test('EasyTouch logging records the displayed value, paired time and adjustment without applying it twice', () => {
     const a = loggingApp();
     a.element('easyLogTemp').value = '67';
+    a.element('easyLogOutdoor').value = '45';
     a.element('easyLogAdjustment').value = 'confirmed';
     a.element('easyLogOffset').value = '-4';
     a.run('editEasyLogAdjustment()');
     a.run(`r={reading:new Date(),initial:{temperature:[60,60.2],rh:[50,48]},occupancy:'staying'};
         e=captureLogEvent('readings_only',r);`);
     assert.equal(a.run('e.easytouch_display_f'), 67);
+    assert.equal(a.run('e.easytouch_outdoor_f'), 45);
     assert.equal(a.run('e.easytouch_time'), a.run('r.reading.toISOString()'));
     assert.equal(a.run('e.easytouch_adjustment'), -4);
     assert.equal(a.run('e.bias_obs_f'), 6.8);

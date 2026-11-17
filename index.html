@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.12 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.13 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.12</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.13</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -147,6 +147,7 @@
         <button class="minor-btn" onclick="freshReadings()">I have refreshed both readings now</button>
         <div class="hint" id="readingContext">Enter both sensor readings. Front temperature approximates the HVAC thermostat; bedroom conditions determine sleep comfort.</div>
         <label class="field">EasyTouch displayed indoor temperature (°F, optional)<input id="easyLogTemp" type="number" inputmode="numeric" step="1"></label>
+        <label class="field">EasyTouch displayed outdoor temperature (°F, optional)<input id="easyLogOutdoor" type="number" inputmode="numeric" step="1"></label>
         <label class="field">EasyTouch reading time (optional)<input id="easyLogTime" type="datetime-local" onchange="updateEasyLogTimeHint()"></label>
         <p class="hint" id="easyLogTimeHint">Leave the EasyTouch time blank to use the YoLink reading time.</p>
     </div>
@@ -1454,6 +1455,102 @@ function saturationPa(tF){const c=(tF-32)*5/9;return 610.78*Math.exp(17.27*c/(23
 function humidityRatio(tF,rh,pressure=SEA_LEVEL_PA){const p=saturationPa(tF)*Math.max(0,Math.min(100,rh))/100;return .62198*p/(pressure-p);}
 function rhFromRatio(tF,w,pressure=SEA_LEVEL_PA){return 100*(pressure*w/(.62198+w))/saturationPa(tF);}
 function dpFromRatio(w,pressure=SEA_LEVEL_PA){const g=Math.log(Math.max(1e-9,pressure*w/(.62198+w))/610.78);return 237.3*g/(17.27-g)*9/5+32;}
+// EnergyPlus v24.2.0, EMSCurveOverride_PackagedTerminalHeatPump.idf.
+// Related-model capacity anchors. The live model never supplies this option.
+const WP6_CAPACITY={
+    coolBtuh:15000,heatWatts:2822,highCfm:280,medium:.82,low:.68,leavingRH:95,
+    coolTemperature:[.942587793,.009543347,.000683770,-.011042676,.000005249,-.000009720],
+    heatTemperature:[.758746,.027626,.000148716,.0000034992]
+};
+function wp6Celsius(f){return (f-32)*5/9;}
+function wp6Fahrenheit(c){return c*9/5+32;}
+function wp6Enthalpy(c,w){return 1.006*c+w*(2501+1.86*c);}
+function wp6SaturatedRatio(c,pressure){return humidityRatio(wp6Fahrenheit(c),100,pressure);}
+function wp6Bisect(low,high,value){
+    for(let i=0;i<32;i++){
+        const mid=(low+high)/2;
+        if(value(mid)>0)high=mid;else low=mid;
+    }
+    return (low+high)/2;
+}
+function wp6WetBulb(dryC,w,pressure){
+    const h=wp6Enthalpy(dryC,w);
+    return wp6Bisect(-70,dryC,c=>{
+        const saturated=wp6SaturatedRatio(c,pressure);
+        return wp6Enthalpy(c,saturated)-(saturated-w)*4.186*c-h;
+    });
+}
+function wp6Cfm(fan,settings={}){
+    const high=settings.highCfm??WP6_CAPACITY.highCfm;
+    const low=settings.lowFraction??WP6_CAPACITY.low,medium=settings.mediumFraction??WP6_CAPACITY.medium;
+    if(!(high>0&&low>0&&low<=medium&&medium<=1))throw new Error('Invalid comparison airflow ordering.');
+    return high*(fan==='Low'?low:fan==='Medium'?medium:1);
+}
+function wp6Clamp(value,min,max){return Math.max(min,Math.min(max,value));}
+function wp6CoolingCurve(x,y){
+    const [a,b,c,d,e,f]=WP6_CAPACITY.coolTemperature;
+    return a+b*x+c*x*x+d*y+e*y*y+f*x*y;
+}
+function wp6HeatingCurve(x){
+    const [a,b,c,d]=WP6_CAPACITY.heatTemperature;
+    return a+x*(b+x*(c+d*x));
+}
+function wp6HeatOutput(outF,fan,settings={}){
+    const x=wp6Celsius(outF),flow=wp6Cfm(fan,settings)/WP6_CAPACITY.highCfm;
+    return {btuh:WP6_CAPACITY.heatWatts*3.412141633*(settings.heatScale??1)*
+        wp6HeatingCurve(wp6Clamp(x,-20,20))/wp6HeatingCurve(7)*(.84+.16*wp6Clamp(flow,.5,1.5)),
+        clamped:x< -20||x>20||flow<.5||flow>1.5};
+}
+function wp6Rating(leavingRH=WP6_CAPACITY.leavingRH,highCfm=WP6_CAPACITY.highCfm){
+    const pressure=SEA_LEVEL_PA,inC=27,wb=19,ws=wp6SaturatedRatio(wb,pressure);
+    const w=(wp6Enthalpy(wb,ws)-4.186*wb*ws-1.006*inC)/(2501+1.86*inC-4.186*wb);
+    const h=wp6Enthalpy(inC,w),mass=4.5*highCfm*densityScale(pressure,wp6Fahrenheit(inC));
+    const outH=h-WP6_CAPACITY.coolBtuh/mass*2.326;
+    const outC=wp6Bisect(-70,inC,c=>wp6Enthalpy(c,humidityRatio(wp6Fahrenheit(c),leavingRH,pressure))-outH);
+    const outW=humidityRatio(wp6Fahrenheit(outC),leavingRH,pressure);
+    const slope=(w-outW)/(inC-outC);
+    const difference=c=>wp6SaturatedRatio(c,pressure)-(outW+slope*(c-outC));
+    // Walk down from the leaving condition to the first saturation crossing.
+    let low=-70,high=outC;
+    for(let i=0;i<40;i++){
+        const left=(2*low+high)/3,right=(low+2*high)/3;
+        if(difference(left)<difference(right))high=right;else low=left;
+    }
+    const minimum=(low+high)/2;
+    if(difference(minimum)>=0)throw new Error('No rated apparatus dew point for this airflow and leaving RH.');
+    const adp=wp6Bisect(minimum,outC,difference),adpH=wp6Enthalpy(adp,wp6SaturatedRatio(adp,pressure));
+    const bypass=(outH-adpH)/(h-adpH);
+    if(!(bypass>0&&bypass<1))throw new Error('Invalid rated coil bypass factor.');
+    return {bypass,mass,shr:(wp6Enthalpy(inC,outW)-outH)/(h-outH),inHumidity:w};
+}
+const WP6_NOMINAL_RATING=wp6Rating();
+function wp6CoolingOutput(inF,w,outF,pressure,fan,settings={}){
+    const cfm=wp6Cfm(fan,settings),mass=4.5*cfm*densityScale(pressure,inF);
+    const inC=wp6Celsius(inF),outC=wp6Celsius(outF);
+    const rating=settings.rating??(settings.leavingRH==null&&settings.highCfm==null?WP6_NOMINAL_RATING:
+        wp6Rating(settings.leavingRH,settings.highCfm));
+    const wetBulb=wp6WetBulb(inC,w,pressure),flow=mass/rating.mass;
+    const x=wp6Clamp(wetBulb,12.77778,23.88889),y=wp6Clamp(outC,18,46.11111),f=wp6Clamp(flow,.5,1.5);
+    // The comparison treats the 15,000 BTU/h anchor as gross coil output.
+    const total=WP6_CAPACITY.coolBtuh*(settings.coolScale??1)*wp6CoolingCurve(x,y)/
+        wp6CoolingCurve(19,35)*(.8+.2*f);
+    const bypass=Math.pow(rating.bypass,rating.mass/mass);
+    const inH=wp6Enthalpy(inC,w),drop=total/mass*2.326;
+    const adpH=inH-drop/(1-bypass);
+    const adp=wp6Bisect(-100,inC,c=>wp6Enthalpy(c,wp6SaturatedRatio(c,pressure))-adpH);
+    const adpW=wp6SaturatedRatio(adp,pressure),leavingW=Math.min(w,w*bypass+adpW*(1-bypass));
+    const shr=leavingW===w?1:wp6Clamp((wp6Enthalpy(inC,leavingW)-(inH-drop))/drop,0,1);
+    const latent=total*(1-shr);
+    const leavingSat=wp6Bisect(-100,inC,c=>wp6Enthalpy(c,wp6SaturatedRatio(c,pressure))-(inH-drop));
+    return {total,sensible:total-latent,latent,waterLbHr:mass*(w-leavingW),
+        shr,adpF:wp6Fahrenheit(adp),leavingSaturationF:wp6Fahrenheit(leavingSat),bypass,cfm,
+        clamped:x!==wetBulb||y!==outC||f!==flow};
+}
+function wp6HeatSource(previous,roofF,settings){
+    const switchAt=42+(settings.deltaF??0),returnAt=switchAt+(settings.hysteresisF??0);
+    if(previous==='furnace')return roofF>returnAt?'hp':'furnace';
+    return roofF<=switchAt?'furnace':'hp';
+}
 function openingFlow(area,pressure,density=1.2){return M.discharge*M.screenFactor*area*Math.sign(pressure)*Math.sqrt(2*Math.abs(pressure)/density)*2118.88;}
 function autoVentSpeed(indoor,set){return indoor<=set?0:Math.min(1,.15+.17*(indoor-set));}
 function ventilationNetwork(config,temperatures,tOut,wind,speed,scenario=AIR_SCENARIOS[0],density=1.2){
@@ -1592,13 +1689,18 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         return{comfortT,rh};
     };
     const checkpoints=[],carry=options.carry,sensor=options.comparisonSensor;
+    const capacityModel=options.capacityComparison;
+    const comparisonSettings=capacityModel?{...capacityModel,rating:capacityModel.rating??(capacityModel.leavingRH==null&&capacityModel.highCfm==null?WP6_NOMINAL_RATING:
+        wp6Rating(capacityModel.leavingRH,capacityModel.highCfm))}:null;
+    const peakSolar=comparisonSettings?.roofHeatF?solarPeakGains().reduce((sum,value)=>sum+value,0):0;
+    let heatSource=carry?.comparisonHeatSource??comparisonSettings?.startHeatSource??'hp';
     let runningMin=t[0],sensorReading=sensor?(carry?.sensorReading??t[1]+sensor.bias):null;
     if(carry){
         t=carry.t.slice();w=carry.w.slice();phase=carry.phase;lastSetup=carry.lastSetup||null;
         ({score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern}=carry);
         moistureTotals={...carry.moistureTotals};surfaceRun=carry.surfaceRun.slice();unsafe.push(...carry.unsafe);carry.warnings.forEach(w=>warnings.add(w));
     }
-    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),w:w.slice(),phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin),...(sensor?{sensorReading}:{})});};
+    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),w:w.slice(),phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin),...(sensor?{sensorReading}:{}),...(comparisonSettings?{comparisonHeatSource:heatSource}:{})});};
     record(carry?rows[0].from:start.getTime(),carry?(rows[0].from-start.getTime())/60000:0);
     // Surface estimates are output-only observations, including at the initial state.
     const moistureCheck=(weather,elapsed,dt,rh)=>{
@@ -1632,11 +1734,14 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
         const ua=[envelopeParts.rear,envelopeParts.front].map((u,z)=>Math.max(0,u*(1+.02*row.wind)-1.08*M.volumeFt3[z]*M.baseACH/60));
         const uaTotal=ua[0]+ua[1]+outsideHeatFactor*bgTotal;
-        let operation='off',q=0,duty=0;
+        let operation='off',q=0,duty=0,cooling=null;
+        const roofF=out;
+        if(comparisonSettings)heatSource=wp6HeatSource(heatSource,roofF,comparisonSettings);
         if(thermostatMode(mode)){
             const control={phase};operation=thermostatDemand(mode,sensed,sp,control,out);phase=control.phase;
+            if(comparisonSettings&&phase==='hp'&&(mode==='hp'||mode==='auto'))operation=heatSource;
         }
-        if(out>=HP.defrostBelow||operation==='furnace'){hpRunMinutes=0;if(operation==='furnace')defrostRemaining=0;}
+        if(roofF>=HP.defrostBelow||operation==='furnace'){hpRunMinutes=0;if(operation==='furnace')defrostRemaining=0;}
         if(!(mode==='hp'||mode==='auto')){hpRunMinutes=0;defrostRemaining=0;}
         if(defrostRemaining>1e-8){
             if(defrostRemaining<dt*60-1e-8){const cut=row.from+defrostRemaining*60000;
@@ -1650,7 +1755,18 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const initialGains=priorInternal[0]+priorInternal[1]+row.solar*(solarWeights[0]+solarWeights[1]);
         if(operation==='ac'||operation==='hp'||operation==='furnace'){
             const target=operation==='ac'?sp.cool:sp.heat;
-            const capacity=operation==='ac'?C.acSensibleCapacity:operation==='furnace'?C.furnaceOutput:heatPumpCapacity(out);
+            const fan=comparisonSettings&&maxFan==='Auto'?autoFanSpeed(sensed,target):maxFan;
+            let capacity=operation==='ac'?C.acSensibleCapacity:operation==='furnace'?C.furnaceOutput:heatPumpCapacity(out);
+            if(comparisonSettings&&operation==='ac'){
+                const roofIncrement=peakSolar?(comparisonSettings.roofHeatF??0)*wp6Clamp(row.solar/peakSolar,0,1):0;
+                cooling=wp6CoolingOutput(t[1],sharedW,roofF+roofIncrement,pressure,fan,comparisonSettings);
+                capacity=cooling.sensible;
+                if(cooling.clamped)warnings.add('Experimental cooling curve clamped an input to its published domain.');
+            }else if(comparisonSettings&&operation==='hp'){
+                const heat=wp6HeatOutput(roofF,fan,comparisonSettings);
+                capacity=heat.btuh;
+                if(heat.clamped)warnings.add('Experimental heating curve clamped an input to its published domain.');
+            }
             const balance=uaTotal*(out-target)+initialGains;
             // Fixed-capacity equipment runs through a thermostat cycle. The
             // event split below resolves shutoff; do not invent modulation.
@@ -1658,12 +1774,12 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             if(operation==='ac')capacityCool||=balance>capacity;else capacityHeat||=-balance>capacity;
             if(options.checkEquipment!==false&&duty>0){
                 const check=operation==='ac'?coolingPolicy(Math.min(...t),out,row.rh,target,maxFan,Math.max(...w.map(value=>dpFromRatio(value,pressure)))):heatPumpPolicy(out,row.rh,options.controlAt?row.sleeping||row.occupants===0:isOvernight&&!options.monitored);
-                if(operation==='furnace'||check.safe){if(check.warning)warnings.add(check.warning);}
+                if(operation==='furnace'||check.safe||(comparisonSettings&&operation==='hp')){if(check.warning)warnings.add(check.warning);}
                 else{if(!unsafe.length)unsafe.push({...check,time:new Date(row.from),timeStr:formatTime(new Date(row.from))});q=0;operation='off';duty=0;phase='off';}
                 if(check.freezeRisk?.type!=='none'&&check.freezeRisk)freezeRisk=check.freezeRisk;
             }
         }
-        if(operation==='hp'&&out<HP.defrostBelow&&duty>0){
+        if(operation==='hp'&&roofF<HP.defrostBelow&&duty>0){
             // Split no later than the remaining full-load time. Recomputing averaged
             // duty on a smaller step must not repeatedly move the event closer.
             const available=(HP.heatingMinutes-hpRunMinutes)/60;
@@ -1675,7 +1791,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const circulation=operation==='defrost'?0:circulationFraction(mode,maxFan,operation,duty);
         const mix=(M.mixCFM+M.ductMixCFM*circulation)*scenario.mix;
         const occupant=occupantLoad(sleeping,people).moistureLbHr;
-        const acRemoval=operation==='ac'&&duty>0?acMoistureRemoval(sharedW,duty,pressure,densityScale(pressure,t[1])):0;
+        const acRemoval=operation==='ac'&&duty>0?(cooling?.waterLbHr??acMoistureRemoval(sharedW,duty,pressure,densityScale(pressure,t[1]))):0;
         const outdoorCFM=air.incoming.reduce((sum,q)=>sum+q,0),outdoorW=humidityRatio(out,row.rh,pressure);
         const moisture=mixedMoistureStep(sharedW,t[1],occupant-acRemoval,outdoorCFM,outdoorW,dt,state.dehumidifierEnabled,pressure,totalAirMass,outsideDensity);
         // Limit the explicit temperature–humidistat coupling during concurrent
@@ -1703,7 +1819,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         if(sensor)sensorReading=advanceComparisonSensor(sensorReading,t[1],nextT[1],dt,sensor);
         t=nextT;
         if(operation==='defrost'){defrostRemaining=Math.max(0,defrostRemaining-dt*60);defrostMinutes+=dt*60;}
-        else if(operation==='hp'&&out<HP.defrostBelow){hpRunMinutes+=dt*60*duty;
+        else if(operation==='hp'&&roofF<HP.defrostBelow){hpRunMinutes+=dt*60*duty;
             if(hpRunMinutes>=HP.heatingMinutes-1e-7){hpRunMinutes=0;defrostRemaining=HP.pauseMinutes;}}
         priorDehumHeat=moisture.heatBTU;dehumRuntimeMinutes+=moisture.runtime*dt*60;
         moistureTotals.occupants+=occupant*dt;moistureTotals.ac+=acRemoval*dt;moistureTotals.dehumidifier+=moisture.removal*dt;
@@ -2008,7 +2124,7 @@ function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=nul
     const first=phases[0].setup;
     const activeRows=resume?split.filter(row=>row.from>=resume.time):split;
     const sim=zoneProfile(first.type,envelope,bounds.sleep,first.setpoints,C.metaAwake,request.initial.temperature[0],{
-        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry,comparisonSensor:envelope.comparisonSensor,sleepAt:time=>bounds.hasSleep&&time>=+bounds.sleepFrom&&time<+bounds.end&&!isAwayAt(request,time)});
+        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry,comparisonSensor:envelope.comparisonSensor,capacityComparison:envelope.capacityComparison,sleepAt:time=>bounds.hasSleep&&time>=+bounds.sleepFrom&&time<+bounds.end&&!isAwayAt(request,time)});
     if(resume){sim.trace=[...resume.prefix.trace.filter(p=>+p.time<resume.time),...sim.trace];sim.segments=[...resume.prefix.segments.filter(s=>s.endMs<=resume.time),...sim.segments];}
     const atBedtime=bounds.bedtime?sim.trace.find(p=>+p.time===+bounds.bedtime):null;
     const sleepPolicy=comfortPolicy(true);
@@ -2979,7 +3095,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.12';
+const LOG_APP_VERSION='6.6.13';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
@@ -3081,11 +3197,12 @@ function updateEasyLogTimeHint(){
 }
 function easyLogFields(request){
     const adjustment=easyLogAdjustment();
+    const outdoor=request.future?null:easyLogInteger('easyLogOutdoor');
     const temperature=request.future?null:easyLogInteger('easyLogTemp');
-    if(temperature===null)return {easytouch_adjustment:adjustment};
+    if(temperature===null)return {easytouch_adjustment:adjustment,easytouch_outdoor_f:outdoor};
     const time=document.getElementById('easyLogTime').value;
     const reading=time?parseLocalInput(time,'the EasyTouch reading time'):request.reading;
-    return {easytouch_adjustment:adjustment,easytouch_display_f:temperature,
+    return {easytouch_adjustment:adjustment,easytouch_outdoor_f:outdoor,easytouch_display_f:temperature,
         easytouch_time:reading.toISOString(),bias_obs_f:Number((temperature-request.initial.temperature[1]).toFixed(2))};
 }
 const PARKING_LOG_KEY='hvac-advisor-log-parking-v1';
