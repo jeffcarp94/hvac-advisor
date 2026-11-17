@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.7 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.8 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.7</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.8</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -144,6 +144,9 @@
         <label class="field">Readings taken at<input id="readingTime" type="datetime-local" onchange="planInputsChanged()"></label>
         <button class="minor-btn" onclick="freshReadings()">I have refreshed both readings now</button>
         <div class="hint" id="readingContext">Enter both sensor readings. Front temperature approximates the HVAC thermostat; bedroom conditions determine sleep comfort.</div>
+        <label class="field">EasyTouch displayed indoor temperature (°F, optional)<input id="easyLogTemp" type="number" inputmode="numeric" step="1"></label>
+        <label class="field">EasyTouch reading time (optional)<input id="easyLogTime" type="datetime-local" onchange="updateEasyLogTimeHint()"></label>
+        <p class="hint" id="easyLogTimeHint">Leave the EasyTouch time blank to use the YoLink reading time.</p>
     </div>
     <div class="input-section">
         <div class="input-section-title">Occupancy</div>
@@ -210,13 +213,11 @@
         <label class="field"><span><input id="logEnabled" type="checkbox"> Log runs to Google Sheets</span></label>
         <label class="field">Apps Script web app URL<input id="logEndpoint" type="url" autocomplete="off"></label>
         <label class="field">Logging token<input id="logToken" type="password" autocomplete="off"></label>
-        <label class="field">EasyTouch displayed indoor temperature (°F)<input id="easyLogTemp" type="number" inputmode="numeric" step="1"></label>
-        <label class="field">EasyTouch reading time (optional)<input id="easyLogTime" type="datetime-local" onchange="updateEasyLogTimeHint()"></label>
-        <p class="hint" id="easyLogTimeHint">Leave the EasyTouch time blank to use the YoLink reading time.</p>
         <label class="field">EasyTouch Temperature Reading Adjustment<select id="easyLogAdjustment" onchange="editEasyLogAdjustment()">
             <option value="unknown">Unknown</option><option value="confirmed">Confirmed value</option><option value="not_set">Not set</option>
         </select></label>
         <label class="field" id="easyLogOffsetField" hidden>Confirmed adjustment (°F)<input id="easyLogOffset" type="number" step="1" onchange="saveEasyLogAdjustment()"></label>
+        <p class="hint">The adjustment is saved on this device. Update it only when you change it on the thermostat.</p>
         <p class="hint" id="easyLogAdjustmentChanged"></p>
         <button type="button" onclick="saveLogSettings()">Save logging settings</button>
         <button type="button" onclick="logReadingsOnly()">Log readings only</button>
@@ -2849,7 +2850,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state,forecast});
     });
 }
-const LOG_APP_VERSION='6.6.7';
+const LOG_APP_VERSION='6.6.8';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
