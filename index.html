@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.9 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.10 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.9</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.10</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -253,6 +253,14 @@
         <p id="logChanged" class="hint"></p>
     </details>
     <p id="logStatus" class="hint" role="status" aria-live="polite"></p>
+    <details class="input-section" id="sensorComparison" hidden><summary>EasyTouch sensor comparison</summary>
+        <p class="hint" id="sensorPrior"></p>
+        <label class="field">Bias tested (EasyTouch minus front air, °F)<input id="sensorBias" type="number" step="any"></label>
+        <label class="field">Sensor lag tested (minutes)<input id="sensorLag" type="number" min="0" max="10" step="1" value="5"></label>
+        <button type="button" class="minor-btn" id="sensorCompareButton" onclick="runSensorComparison()">Compare with the live plan</button>
+        <p class="hint" id="sensorComparisonStatus" role="status"></p>
+        <div id="sensorComparisonResult"></div>
+    </details>
     <div id="resultStatus" role="status" aria-live="polite" style="font-size:12px;line-height:1.5;color:var(--text-secondary);margin-bottom:12px;"></div>
     <div class="results" id="results"></div>
 
@@ -1487,6 +1495,16 @@ function scheduleWeather(envelope,start,end,maxStepMin=.5){
     }
     return rows;
 }
+// Integrate a first-order sensor against a linear front-air ramp within each step.
+function advanceComparisonSensor(sensed,frontStart,frontEnd,hours,sensor){
+    const target=frontEnd+sensor.bias;
+    if(sensor.lagMinutes===0)return target;
+    const ratio=hours*60/sensor.lagMinutes;
+    if(ratio===0)return sensed;
+    const response=-Math.expm1(-ratio);
+    const ramp=ratio<1e-5?ratio/2:1-response/ratio;
+    return sensed+(frontStart+sensor.bias-sensed)*response+(frontEnd-frontStart)*ramp;
+}
 function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,options={}){
     const {start,end}=simulationBounds(envelope),rows=options.rows||scheduleWeather(envelope,start,end,options.maxStepMin||.5);
     if(!rows.length||rows.some(row=>!Number.isFinite(row.dt)||row.dt<=0))throw new Error('The calculation needs positive-duration intervals. Rebuild the plan with valid times.');
@@ -1516,13 +1534,14 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],dewPoint:dpFromRatio(w[0]),midDewPoint:dpFromRatio(w[1]),water:w.slice(),sleep:options.sleepAt?options.sleepAt(time):isOvernight});
         return{comfortT,rh};
     };
-    const checkpoints=[],carry=options.carry;let runningMin=t[0];
+    const checkpoints=[],carry=options.carry,sensor=options.comparisonSensor;
+    let runningMin=t[0],sensorReading=sensor?(carry?.sensorReading??t[1]+sensor.bias):null;
     if(carry){
         t=carry.t.slice();w=carry.w.slice();phase=carry.phase;lastSetup=carry.lastSetup||null;
         ({score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern}=carry);
         moistureTotals={...carry.moistureTotals};surfaceRun=carry.surfaceRun.slice();unsafe.push(...carry.unsafe);carry.warnings.forEach(w=>warnings.add(w));
     }
-    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),w:w.slice(),phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin)});};
+    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),w:w.slice(),phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin),...(sensor?{sensorReading}:{})});};
     record(carry?rows[0].from:start.getTime(),carry?(rows[0].from-start.getTime())/60000:0);
     // Surface estimates are output-only observations, including at the initial state.
     const moistureCheck=(weather,elapsed,dt,rh)=>{
@@ -1550,7 +1569,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const sharedW=mixedHumidityRatio(w);w=[sharedW,sharedW];
         const previousZones=t.slice();
         const out=row.tOut+scenario.tempOffset,dt=row.dt,elapsed=(row.to-start.getTime())/60000,previous=t[0];
-        const sensed=config&&mode==='maxxfan'?t[config.fanZone]:options.frontControl?t[1]:isOvernight?t[0]:t[0]*.4+t[1]*.6;
+        const sensed=config&&mode==='maxxfan'?t[config.fanZone]:sensor?sensorReading:options.frontControl?t[1]:isOvernight?t[0]:t[0]*.4+t[1]*.6;
         const uaTotal=envelopeParts.total*(1+.02*row.wind),bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
         const ua=[envelopeParts.rear,envelopeParts.front].map((u,z)=>Math.max(0,u*(1+.02*row.wind)-1.08*M.volumeFt3[z]*M.baseACH/60));
         let operation='off',q=0,duty=0;
@@ -1600,16 +1619,18 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const gains=zoneHeatGains(meta+moisture.heatBTU,row.solar,q,operation,solarWeights);
         const nextT=coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,dt,1.08);
         if(thermostatMode(mode)&&operation!=='defrost'&&dt>1/60000){
-            const sense=values=>options.frontControl?values[1]:isOvernight?values[0]:values[0]*.4+values[1]*.6;
-            const nextSensed=sense(nextT),trigger=thermostatBoundary(mode,operation,sp,nextSensed>sensed);
+            const sense=(values,hours)=>sensor?advanceComparisonSensor(sensorReading,t[1],values[1],hours,sensor):
+                options.frontControl?values[1]:isOvernight?values[0]:values[0]*.4+values[1]*.6;
+            const nextSensed=sense(nextT,dt),trigger=thermostatBoundary(mode,operation,sp,nextSensed>sensed);
             if((sensed-trigger)*(nextSensed-trigger)<0&&Math.abs(sensed-trigger)>1e-6){
                 let low=0,high=dt;
-                for(let k=0;k<22;k++){const middle=(low+high)/2,value=sense(coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,middle,1.08));
+                for(let k=0;k<22;k++){const middle=(low+high)/2,value=sense(coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,middle,1.08),middle);
                     if((sensed-trigger)*(value-trigger)>0)low=middle;else high=middle;}
                 const first=(low+high)/2,split=row.from+first*3600000;
                 workRows.splice(rowIndex,1,{...row,to:split,dt:first},{...row,from:split,dt:dt-first});rowIndex--;continue;
             }
         }
+        if(sensor)sensorReading=advanceComparisonSensor(sensorReading,t[1],nextT[1],dt,sensor);
         t=nextT;
         if(operation==='defrost'){defrostRemaining=Math.max(0,defrostRemaining-dt*60);defrostMinutes+=dt*60;}
         else if(operation==='hp'&&out<HP.defrostBelow){hpRunMinutes+=dt*60*duty;
@@ -1779,7 +1800,7 @@ function temperatureIssue(c,setpoints,end){return c.moisture?methodologyProblem(
 function renderRecommendation(id,title,result,isOvernight){return renderMethodRecommendation(id,title,result,isOvernight);}
 
 // v6: a single measured-state plan. No network writes or equipment control.
-let planRevision=0,lastPlan=null,planBusy=false,formTimeZone=null,planWorker=null,cancelPlanWorker=null;
+let planRevision=0,lastPlan=null,comparisonBase=null,planBusy=false,formTimeZone=null,planWorker=null,cancelPlanWorker=null;
 const PLAN={searchMinutes:5,bedtimeTransitionMinutes:30};
 function escapeHTML(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function partsInZone(date,timeZone=analysisTimeZone()){return Object.fromEntries(dateFormatter({timeZone,year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'}).formatToParts(date).filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));}
@@ -1909,7 +1930,7 @@ function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=nul
     const first=phases[0].setup;
     const activeRows=resume?split.filter(row=>row.from>=resume.time):split;
     const sim=zoneProfile(first.type,envelope,bounds.sleep,first.setpoints,C.metaAwake,request.initial.temperature[0],{
-        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry,sleepAt:time=>bounds.hasSleep&&time>=+bounds.sleepFrom&&time<+bounds.end&&!isAwayAt(request,time)});
+        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry,comparisonSensor:envelope.comparisonSensor,sleepAt:time=>bounds.hasSleep&&time>=+bounds.sleepFrom&&time<+bounds.end&&!isAwayAt(request,time)});
     if(resume){sim.trace=[...resume.prefix.trace.filter(p=>+p.time<resume.time),...sim.trace];sim.segments=[...resume.prefix.segments.filter(s=>s.endMs<=resume.time),...sim.segments];}
     const atBedtime=bounds.bedtime?sim.trace.find(p=>+p.time===+bounds.bedtime):null;
     const sleepPolicy=comfortPolicy(true);
@@ -2844,7 +2865,8 @@ function updatePlanUI(){
 function updatePeriodSublabels(){updatePlanUI();}
 function equipmentInputsChanged(){state.dehumidifierEnabled=document.getElementById('dehumidifierMode').value==='enabled';planInputsChanged();}
 function invalidateResults(message='Inputs changed. Build a fresh plan.'){
-    resultContext=null;lastPlan=null;planRevision++;cancelPlanWorker?.();
+    resultContext=null;lastPlan=null;comparisonBase=null;planRevision++;cancelPlanWorker?.();
+    document.getElementById('sensorComparison').hidden=true;
     const c=document.getElementById('results');c.replaceChildren();c.classList.remove('visible');
     document.getElementById('resultStatus').textContent=message;
     document.getElementById('setpointDisplay').textContent=setpointSummary();
@@ -2858,7 +2880,7 @@ function checkResultValidity(){
     const problem=resultContext.mode==='forecast'?forecastProblem():'';
     if(problem||Date.now()>=resultContext.expires)invalidateResults(problem||'The next action time has arrived or the plan needs refreshed readings. Build a fresh plan.');
 }
-function calculateInWorker(request,envelope){
+function calculateInWorker(request,envelope,onProgress,inputs={state,forecast}){
     const source=document.querySelector('script').textContent;
     const bootstrap=`(()=>{const elements=new Map();const element=id=>{if(!elements.has(id))elements.set(id,{value:'',textContent:'',innerHTML:'',style:{},classList:{add(){},remove(){},toggle(){}},replaceChildren(){},addEventListener(){}});return elements.get(id);};
 const document={getElementById:element,querySelectorAll:()=>[],addEventListener(){},hidden:false};const navigator={};const window={location:{protocol:'worker:'},addEventListener(){}};
@@ -2874,12 +2896,12 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         const finish=()=>{planWorker?.terminate();planWorker=null;cancelPlanWorker=null;};
         cancelPlanWorker=()=>{finish();reject(new Error('Plan calculation cancelled because inputs changed.'));};
         planWorker.onerror=event=>{finish();reject(new Error(event.message||'Plan calculation failed.'));};
-        planWorker.onmessage=event=>{if(event.data.progress){document.getElementById('resultStatus').textContent='Checking weather scenarios, window arrangements and bedtime preparation…';return;}
+        planWorker.onmessage=event=>{if(event.data.progress){if(onProgress)onProgress();else document.getElementById('resultStatus').textContent='Checking weather scenarios, window arrangements and bedtime preparation…';return;}
             finish();event.data.error?reject(new Error(event.data.error)):resolve(event.data.result);};
-        planWorker.postMessage({request,envelope,state,forecast});
+        planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.9';
+const LOG_APP_VERSION='6.6.10';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
@@ -3233,6 +3255,100 @@ function logReadingsOnly(){
     }catch(error){logStatus(error.message||'Could not prepare the readings entry.');}
 }
 
+function readSensorPrior(request){
+    let fields;
+    try{fields=easyLogFields(request);}catch{}
+    if(Number.isFinite(fields?.bias_obs_f)){
+        const observed=fields.bias_obs_f;
+        const relation=observed===0?'matches':Math.abs(observed).toFixed(1)+'°F '+(observed>0?'above':'below');
+        const time=new Date(fields.easytouch_time);
+        return {bias:observed,description:'EasyTouch '+(observed===0?'':'reads ')+relation+
+            ' the front YoLink (one pair of readings, EasyTouch at '+formatTime(time)+').'};
+    }
+    const adjustment=fields?.easytouch_adjustment;
+    if(Number.isFinite(adjustment)||adjustment==='not_set'){
+        const bias=7+(Number.isFinite(adjustment)?adjustment:0);
+        return {bias,description:'Low-confidence garage prior: about +7°F before the adjustment, assuming the garage setting was 0°F.'};
+    }
+    return {bias:3,description:'Adjustment unknown. Explore a broad bias range, for example −4°F to +10°F. The starting value is illustrative.'};
+}
+function offerSensorComparison(prior,request,envelope,result){
+    comparisonBase={request,envelope,result,inputs:{state:{...state},forecast}};
+    document.getElementById('sensorPrior').textContent=prior.description+
+        ' This comparison cannot change your live recommendation.';
+    document.getElementById('sensorBias').value=String(prior.bias);
+    document.getElementById('sensorComparisonStatus').textContent='';
+    document.getElementById('sensorComparisonResult').replaceChildren();
+    document.getElementById('sensorComparison').hidden=false;
+}
+function sensorComparisonSummary(result){
+    const {winner,request,stages}=result;
+    const complete=!!(winner.suitable&&winner.ready);
+    const limited=result.current||result.recoveryAction;
+    const stage=stages?.departure?.recommended||stages?.current?.recommended;
+    const plan=complete?winner:limited||stage&&winner;
+    const phases=plan?.phases|| (plan?.setup?[{time:+request.start,setup:plan.setup}]:[]);
+    const segments=plan?.trials?.[0]?.segments||[];
+    const verifiedThrough=complete?Infinity:
+        +(limited?.reviewAt??(stages?.departure?.recommended?stages.departure.to:stages?.current?.to)??Infinity);
+    const blocks=[];
+    for(const segment of segments){
+        if(segment.startMs>=verifiedThrough)break;
+        const operation=['hp','furnace','ac'].includes(segment.operation)?segment.operation:'off';
+        const last=blocks.at(-1);
+        const end=Math.min(segment.endMs,verifiedThrough);
+        if(last?.operation===operation)last.end=end;
+        else blocks.push({operation,start:segment.startMs,end});
+    }
+    return {complete,phases:phases.filter(phase=>phase.time<verifiedThrough),blocks};
+}
+function renderSensorComparison(live,experimental){
+    const original=sensorComparisonSummary(live),trial=sensorComparisonSummary(experimental);
+    const same=original.complete===trial.complete&&original.phases.length===trial.phases.length&&
+        original.phases.every((phase,i)=>phase.time===trial.phases[i].time&&sameSetup(phase.setup,trial.phases[i].setup));
+    const label={hp:'Heat pump',furnace:'Furnace',ac:'AC'};
+    const describe=(title,summary)=>{
+        const phases=summary.phases.map(p=>'<li>'+escapeHTML(formatStamp(new Date(p.time))+
+            ' · '+setupInstructions(p.setup))+'</li>').join('');
+        const calls=summary.blocks.filter(b=>b.operation!=='off');
+        const list=calls.map(b=>'<li>'+escapeHTML(label[b.operation]+' · '+formatTime(new Date(b.start))+
+            ' to '+formatTime(new Date(b.end)))+'</li>').join('');
+        const short=summary.blocks.slice(0,-1).some(b=>b.operation!=='off'&&b.end-b.start<180000);
+        return '<details><summary>'+escapeHTML(title)+'</summary><p>'+
+            (summary.complete?'Complete plan':phases?'Limited plan':'No verified setup')+'</p>'+
+            (phases?'<ul>'+phases+'</ul>':'')+'<p>Predicted active heating and cooling intervals in the nominal case.</p>'+
+            (list?'<ul>'+list+'</ul>':'<p>No active call in the displayed interval.</p>')+
+            (short?'<p>A predicted call lasted under 3 min. Review the comparison assumptions before interpreting it.</p>':'')+'</details>';
+    };
+    return '<p>'+ (same?'The comparison selected the same setup and action times.':
+        'The comparison selected a different setup, action time, or plan qualification.')+'</p>'+
+        describe('Live plan',original)+describe('Experimental sensor result',trial);
+}
+async function runSensorComparison(){
+    const base=comparisonBase;
+    if(!base||planBusy||planWorker)return;
+    const get=id=>document.getElementById(id);
+    const biasValue=get('sensorBias').value,lagValue=get('sensorLag').value;
+    const bias=Number(biasValue),lagMinutes=Number(lagValue);
+    const status=get('sensorComparisonStatus'),button=get('sensorCompareButton');
+    if(!biasValue||!lagValue||!Number.isFinite(bias)||!Number.isFinite(lagMinutes)||lagMinutes<0||lagMinutes>10){
+        status.textContent='Enter a finite bias and a lag from 0 to 10 minutes.';return;
+    }
+    if(typeof Worker==='undefined'){status.textContent='This browser cannot run the separate sensor comparison.';return;}
+    const {planCache,...weather}=base.envelope;
+    const envelope={...weather,comparisonSensor:{bias,lagMinutes}};
+    button.disabled=true;get('sensorComparisonResult').replaceChildren();
+    status.textContent='Running the experimental sensor comparison…';
+    try{
+        const result=await calculateInWorker(base.request,envelope,()=>{},base.inputs);
+        if(comparisonBase!==base)return;
+        get('sensorComparisonResult').innerHTML=renderSensorComparison(base.result,result);
+        status.textContent='Tested '+bias+'°F bias and '+lagMinutes+' min lag.';
+    }catch{
+        if(comparisonBase===base)status.textContent='The sensor comparison could not finish.';
+    }finally{button.disabled=false;}
+}
+
 async function analyze(){
     if(planBusy)return;
     let request;
@@ -3240,6 +3356,7 @@ async function analyze(){
     let logEvent;
     planBusy=true;const button=document.getElementById('analyzeBtn');button.disabled=true;button.textContent='Calculating your plan…';
     invalidateResults('Checking the connected daytime and overnight plan…');const revision=planRevision;
+    const sensorPrior=readSensorPrior(request);
     try{
         await new Promise(resolve=>setTimeout(resolve,0));
         const bounds=planBounds(request.start,request),envelope=makeEnvelope(request.start,bounds.end,'HVAC Plan',THERMAL_STEP_MIN*60000);
@@ -3255,6 +3372,7 @@ async function analyze(){
         const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
         const futureActions=[...(result.bedtimeRecovery?.switchAt?[result.bedtimeRecovery.verified?result.bedtimeRecovery.switchAt:result.bedtimeRecovery.bedtime]:[]),...(result.recoveryAction?[result.recoveryAction.reviewAt]:[]),...(result.current?[result.current.reviewAt]:result.winner.phases.slice(1).map(p=>p.time)),request.departure&&+request.departure,request.returnTime&&+request.returnTime].filter(t=>t>Date.now());
         resultRecorded(envelope,Math.min(...futureActions),request);
+        offerSensorComparison(sensorPrior,request,envelope,result);
         finishRunLog(logEvent,result,Math.min(...futureActions));
         container.scrollIntoView({behavior:'smooth',block:'start'});
     }catch(error){if(revision===planRevision){finishRunLog(logEvent||prepareRunLog(request,null),null);showAnalysisError(error);}}
