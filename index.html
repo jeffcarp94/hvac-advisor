@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.11 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.12 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.11</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.12</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -468,7 +468,7 @@ function updateWeatherContext(){
     document.getElementById('tempLabel').textContent=state.weatherMode==='manual'?'Outdoor Temperature':'Forecast Temperature';
     const mode=document.getElementById('weatherMode');if(mode)mode.value=state.weatherMode;
     if(state.weatherMode==='manual')e.textContent='Manual: displayed weather values are used. Single-point estimate; weather changes are not forecast. Times: '+analysisTimeZone()+(forecast.timeZone?' (selected location).':' (device time zone).');
-    else if(forecast.fetched)e.textContent='Forecast: weather controls summarize the window. Hourly temperature/RH; period wind/sky. Retrieved '+formatStamp(new Date(forecast.fetchedAt))+'; NWS issued '+formatStamp(new Date(forecast.issuedAt))+'. Times: '+analysisTimeZone()+'. Weather edits switch to Manual.';
+    else if(forecast.fetched)e.textContent='Forecast: weather controls summarize the window. Grid temperature/RH/wind/sky; forecast text fills wind and sky gaps. Retrieved '+formatStamp(new Date(forecast.fetchedAt))+'; NWS issued '+formatStamp(new Date(forecast.issuedAt))+'. Times: '+analysisTimeZone()+'. Weather edits switch to Manual.';
     else e.textContent='Retrieve weather to use Forecast mode. Times: '+analysisTimeZone()+'.';
 }
 function locationEdited(){
@@ -568,7 +568,7 @@ function requireCoverage(intervals,start,end,label){
 function extractMaxRH(vals,start,end){
     if(!vals?.length)return null;
     const hits=decodeIntervals(vals,v=>v,'humidity',0,100).filter(v=>v.end>Date.parse(start)&&v.start<Date.parse(end)&&v.value!==null);
-    return hits.length?Math.round(Math.max(...hits.map(v=>v.value))):null;
+    return hits.length?Math.max(...hits.map(v=>v.value)):null;
 }
 function parsePeriod(p,exRH){
     let temp=p.temperature;
@@ -588,6 +588,24 @@ function parsePeriod(p,exRH){
     if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)throw new Error('Invalid NWS forecast period.');
     return{temp,rh,wind,cloud,precip,rainFloor,start,end,name:p.name,isDaytime:p.isDaytime};
 }
+const WIND_CONVERSIONS={'wmoUnit:km_h-1':v=>v/1.609344,'wmoUnit:m_s-1':v=>v*3600/1609.344,'wmoUnit:mi_h-1':v=>v,'wmoUnit:mph':v=>v};
+function optionalWeatherIntervals(field,conversions,label,min,max){
+    const convert=conversions[field?.uom];
+    if(typeof convert!=='function')return [];
+    try{return decodeIntervals(field.values,convert,label,-Infinity,Infinity).map(interval=>
+        interval.value!==null&&(interval.value<min||interval.value>max)?{...interval,value:null}:interval);}
+    catch{return [];}
+}
+function gridElevation(field){
+    return field?.uom==='wmoUnit:m'&&Number.isFinite(field.value)&&field.value>=-500&&field.value<=9000?field.value:null;
+}
+function gridWeatherAt(time,period=periodAt(time)){
+    const get=name=>intervalAt(forecast.intervals[name]||[],time)?.value??null;
+    const sky=get('sky'),wind=get('wind'),gust=get('gust');
+    return {cloud:sky===null?(period?.cloud??.6):1-sky/100,sky,wind:wind??period?.wind??0,gust,
+        windSource:wind!==null?'grid':period?.wind!=null?'period':'missing',
+        skySource:sky!==null?'grid':period?'period':'missing'};
+}
 async function fetchNWS(lat,lon,placeName,request){
     if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)throw new Error('Invalid location coordinates.');
     const p1=await fetchJSON(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,request.signal),p=p1.properties;
@@ -603,8 +621,11 @@ async function fetchNWS(lat,lon,placeName,request){
     for(let i=1;i<periods.length;i++)if(periods[i].start<periods[i-1].end)throw new Error('Overlapping NWS forecast periods.');
     const issues=[gp.updateTime,f2.properties.updateTime].map(Date.parse);
     if(issues.some(v=>!Number.isFinite(v)))throw new Error('NWS issue time is missing.');
+    const wind=optionalWeatherIntervals(gp.windSpeed,WIND_CONVERSIONS,'wind speed',0,300);
+    const gust=optionalWeatherIntervals(gp.windGust,WIND_CONVERSIONS,'wind gust',0,300);
+    const sky=optionalWeatherIntervals(gp.skyCover,{'wmoUnit:percent':v=>v},'sky cover',0,100);
     const city=p.relativeLocation?.properties;
-    forecast={...emptyForecast(),fetched:true,intervals:{temperature,humidity},periods,tempVals:gp.temperature.values,humVals:gp.relativeHumidity.values,
+    forecast={...emptyForecast(),fetched:true,intervals:{temperature,humidity,wind,gust,sky},elevationM:gridElevation(gp.elevation),periods,tempVals:gp.temperature.values,humVals:gp.relativeHumidity.values,
         location:placeName||(city?.city&&city?.state?city.city+', '+city.state:lat.toFixed(2)+', '+lon.toFixed(2)),
         _lat:lat,_lon:lon,timeZone:p.timeZone,fetchedAt:Date.now(),issuedAt:Math.min(...issues)};
     weatherLoading=false;const problem=forecastProblem();if(problem)throw new Error(problem);
@@ -613,8 +634,7 @@ async function fetchNWS(lat,lon,placeName,request){
 }
 function periodAt(time){return forecast.periods.find(p=>p.start<=time&&time<p.end);}
 function forecastPeriodsFor(start,end){
-    const hits=forecast.periods.filter(p=>p.end>start&&p.start<end);
-    requireCoverage(hits.map(p=>({...p,value:p.wind})),start,end,'wind/sky');return hits;
+    return forecast.periods.filter(p=>p.end>start&&p.start<end);
 }
 function applyForecast(period){
     if(state.weatherMode!=='forecast'||!forecast.fetched)return;
@@ -623,11 +643,12 @@ function applyForecast(period){
     const start=period==='current'?Date.now():win.start.getTime(),end=period==='current'?(win.windowEnd?.getTime()||start+1):win.end.getTime();
     const periods=forecast.periods.filter(p=>p.end>start&&p.start<end);
     const temps=forecast.intervals.temperature.filter(v=>v.end>start&&v.start<end&&v.value!==null),rhs=forecast.intervals.humidity.filter(v=>v.end>start&&v.start<end&&v.value!==null);
-    if(!periods.length||!temps.length||!rhs.length)return;
-    state.temp=Math.round((period==='current'||period==='plan')?intervalAt(forecast.intervals.temperature,start).value:(period==='day'?Math.max:Math.min)(...temps.map(v=>v.value)));
-    state.rh=Math.round(Math.max(periods.some(p=>p.rainFloor)?90:0,...rhs.map(v=>v.value)));
-    state.cloud=periods[0].cloud;state.wind=periods[0].wind??0;state.precip=periods[0].precip;
-    document.getElementById('tempValue').textContent=state.temp;document.getElementById('rhValue').textContent=state.rh;document.getElementById('windValue').textContent=state.wind;
+    if(!temps.length||!rhs.length)return;
+    state.temp=(period==='current'||period==='plan')?(intervalAt(forecast.intervals.temperature,start)?.value??temps[0].value):(period==='day'?Math.max:Math.min)(...temps.map(v=>v.value));
+    state.rh=Math.max(periods.some(p=>p.rainFloor)?90:0,...rhs.map(v=>v.value));
+    const weather=gridWeatherAt(start,periodAt(start));
+    state.cloud=weather.cloud;state.wind=weather.wind;state.precip=periodAt(start)?.precip??'none';
+    document.getElementById('tempValue').textContent=formatOutdoorTemperature(state.temp);document.getElementById('rhValue').textContent=Math.round(state.rh);document.getElementById('windValue').textContent=Math.round(state.wind);
     document.querySelectorAll('#cloudGroup .selector-chip').forEach(c=>c.classList.toggle('active',Number(c.dataset.val)===state.cloud));
     document.querySelectorAll('#precipGroup .selector-chip').forEach(c=>c.classList.toggle('active',c.dataset.val===state.precip));updateWeatherContext();
 }
@@ -640,7 +661,7 @@ function computeWindow(isOvernight,now=new Date()){
     return{start:now>start?now:start,end,label};
 }
 function makeEnvelope(start,end,windowLabel,stepMs){
-    const common={lat:forecast._lat??null,lon:forecast._lon??null,windowLabel,windowStart:start,windowEnd:end,timeZone:analysisTimeZone(),source:state.weatherMode};
+    const common={lat:forecast._lat??null,lon:forecast._lon??null,windowLabel,windowStart:start,windowEnd:end,timeZone:analysisTimeZone(),source:state.weatherMode,elevationM:forecast.elevationM??null};
     if(state.weatherMode==='manual')return{...common,points:[{time:start,tOut:state.temp,rh:state.rh,timeStr:formatTime(start)}],singlePoint:true,cloud:state.cloud,wind:state.wind,precip:state.precip};
     const problem=forecastProblem();if(problem)throw new Error(problem);
     const s=start.getTime(),e=end.getTime();
@@ -648,16 +669,30 @@ function makeEnvelope(start,end,windowLabel,stepMs){
     const periods=forecastPeriodsFor(s,e),times=new Set([s]);
     for(let t=s+stepMs;t<e;t+=stepMs)times.add(t);
     // Include every interval boundary so short changes cannot disappear between samples.
-    for(const entries of [forecast.intervals.temperature,forecast.intervals.humidity,periods])for(const v of entries)if(v.start>s&&v.start<e)times.add(v.start);
+    for(const entries of [...Object.values(forecast.intervals),periods])for(const v of entries){
+        if(v.start>s&&v.start<e)times.add(v.start);if(v.end>s&&v.end<e)times.add(v.end);
+    }
     const points=[...times].sort((a,b)=>a-b).map(t=>{
         const p=periodAt(t),temp=intervalAt(forecast.intervals.temperature,t),hum=intervalAt(forecast.intervals.humidity,t);
-        return{time:new Date(t),timeStr:formatTime(new Date(t)),tOut:Math.round(temp.value),rh:Math.round(Math.max(hum.value,p.rainFloor?90:0)),cloud:p.cloud,wind:p.wind,precip:p.precip};
+        return{time:new Date(t),timeStr:formatTime(new Date(t)),tOut:temp.value,rh:Math.max(hum.value,p?.rainFloor?90:0),...gridWeatherAt(t,p),precip:p?.precip??'none'};
     });
     return{...common,points,singlePoint:false,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
 }
 function buildEnvelope(isOvernight){const win=computeWindow(isOvernight);return makeEnvelope(win.start,win.end,win.label,3600000);}
 function buildCurrentEnvelope(now,end){return makeEnvelope(now,end,'Current',THERMAL_STEP_MIN*60000);}
 function showAnalysisError(error){invalidateResults(error.message);}
+function formatOutdoorTemperature(value){
+    return Math.round(value)===C.heatPumpMinTemp&&value!==C.heatPumpMinTemp?String(value):String(Math.round(value));
+}
+function weatherProvenance(envelope){
+    const elevation=envelope.elevationM==null?'Sea-level pressure assumed (site elevation unavailable).':
+        'NWS grid elevation '+Math.round(envelope.elevationM)+' m.';
+    const source=(key,label)=>envelope.points.some(p=>p[key]==='missing')?label+' is missing in some intervals. '+(key==='windSource'?'The model uses 0 mph in those intervals.':'The model uses its default partly cloudy estimate in those intervals.'):
+        envelope.points.some(p=>p[key]==='period')?label+' uses forecast text where grid values are missing.':'';
+    const rounding=envelope.points.some(p=>Math.round(p.tOut)===C.heatPumpMinTemp&&p.tOut!==C.heatPumpMinTemp)?
+        ' The 42°F heat-source changeover uses the unrounded outdoor temperature.':'';
+    return [elevation,source('windSource','Wind'),source('skySource','Sky cover')].filter(Boolean).join(' ')+rounding;
+}
 function weatherRange(envelope,key,multiplier=1){
     const values=envelope.points.map(p=>(p[key]??envelope[key])*multiplier);
     const low=Math.round(Math.min(...values)*10)/10,high=Math.round(Math.max(...values)*10)/10;
@@ -1408,32 +1443,39 @@ function fanConfigurations(){
     for(const ids of [[3,4,5],[0,1,2],[0,1,2,3,4,5]])for(const gap of [2,4])add(Array.from({length:6},(_,i)=>ids.includes(i)?gap:0));
     return [...profiles.values()].flatMap(gaps=>[0,1].map(fanZone=>({gaps,fanZone,fanName:fanZone===0?'Bedroom MaxxFan':'Mid-coach MaxxFan'})));
 }
+const SEA_LEVEL_PA=101325;
+const AIR_REFERENCE_F=70;
+function sitePressurePa(elevation){
+    return elevation==null?SEA_LEVEL_PA:SEA_LEVEL_PA*Math.pow(1-2.25577e-5*elevation,5.25588);
+}
+function absoluteFahrenheit(tF){return tF+459.67;}
+function densityScale(pressure,tF){return pressure/SEA_LEVEL_PA*absoluteFahrenheit(AIR_REFERENCE_F)/absoluteFahrenheit(tF);}
 function saturationPa(tF){const c=(tF-32)*5/9;return 610.78*Math.exp(17.27*c/(237.3+c));}
-function humidityRatio(tF,rh){const p=saturationPa(tF)*Math.max(0,Math.min(100,rh))/100;return .62198*p/(101325-p);}
-function rhFromRatio(tF,w){return 100*(101325*w/(.62198+w))/saturationPa(tF);}
-function dpFromRatio(w){const g=Math.log(Math.max(1e-9,101325*w/(.62198+w))/610.78);return 237.3*g/(17.27-g)*9/5+32;}
-function openingFlow(area,pressure){return M.discharge*M.screenFactor*area*Math.sign(pressure)*Math.sqrt(2*Math.abs(pressure)/1.2)*2118.88;}
+function humidityRatio(tF,rh,pressure=SEA_LEVEL_PA){const p=saturationPa(tF)*Math.max(0,Math.min(100,rh))/100;return .62198*p/(pressure-p);}
+function rhFromRatio(tF,w,pressure=SEA_LEVEL_PA){return 100*(pressure*w/(.62198+w))/saturationPa(tF);}
+function dpFromRatio(w,pressure=SEA_LEVEL_PA){const g=Math.log(Math.max(1e-9,pressure*w/(.62198+w))/610.78);return 237.3*g/(17.27-g)*9/5+32;}
+function openingFlow(area,pressure,density=1.2){return M.discharge*M.screenFactor*area*Math.sign(pressure)*Math.sqrt(2*Math.abs(pressure)/density)*2118.88;}
 function autoVentSpeed(indoor,set){return indoor<=set?0:Math.min(1,.15+.17*(indoor-set));}
-function ventilationNetwork(config,temperatures,tOut,wind,speed,scenario=AIR_SCENARIOS[0]){
+function ventilationNetwork(config,temperatures,tOut,wind,speed,scenario=AIR_SCENARIOS[0],density=1.2){
     const background=M.volumeFt3.map(v=>v*M.baseACH/60);
     if(!config)return{incoming:[...background],outgoing:[...background],bulk:0,flows:Array(6).fill(0),exhaust:0,background};
     const areas=WINDOW_SECTIONS.map((section,i)=>openingArea(section,config.gaps[i])*scenario.flow);
-    const dynamic=.5*1.2*Math.pow(wind*.44704*.5,2),cp=dynamic*.35*scenario.windSign;
-    const external=WINDOW_SECTIONS.map(section=>(section.side==='entry'?cp:-cp)+1.2*9.81*.5*((temperatures[section.zone]-tOut)*5/9)/293);
+    const dynamic=.5*density*Math.pow(wind*.44704*.5,2),cp=dynamic*.35*scenario.windSign;
+    const external=WINDOW_SECTIONS.map(section=>(section.side==='entry'?cp:-cp)+density*9.81*.5*(temperatures[section.zone]-tOut)/absoluteFahrenheit(tOut));
     // Open interior passage: one near-uniform pressure, two distinct thermal /
     // moisture zones. Bulk flow between zones follows the local mass balance.
     const fan=pressure=>speed===0?0:Math.min(C.maxxFanCFM,C.maxxFanCFM*speed*scenario.flow)*Math.sqrt(Math.max(0,1-Math.max(0,-.2*dynamic-pressure)/(M.fanShutoffPa*speed*speed)));
     let lo=-150,hi=150;
     for(let k=0;k<18;k++){
-        const pressure=(lo+hi)/2,net=areas.reduce((sum,area,i)=>sum+openingFlow(area,external[i]-pressure),0)-fan(pressure);
+        const pressure=(lo+hi)/2,net=areas.reduce((sum,area,i)=>sum+openingFlow(area,external[i]-pressure,density),0)-fan(pressure);
         if(net>0)lo=pressure;else hi=pressure;
     }
-    const pressure=(lo+hi)/2,flows=areas.map((area,i)=>openingFlow(area,external[i]-pressure));
+    const pressure=(lo+hi)/2,flows=areas.map((area,i)=>openingFlow(area,external[i]-pressure,density));
     const incoming=[...background],outgoing=[...background];
     flows.forEach((q,i)=>{const z=WINDOW_SECTIONS[i].zone;q>0?incoming[z]+=q:outgoing[z]-=q;});
     // Bidirectional turbulence persists through a single window at zero net flow.
     areas.forEach((area,i)=>{const section=WINDOW_SECTIONS[i],z=section.zone;
-        const buoyancy=.2*Math.sqrt(9.81*section.height*.0254*Math.abs(temperatures[z]-tOut)*5/9/293);
+        const buoyancy=.2*Math.sqrt(9.81*section.height*.0254*Math.abs(temperatures[z]-tOut)/absoluteFahrenheit(tOut));
         const exchange=area*(wind*.44704*.025+buoyancy)*2118.88;incoming[z]+=exchange;outgoing[z]+=exchange;});
     const exhaust=fan(pressure);outgoing[config.fanZone]+=exhaust;
     const bulk=incoming[0]-outgoing[0];
@@ -1441,12 +1483,12 @@ function ventilationNetwork(config,temperatures,tOut,wind,speed,scenario=AIR_SCE
 }
 
 function solvePair(diagonal,off,rhs){const det=diagonal[0]*diagonal[1]-off[0]*off[1];return[(rhs[0]*diagonal[1]-off[0]*rhs[1])/det,(rhs[1]*diagonal[0]-off[1]*rhs[0])/det];}
-function coupledAdvance(values,capacity,ua,incoming,bulk,mix,source,outside,dt,heatFactor){
+function coupledAdvance(values,capacity,ua,incoming,bulk,mix,source,outside,dt,heatFactor,outdoorFactor=heatFactor){
     const inBetween=[Math.max(0,-bulk)+mix,Math.max(0,bulk)+mix];
     // Mass conservation makes total outflow equal outside + interzone inflow.
-    const diagonal=values.map((_,z)=>capacity[z]/dt+ua[z]+heatFactor*(incoming[z]+inBetween[z]));
+    const diagonal=values.map((_,z)=>capacity[z]/dt+ua[z]+outdoorFactor*incoming[z]+heatFactor*inBetween[z]);
     const off=inBetween.map(q=>-heatFactor*q);
-    const rhs=values.map((v,z)=>capacity[z]/dt*v+ua[z]*outside+heatFactor*incoming[z]*outside+source[z]);
+    const rhs=values.map((v,z)=>capacity[z]/dt*v+ua[z]*outside+outdoorFactor*incoming[z]*outside+source[z]);
     return solvePair(diagonal,off,rhs);
 }
 // NREL/TP-5500-52791, Table 10 (T in Celsius, RH in percentage points).
@@ -1467,17 +1509,18 @@ function dehumidifierPerformance(tF,rh){
     return{capacityLbHr:DEHUM.ratedPintsDay/24*M.moistureLbPerPint*water,powerBTU:C.dehumWaste*water/energy};
 }
 function moistureRemoval(t,rh,enabled){return enabled&&rh>50?dehumidifierPerformance(t,rh).capacityLbHr:0;}
-function mixedHumidityRatio(w){const v=M.volumeFt3,total=v[0]+v[1];return(w[0]*v[0]+w[1]*v[1])/total;}
-function acMoistureRemoval(w,duty){
+function mixedHumidityRatio(w,v=M.volumeFt3){const total=v[0]+v[1];return(w[0]*v[0]+w[1]*v[1])/total;}
+function acMoistureRemoval(w,duty,pressure=SEA_LEVEL_PA,density=1){
     const latent=Math.max(0,C.acCapacity-C.acSensibleCapacity)/M.latentBTUPerLb*duty;
-    const available=4.5*C.evapCFM*duty*Math.max(0,w-humidityRatio(50,100));
+    const available=4.5*density*C.evapCFM*duty*Math.max(0,w-humidityRatio(50,100,pressure));
     return Math.min(latent,available);
 }
-function mixedMoistureStep(w,tFront,sourceLbHr,outdoorCFM,outdoorW,dt,enabled){
-    const airMass=M.volumeFt3.reduce((a,b)=>a+b)*.075,denominator=airMass/dt+4.5*outdoorCFM;
-    const rhs=airMass/dt*w+sourceLbHr+4.5*outdoorCFM*outdoorW;
-    const uncontrolled=rhs/denominator,performance=dehumidifierPerformance(tFront,rhFromRatio(tFront,w));
-    const requested=Math.max(0,(uncontrolled-humidityRatio(tFront,50))*denominator);
+function mixedMoistureStep(w,tFront,sourceLbHr,outdoorCFM,outdoorW,dt,enabled,
+    pressure=SEA_LEVEL_PA,airMass=M.volumeFt3.reduce((a,b)=>a+b)*.075,outdoorDensity=1){
+    const outsideMassFlow=4.5*outdoorDensity*outdoorCFM,denominator=airMass/dt+outsideMassFlow;
+    const rhs=airMass/dt*w+sourceLbHr+outsideMassFlow*outdoorW;
+    const uncontrolled=rhs/denominator,performance=dehumidifierPerformance(tFront,rhFromRatio(tFront,w,pressure));
+    const requested=Math.max(0,(uncontrolled-humidityRatio(tFront,50,pressure))*denominator);
     const removal=enabled?Math.min(requested,performance.capacityLbHr):0;
     const partLoad=performance.capacityLbHr>0?removal/performance.capacityLbHr:0;
     // EnergyPlus generic cycling loss: PLF = .95 + .05*PLR; water meets PLR,
@@ -1491,9 +1534,9 @@ function circulationFraction(mode,fan,operation,duty){
     if(['ac','hp','auto','auto_furnace'].includes(mode)&&fan!=='Auto')return 1;
     return ['ac','hp','furnace'].includes(operation)?duty:0;
 }
-function surfaceAssessment(t,tOut,w,scenario=AIR_SCENARIOS[0]){
+function surfaceAssessment(t,tOut,w,scenario=AIR_SCENARIOS[0],pressure=SEA_LEVEL_PA){
     const surface=t-Math.max(0,t-tOut)*scenario.surfaceFactor;
-    const margin=surface-dpFromRatio(w),surfaceRH=rhFromRatio(surface,w);
+    const margin=surface-dpFromRatio(w,pressure),surfaceRH=rhFromRatio(surface,w,pressure);
     return{surface,margin,surfaceRH,condensation:margin<M.dewpointMargin};
 }
 function scheduleWeather(envelope,start,end,maxStepMin=.5){
@@ -1519,19 +1562,21 @@ function advanceComparisonSensor(sensed,frontStart,frontEnd,hours,sensor){
 function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,options={}){
     const {start,end}=simulationBounds(envelope),rows=options.rows||scheduleWeather(envelope,start,end,options.maxStepMin||.5);
     if(!rows.length||rows.some(row=>!Number.isFinite(row.dt)||row.dt<=0))throw new Error('The calculation needs positive-duration intervals. Rebuild the plan with valid times.');
-    const scenario=options.scenario||AIR_SCENARIOS[0];
+    const scenario=options.scenario||AIR_SCENARIOS[0],pressure=sitePressurePa(envelope.elevationM);
     const fallbackChargeEnd=rows[0].phoneCharging===undefined?sleepChargingStart(start)+2*3600000:0;
     const envelopeParts=envelopeAllocation(scenario.cabFactor??3,scenario.bodyCase),solarWeights=solarAllocation(1,scenario.cabFactor??3,scenario.bodyCase);
     let config=mode==='maxxfan'?(options.config||{fanZone:1,fanName:'Mid-coach MaxxFan',gaps:[0,0,0,4,0,0]}):null;
     let sp={...setpoints,fan:setpoints.fan??setpoints.cool},maxFan=options.fanSetting||(isOvernight?'Low':'Auto');
-    const initialRH=Math.max(5,Math.min(100,(state.indoorRH??rhFromRatio(startIndoor,humidityRatio(rows[0].tOut,rows[0].rh))*.85)+scenario.rhOffset));
-    let t=options.initialZones?options.initialZones.temperature.slice():[startIndoor,startIndoor],w=options.initialZones?t.map((v,z)=>humidityRatio(v,Math.max(1,Math.min(100,options.initialZones.rh[z]+scenario.rhOffset)))):t.map(v=>humidityRatio(v,initialRH)),phase='off',score=0,hoursOut=0,draftScore=0;
+    const initialRH=Math.max(5,Math.min(100,(state.indoorRH??rhFromRatio(startIndoor,humidityRatio(rows[0].tOut,rows[0].rh,pressure),pressure)*.85)+scenario.rhOffset));
+    let t=options.initialZones?options.initialZones.temperature.slice():[startIndoor,startIndoor],w=options.initialZones?t.map((v,z)=>humidityRatio(v,Math.max(1,Math.min(100,options.initialZones.rh[z]+scenario.rhOffset)),pressure)):t.map(v=>humidityRatio(v,initialRH,pressure)),phase='off',score=0,hoursOut=0,draftScore=0;
+    const airMass=M.volumeFt3.map((v,z)=>v*.075*densityScale(pressure,t[z]));
+    const totalAirMass=airMass[0]+airMass[1];
     let didCool=false,didHeat=false,heatMinutes=0,coolMinutes=0,capacityCool=false,capacityHeat=false,heatingFloorLimited=false;
     let hpRunMinutes=0,defrostRemaining=0,defrostMinutes=0;
-    let priorDehumHeat=0,dehumRuntimeMinutes=0,moistureTotals={occupants:0,dehumidifier:0,ac:0,outside:0},initialWaterLb=w.reduce((sum,v,z)=>sum+v*M.volumeFt3[z]*.075,0);
+    let priorDehumHeat=0,dehumRuntimeMinutes=0,moistureTotals={occupants:0,dehumidifier:0,ac:0,outside:0},initialWaterLb=w.reduce((sum,v,z)=>sum+v*airMass[z],0);
     let condensedLb=0,humidRun=0,humidMax=0,surfaceRun=[0,0],surfaceMax=0,minMargin=Infinity,maxRH=0,minRH=100,maxSurfaceRH=0;
     let warmRun=0,warmMax=0,coldRun=0,coldMax=0,severeRun=0,severeMax=0,recovery=null,freezeRisk=null,condensationConcern=null,failureTime=null,comfortProblem=null,surfaceConcern=null;
-    const unsafe=[],warnings=new Set(),trace=[],segments=[],mass=M.fraction.map(f=>C.thermalMass*f),airMass=M.volumeFt3.map(v=>v*.075);
+    const unsafe=[],warnings=new Set(),trace=[],segments=[],mass=M.fraction.map(f=>C.thermalMass*f);
     let band=comfortPolicy(isOvernight);const floor=C.comfortFloor;let lastSetup=null;
     // Recovery is tied to the measured start, never restarted at a phase boundary.
     const initialBand=comfortPolicy(options.sleepAt?options.sleepAt(start.getTime()):isOvernight);
@@ -1542,8 +1587,8 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     let recoveryFloorBreach=options.carry?.recoveryFloorBreach??false;
     const record=(time,elapsed)=>{
         if([...t,...w].some(v=>!Number.isFinite(v)))throw new Error('Indoor prediction is not finite. Check the inputs and rebuild the plan.');
-        const comfortT=t[0],rh=t.map((v,z)=>rhFromRatio(v,w[z]));
-        trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],dewPoint:dpFromRatio(w[0]),midDewPoint:dpFromRatio(w[1]),water:w.slice(),sleep:options.sleepAt?options.sleepAt(time):isOvernight});
+        const comfortT=t[0],rh=t.map((v,z)=>rhFromRatio(v,w[z],pressure));
+        trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],dewPoint:dpFromRatio(w[0],pressure),midDewPoint:dpFromRatio(w[1],pressure),water:w.slice(),sleep:options.sleepAt?options.sleepAt(time):isOvernight});
         return{comfortT,rh};
     };
     const checkpoints=[],carry=options.carry,sensor=options.comparisonSensor;
@@ -1558,14 +1603,14 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     // Surface estimates are output-only observations, including at the initial state.
     const moistureCheck=(weather,elapsed,dt,rh)=>{
         maxRH=Math.max(maxRH,...rh);minRH=Math.min(minRH,...rh);
-        const checks=t.map((v,z)=>surfaceAssessment(v,weather,w[z],scenario));
+        const checks=t.map((v,z)=>surfaceAssessment(v,weather,w[z],scenario,pressure));
         checks.forEach((c,z)=>{minMargin=Math.min(minMargin,c.margin);maxSurfaceRH=Math.max(maxSurfaceRH,c.surfaceRH);
             surfaceRun[z]=c.surfaceRH>=M.surfaceRHLimit?surfaceRun[z]+dt*60:0;surfaceMax=Math.max(surfaceMax,surfaceRun[z]);
             if(!surfaceConcern&&surfaceRun[z]>=M.surfaceMinutes)surfaceConcern={time:new Date(start.getTime()+elapsed*60000),zone:z,surfaceRH:c.surfaceRH,roomRH:rh[z]};
             if(c.condensation&&!condensationConcern)condensationConcern={time:new Date(start.getTime()+elapsed*60000),zone:z,source:'surface',margin:c.margin};});
         if(elapsed>M.recoveryMinutes){humidRun=Math.max(...rh)>M.humidLimit?humidRun+dt*60:0;humidMax=Math.max(humidMax,humidRun);}
     };
-    if(!carry)moistureCheck(rows[0].tOut+scenario.tempOffset,0,0,t.map((v,z)=>rhFromRatio(v,w[z])));
+    if(!carry)moistureCheck(rows[0].tOut+scenario.tempOffset,0,0,t.map((v,z)=>rhFromRatio(v,w[z],pressure)));
     capture(carry?rows[0].from:start.getTime());
     const workRows=rows.slice();
     for(let rowIndex=0;rowIndex<workRows.length;rowIndex++){
@@ -1578,12 +1623,15 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             meta=(row.sleeping?C.metaSleep:C.metaAwake)*(row.occupants/2);
         }
         // Owner-approved small-coach assumption: shared water content; retain both temperatures.
-        const sharedW=mixedHumidityRatio(w);w=[sharedW,sharedW];
+        const sharedW=mixedHumidityRatio(w,airMass);w=[sharedW,sharedW];
         const previousZones=t.slice();
         const out=row.tOut+scenario.tempOffset,dt=row.dt,elapsed=(row.to-start.getTime())/60000,previous=t[0];
         const sensed=config&&mode==='maxxfan'?t[config.fanZone]:sensor?sensorReading:options.frontControl?t[1]:isOvernight?t[0]:t[0]*.4+t[1]*.6;
-        const uaTotal=envelopeParts.total*(1+.02*row.wind),bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
+        const outsideDensity=densityScale(pressure,out),insideDensity=densityScale(pressure,(t[0]+t[1])/2);
+        const outsideHeatFactor=1.08*outsideDensity,insideHeatFactor=1.08*insideDensity;
+        const bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
         const ua=[envelopeParts.rear,envelopeParts.front].map((u,z)=>Math.max(0,u*(1+.02*row.wind)-1.08*M.volumeFt3[z]*M.baseACH/60));
+        const uaTotal=ua[0]+ua[1]+outsideHeatFactor*bgTotal;
         let operation='off',q=0,duty=0;
         if(thermostatMode(mode)){
             const control={phase};operation=thermostatDemand(mode,sensed,sp,control,out);phase=control.phase;
@@ -1609,7 +1657,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             duty=1;q=(operation==='ac'?-1:1)*capacity;
             if(operation==='ac')capacityCool||=balance>capacity;else capacityHeat||=-balance>capacity;
             if(options.checkEquipment!==false&&duty>0){
-                const check=operation==='ac'?coolingPolicy(Math.min(...t),out,row.rh,target,maxFan,Math.max(...w.map(dpFromRatio))):heatPumpPolicy(out,row.rh,options.controlAt?row.sleeping||row.occupants===0:isOvernight&&!options.monitored);
+                const check=operation==='ac'?coolingPolicy(Math.min(...t),out,row.rh,target,maxFan,Math.max(...w.map(value=>dpFromRatio(value,pressure)))):heatPumpPolicy(out,row.rh,options.controlAt?row.sleeping||row.occupants===0:isOvernight&&!options.monitored);
                 if(operation==='furnace'||check.safe){if(check.warning)warnings.add(check.warning);}
                 else{if(!unsafe.length)unsafe.push({...check,time:new Date(row.from),timeStr:formatTime(new Date(row.from))});q=0;operation='off';duty=0;phase='off';}
                 if(check.freezeRisk?.type!=='none'&&check.freezeRisk)freezeRisk=check.freezeRisk;
@@ -1622,23 +1670,31 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             if(available<dt-1e-10&&available>1e-10){const cut=row.from+available*3600000;
                 workRows.splice(rowIndex,1,{...row,to:cut,dt:available},{...row,from:cut,dt:dt-available});rowIndex--;continue;}
         }
-        const speed=config&&mode==='maxxfan'?autoVentSpeed(sensed,sp.fan):0,air=ventilationNetwork(config,t,out,row.wind,speed,scenario);
+        const speed=config&&mode==='maxxfan'?autoVentSpeed(sensed,sp.fan):0,air=ventilationNetwork(config,t,out,row.wind,speed,scenario,1.2*outsideDensity);
         if(config&&speed>0)operation='maxxfan';
         const circulation=operation==='defrost'?0:circulationFraction(mode,maxFan,operation,duty);
         const mix=(M.mixCFM+M.ductMixCFM*circulation)*scenario.mix;
         const occupant=occupantLoad(sleeping,people).moistureLbHr;
-        const acRemoval=operation==='ac'&&duty>0?acMoistureRemoval(sharedW,duty):0;
-        const outdoorCFM=air.incoming.reduce((sum,q)=>sum+q,0),outdoorW=humidityRatio(out,row.rh);
-        const moisture=mixedMoistureStep(sharedW,t[1],occupant-acRemoval,outdoorCFM,outdoorW,dt,state.dehumidifierEnabled);
+        const acRemoval=operation==='ac'&&duty>0?acMoistureRemoval(sharedW,duty,pressure,densityScale(pressure,t[1])):0;
+        const outdoorCFM=air.incoming.reduce((sum,q)=>sum+q,0),outdoorW=humidityRatio(out,row.rh,pressure);
+        const moisture=mixedMoistureStep(sharedW,t[1],occupant-acRemoval,outdoorCFM,outdoorW,dt,state.dehumidifierEnabled,pressure,totalAirMass,outsideDensity);
+        // Limit the explicit temperature–humidistat coupling during concurrent
+        // cooling and dehumidification. Other modes retain the ordinary step.
+        const wetCoolingStep=.125/60;
+        if(operation==='ac'&&moisture.removal>0&&dt>wetCoolingStep+1e-10){
+            const cut=row.from+wetCoolingStep*3600000;
+            workRows.splice(rowIndex,1,{...row,to:cut,dt:wetCoolingStep},{...row,from:cut,dt:dt-wetCoolingStep});
+            rowIndex--;continue;
+        }
         const gains=zoneHeatGains(zoneInternalGains(meta,moisture.heatBTU,sleeping,charging),row.solar,q,operation,solarWeights);
-        const nextT=coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,dt,1.08);
+        const nextT=coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,dt,insideHeatFactor,outsideHeatFactor);
         if(thermostatMode(mode)&&operation!=='defrost'&&dt>1/60000){
             const sense=(values,hours)=>sensor?advanceComparisonSensor(sensorReading,t[1],values[1],hours,sensor):
                 options.frontControl?values[1]:isOvernight?values[0]:values[0]*.4+values[1]*.6;
             const nextSensed=sense(nextT,dt),trigger=thermostatBoundary(mode,operation,sp,nextSensed>sensed);
             if((sensed-trigger)*(nextSensed-trigger)<0&&Math.abs(sensed-trigger)>1e-6){
                 let low=0,high=dt;
-                for(let k=0;k<22;k++){const middle=(low+high)/2,value=sense(coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,middle,1.08),middle);
+                for(let k=0;k<22;k++){const middle=(low+high)/2,value=sense(coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,middle,insideHeatFactor,outsideHeatFactor),middle);
                     if((sensed-trigger)*(value-trigger)>0)low=middle;else high=middle;}
                 const first=(low+high)/2,split=row.from+first*3600000;
                 workRows.splice(rowIndex,1,{...row,to:split,dt:first},{...row,from:split,dt:dt-first});rowIndex--;continue;
@@ -1651,10 +1707,10 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             if(hpRunMinutes>=HP.heatingMinutes-1e-7){hpRunMinutes=0;defrostRemaining=HP.pauseMinutes;}}
         priorDehumHeat=moisture.heatBTU;dehumRuntimeMinutes+=moisture.runtime*dt*60;
         moistureTotals.occupants+=occupant*dt;moistureTotals.ac+=acRemoval*dt;moistureTotals.dehumidifier+=moisture.removal*dt;
-        moistureTotals.outside+=4.5*outdoorCFM*(outdoorW-moisture.water)*dt;
+        moistureTotals.outside+=4.5*outsideDensity*outdoorCFM*(outdoorW-moisture.water)*dt;
         let nextW=moisture.water;
-        const coldZone=t[0]<=t[1]?0:1,saturated=humidityRatio(t[coldZone],100);
-        if(nextW>saturated){const condensed=(nextW-saturated)*(airMass[0]+airMass[1]);condensedLb+=condensed;nextW=saturated;
+        const coldZone=t[0]<=t[1]?0:1,saturated=humidityRatio(t[coldZone],100,pressure);
+        if(nextW>saturated){const condensed=(nextW-saturated)*totalAirMass;condensedLb+=condensed;nextW=saturated;
             t[coldZone]+=condensed*M.latentBTUPerLb/mass[coldZone];
             if(!condensationConcern)condensationConcern={time:new Date(row.to),zone:coldZone,source:'air',margin:0};}
         w=[nextW,nextW];
@@ -2393,7 +2449,7 @@ function renderDeparturePlan(result){
         if(stages.night?.recommendation)html+='<p class="hint">The overnight setup runs through 7 AM without manual changes. AUTO HEAT PUMP may use the propane furnace below the 42°F gas-changeover setting.</p>';
     }else html+='<p class="hint">No overnight recommendation: your return is at or after 7 AM. The departure setup is evaluated through your return time.</p>';
     html+='<p class="hint">No occupant heat or moisture between departure and return. Non-sleeping comfort applies throughout the absence; any sleep-temperature setting is preparation. '+(stages.remoteAction?'The remote adjustment above is the only planned change while away.':'Keep the departure setup fixed throughout your absence.')+'</p>';
-    html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+interval(+bounds.start,+bounds.end)+' · '+escapeHTML(analysisTimeZone())+'. Temperature, water content, dehumidifier heat and exposure history carry continuously across departure, return and sleep preparation. Overnight alternatives share the displayed preparation.</p>'+spatialModelText(true)+'</details>';
+    html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+interval(+bounds.start,+bounds.end)+' · '+escapeHTML(analysisTimeZone())+'. Temperature, water content, dehumidifier heat and exposure history carry continuously across departure, return and sleep preparation. Overnight alternatives share the displayed preparation.</p>'+'<p class="hint">'+escapeHTML(weatherProvenance(result.envelope))+'</p>'+spatialModelText(true)+'</details>';
     if(winner?.trials)html+=surfaceOutlook(winner.trials);
     return html+'</div>';
 }
@@ -2854,7 +2910,7 @@ function renderPlan(result){
     html+=renderPeriodComparisons(result.comparisons?.night,true);
     if(bounds.bedtime&&!result.comparisons?.night)html+='<p class="hint">Projected overnight alternatives need reassessment. A verified daytime and bedtime preparation plan is required before comparing overnight modes from common starting conditions.</p>';
     const e=result.envelope;
-    html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+escapeHTML(formatStamp(bounds.start)+' → '+formatStamp(bounds.end)+' · '+analysisTimeZone())+'</p><p class="hint">'+(e.singlePoint?'Manual weather remains constant. Solar elevation changes when location is known.':'Changing NWS temperature, humidity, wind and sky conditions are evaluated throughout.')+'</p><p class="hint">Front temperature governs HVAC calls. Bed-area temperature governs comfort and target fit at all times. Both temperatures are initialized from entered readings. Humidity uses one mixed coach air volume; RH can differ with temperature, while predicted dew point is shared. Moisture and dehumidifier runtime carry continuously between stages.</p><p class="hint">MCD day shades down throughout. Bamboo bedding receives no invented cooling credit. Airflow, surface and equipment performance use the documented engineering assumptions.</p>'+spatialModelText(true)+'</details>';
+    html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+escapeHTML(formatStamp(bounds.start)+' → '+formatStamp(bounds.end)+' · '+analysisTimeZone())+'</p><p class="hint">'+(e.singlePoint?'Manual weather remains constant. Solar elevation changes when location is known.':'Changing NWS temperature, humidity, wind and sky conditions are evaluated throughout.')+'</p><p class="hint">Front temperature governs HVAC calls. Bed-area temperature governs comfort and target fit at all times. Both temperatures are initialized from entered readings. Humidity uses one mixed coach air volume; RH can differ with temperature, while predicted dew point is shared. Moisture and dehumidifier runtime carry continuously between stages.</p><p class="hint">MCD day shades down throughout. Bamboo bedding receives no invented cooling credit. Airflow, surface and equipment performance use the documented engineering assumptions.</p>'+'<p class="hint">'+escapeHTML(weatherProvenance(e))+'</p>'+spatialModelText(true)+'</details>';
     if(!safe&&p.trials.some(t=>t.unsafe.some(u=>u.issueCode==='cooling-ice')))html+='<p class="hint">The AC may ice up. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.</p>';
     return html+'</div>';
 }
@@ -2923,7 +2979,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.11';
+const LOG_APP_VERSION='6.6.12';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
@@ -3185,8 +3241,9 @@ async function flushLogQueue(){
 function logWeatherPoint(envelope,time){
     const point=lookupEnvelopeAt(envelope,time);
     return {valid_time:new Date(point.time).toISOString(),temperature_f:point.tOut,rh_pct:point.rh,
-        dew_point_f:dewPt(point.tOut,point.rh),wind_mph:point.wind??envelope.wind??'missing',
-        wind_gust_mph:'missing',sky_cover_pct:'missing',solar_cloud_factor:point.cloud??envelope.cloud??'missing'};
+        dew_point_f:dewPt(point.tOut,point.rh),wind_mph:point.windSource==='missing'?'missing':point.wind??envelope.wind??'missing',
+        wind_gust_mph:point.gust??'missing',sky_cover_pct:point.sky??'missing',solar_cloud_factor:point.cloud??envelope.cloud??'missing',
+        wind_source:point.windSource??envelope.source,sky_source:point.skySource??envelope.source};
 }
 function captureLogEvent(type,request,envelope=null){
     if(!readLogSettings().enabled)return null;
@@ -3195,7 +3252,7 @@ function captureLogEvent(type,request,envelope=null){
     const event={schema_version:1,event_id:crypto.randomUUID(),event_type:type,event_utc:now.toISOString(),
         event_local:inputDate(now),tz:analysisTimeZone(),app_version:LOG_APP_VERSION,
         run_status:type==='plan'?'error':null,zip:document.getElementById('zipInput').value.trim()||null,
-        lat:envelope?.lat??parkingLogLocation()?.lat,lon:envelope?.lon??parkingLogLocation()?.lon,place:forecast.fetched?forecast.location:null,
+        lat:envelope?.lat??parkingLogLocation()?.lat,lon:envelope?.lon??parkingLogLocation()?.lon,elevation_m:envelope?.elevationM??forecast.elevationM,place:forecast.fetched?forecast.location:null,
         nws_issue_utc:usedForecast&&forecast.issuedAt?new Date(forecast.issuedAt).toISOString():null,
         nws_fetch_utc:usedForecast&&forecast.fetchedAt?new Date(forecast.fetchedAt).toISOString():null,
         reading_utc:request.future?null:request.reading.toISOString(),
@@ -3217,13 +3274,11 @@ function captureLogEvent(type,request,envelope=null){
             const time=+request.reading,period=periodAt(time);
             const temp=intervalAt(forecast.intervals.temperature,time);
             const humidity=intervalAt(forecast.intervals.humidity,time);
-            if(period&&temp&&humidity){
-                const rh=Math.round(Math.max(humidity.value,period.rainFloor?90:0));
+            if(temp?.value!=null&&humidity?.value!=null){
+                const point={time:new Date(Math.max(period?.start??-Infinity,temp.start,humidity.start)),
+                    tOut:temp.value,rh:Math.max(humidity.value,period?.rainFloor?90:0),...gridWeatherAt(time,period)};
                 event.forecast_at_reading_json=JSON.stringify({sample_utc:request.reading.toISOString(),
-                    valid_time:new Date(Math.max(period.start,temp.start,humidity.start)).toISOString(),
-                    temperature_f:Math.round(temp.value),rh_pct:rh,dew_point_f:dewPt(Math.round(temp.value),rh),
-                    wind_mph:period.wind??'missing',wind_gust_mph:'missing',sky_cover_pct:'missing',
-                    solar_cloud_factor:period.cloud??'missing'});
+                    ...logWeatherPoint({...envelope,points:[point]},request.reading)});
             }
         }
     }
