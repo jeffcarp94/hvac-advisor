@@ -1,0 +1,18 @@
+# Analysis tools
+
+Developer scripts used for the v6.6.15 WP11 calibration and its consequence checks. They load
+`index.html` through `tests/helpers.cjs`. None of them change the app. Pass the repository
+path as the first argument (Node 24).
+
+| Script | Purpose | Inputs |
+| --- | --- | --- |
+| `joint-fit.cjs` | Nelder–Mead joint fit of storage, splits, buoyant width and furnace terms to both owner garage runs; `errors(params)` returns RMSE | Field fixtures `garage-heat-pump-2026-11-16.json`, `garage-furnace-2026-11-17.json` (digitized YoLink) |
+| `scenario-sweep.cjs` | Every `AIR_SCENARIOS` case at FURNACE 62–66 on a steady night; bedroom/front ranges and offset | Synthetic weather |
+| `steady-plan.cjs` | Full planner on a steady night at a given outdoor temperature | Synthetic weather |
+| `cycles.cjs` | Thermostat cycle lengths and zone ranges at 45°F, 30°F and 85°F | Synthetic weather |
+| `furnace-capacity.cjs` | FURNACE 72 duty and final temperatures at 10 to −20°F | Synthetic weather |
+| `fixtures-beforeafter.cjs` | Live planner on every runnable fixture (qualification, winner, bedroom range) | Archived and labeled synthetic fixtures |
+
+v6.6.15 adopted parameters (`joint-fit.cjs` names): `ca` 297, `cm` 574, `tau` 0.98, `f` 0.38,
+`w` 0.58, `ff` 0.57, `sf` 0.77 (× 15,000 = 11,550 BTU/h), `fm` 0.49, with `shp` = 1 and
+`u` = 1 held fixed. RMSE front/rear/gap: heat pump 0.24/0.26/0.34°F, furnace 0.37/0.35/0.38°F.

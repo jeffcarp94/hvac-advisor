@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.15 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.16 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.15</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.16</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -380,8 +380,9 @@ function zoneInternalGains(occupantSensible,dehumidifier,sleeping,phoneCharging)
 // fitted to the owner's garage run. Before v6.6.15: uniform per volume (≈ 0.447).
 const DUCT={rearFraction:.38};
 function ductRearFraction(){return DUCT.rearFraction??M.fraction[0];}
-function zoneHeatGains(internal,solar,hvac,operation,solarWeights=null){
-    const weights=solarWeights||solarAllocation(1),rearDelivery=operation==='furnace'?FURNACE.rearFraction:ductRearFraction();
+// delivery (optional): a sensitivity case's {ductRear, furnaceRear}; null fields use the calibrated nominal.
+function zoneHeatGains(internal,solar,hvac,operation,solarWeights=null,delivery=null){
+    const weights=solarWeights||solarAllocation(1),rearDelivery=operation==='furnace'?(delivery?.furnaceRear??FURNACE.rearFraction):(delivery?.ductRear??ductRearFraction());
     return [internal[0]+solar*weights[0]+hvac*rearDelivery,internal[1]+solar*weights[1]+hvac*(1-rearDelivery)];
 }
 
@@ -1291,10 +1292,19 @@ const WINDOW_SECTIONS=[
     {id:'sink',name:'sink window',zone:1,side:'entry',width:19.25,height:10.5},
     {id:'dinette1',name:'dinette window, first section',zone:1,side:'driver',width:21.625,height:10.5},
     {id:'dinette2',name:'dinette window, second section',zone:1,side:'driver',width:21.625,height:10.5}];
+// Interzone airflow fields (v6.6.16). ductRear / furnaceRear: rear delivery shares; widthFt: buoyant
+// effective width; mix: scale on the forced term (60 CFM + 120 CFM × circulation). The working estimate
+// leaves them null so it uses the calibrated DUCT, FURNACE and INTERZONE values unchanged. The restricted
+// and greater sets are each one parameter set that reproduces both owner garage runs (11/16 heat pump,
+// 11/17 furnace) within the v6.6.15 residual combined in quadrature with the 0.3°F digitizing tolerance,
+// chosen as the most and least rear-isolating such sets on reconstructed 30°F furnace and 45°F heat-pump
+// nights, with engineering floors widthFt ≥ 0.25 ft and mix ≥ 0.5 (tools/analysis/airflow-extremes.cjs).
+// flow and windSign (windows, MaxxFan) have no new evidence and are unchanged. rhOffset, tempOffset,
+// surfaceFactor and cabFactor are not airflow terms and are unchanged pending a separate owner decision.
 const AIR_WEATHER_CASES=[
-    {name:'working estimate',flow:1,windSign:0,mix:1,rhOffset:0,tempOffset:0,surfaceFactor:.8,cabFactor:3},
-    {name:'restricted airflow / warmer',flow:.7,windSign:1,mix:.7,rhOffset:5,tempOffset:2,surfaceFactor:.85,cabFactor:4.5},
-    {name:'greater airflow / cooler',flow:1.2,windSign:-1,mix:1.3,rhOffset:5,tempOffset:-2,surfaceFactor:.9,cabFactor:1.5}];
+    {name:'working estimate',flow:1,windSign:0,mix:1,ductRear:null,furnaceRear:null,widthFt:null,rhOffset:0,tempOffset:0,surfaceFactor:.8,cabFactor:3},
+    {name:'restricted airflow / warmer',flow:.7,windSign:1,mix:.5,ductRear:.40,furnaceRear:.52,widthFt:.28,rhOffset:5,tempOffset:2,surfaceFactor:.85,cabFactor:4.5},
+    {name:'greater airflow / cooler',flow:1.2,windSign:-1,mix:2.8,ductRear:.35,furnaceRear:.65,widthFt:.30,rhOffset:5,tempOffset:-2,surfaceFactor:.9,cabFactor:1.5}];
 // Cross all body assemblies with every existing weather/airflow/cab case.
 // The first remains the nominal case for fast screening, then all nine verify.
 const AIR_SCENARIOS=BODY_CASES.flatMap(bodyCase=>AIR_WEATHER_CASES.map(s=>({...s,bodyCase,name:s.name+' / '+bodyCase.name})));
@@ -1703,6 +1713,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     const scenario=options.scenario||AIR_SCENARIOS[0],pressure=sitePressurePa(envelope.elevationM);
     const fallbackChargeEnd=rows[0].phoneCharging===undefined?sleepChargingStart(start)+2*3600000:0;
     const envelopeParts=envelopeAllocation(scenario.cabFactor??3,scenario.bodyCase),solarWeights=solarAllocation(1,scenario.cabFactor??3,scenario.bodyCase);
+    const delivery={ductRear:scenario.ductRear??null,furnaceRear:scenario.furnaceRear??null};
     let config=mode==='maxxfan'?(options.config||{fanZone:1,fanName:'Mid-coach MaxxFan',gaps:[0,0,0,4,0,0]}):null;
     let sp={...setpoints,fan:setpoints.fan??setpoints.cool},maxFan=options.fanSetting||(isOvernight?'Low':'Auto');
     const initialRH=Math.max(5,Math.min(100,(state.indoorRH??rhFromRatio(startIndoor,humidityRatio(rows[0].tOut,rows[0].rh,pressure),pressure)*.85)+scenario.rhOffset));
@@ -1832,7 +1843,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const speed=config&&mode==='maxxfan'?autoVentSpeed(sensed,sp.fan):0,air=ventilationNetwork(config,t,out,row.wind,speed,scenario,1.2*outsideDensity);
         if(config&&speed>0)operation='maxxfan';
         const circulation=operation==='defrost'?0:circulationFraction(mode,maxFan,operation,duty);
-        const forcedMix=(M.mixCFM+M.ductMixCFM*circulation)*scenario.mix,buoyantMix=buoyantExchangeCFM(t[0],t[1]),mix=forcedMix+buoyantMix;
+        const forcedMix=(M.mixCFM+M.ductMixCFM*circulation)*scenario.mix,buoyantMix=buoyantExchangeCFM(t[0],t[1],scenario.widthFt??INTERZONE.widthFt),mix=forcedMix+buoyantMix;
         const occupant=occupantLoad(sleeping,people).moistureLbHr;
         const acRemoval=operation==='ac'&&duty>0?(cooling?.waterLbHr??acMoistureRemoval(sharedW,duty,pressure,densityScale(pressure,t[1]))):0;
         const outdoorCFM=air.incoming.reduce((sum,q)=>sum+q,0),outdoorW=humidityRatio(out,row.rh,pressure);
@@ -1845,8 +1856,9 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             workRows.splice(rowIndex,1,{...row,to:cut,dt:wetCoolingStep},{...row,from:cut,dt:dt-wetCoolingStep});
             rowIndex--;continue;
         }
-        const gains=zoneHeatGains(zoneInternalGains(meta,moisture.heatBTU,sleeping,charging),row.solar,q,operation,solarWeights);
-        const massGains=solarWeights.map((f,z)=>row.solar*f*STORAGE.solarToMass+(operation==='furnace'?q*FURNACE.toMass*(z===0?FURNACE.rearFraction:1-FURNACE.rearFraction):0)),airGains=gains.map((g,z)=>g-massGains[z]);
+        const gains=zoneHeatGains(zoneInternalGains(meta,moisture.heatBTU,sleeping,charging),row.solar,q,operation,solarWeights,delivery);
+        const furnaceRear=delivery.furnaceRear??FURNACE.rearFraction;
+        const massGains=solarWeights.map((f,z)=>row.solar*f*STORAGE.solarToMass+(operation==='furnace'?q*FURNACE.toMass*(z===0?furnaceRear:1-furnaceRear):0)),airGains=gains.map((g,z)=>g-massGains[z]);
         const advance=hours=>twoNodeAdvance(t,tm,storage,ua,air.incoming,air.bulk,mix,airGains,massGains,out,hours,insideHeatFactor,outsideHeatFactor);
         const stepped=advance(dt),nextT=stepped.air;
         if(thermostatMode(mode)&&operation!=='defrost'&&dt>1/60000){
@@ -3165,7 +3177,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.15';
+const LOG_APP_VERSION='6.6.16';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';

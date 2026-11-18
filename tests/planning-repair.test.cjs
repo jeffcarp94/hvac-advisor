@@ -67,7 +67,11 @@ test('preparation search checks a fine-grid timing island after coarse proposals
  assert.equal(a.run('result.winner.trials.every(t=>+t.trace.at(-1).time===+e.windowEnd)'),true);
 });
 test('planner searches separate COOL preparation followed by an overnight heating setup',()=>{
- const a=app();load(a,require('./fixtures/synthetic-bedtime-preparation.cjs'));
+ // Labeled synthetic inputs. v6.6.16: with the evidence-derived airflow cases the 60°F overnight
+ // period no longer qualifies HEAT PUMP 67 in every case (bedroom comfort only, tabled per owner
+ // 11/18/2026). A 55°F overnight period exercises the same three-stage search; assertions unchanged.
+ const job=require('./fixtures/synthetic-bedtime-preparation.cjs');
+ const a=app();load(a,{...job,points:job.points.map((p,i)=>i?{...p,tOut:55}:p)});
  // Isolate the three-stage search from mode and setpoint optimization. The
  // solver still verifies all nine trajectories with their original physics.
  a.run(`shortlistVents=()=>[];

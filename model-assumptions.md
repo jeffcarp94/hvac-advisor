@@ -1,3 +1,69 @@
+# v6.6.16 — Evidence-based airflow sensitivity cases
+
+Owner direction, November 18, 2026: update the airflow scenarios on all known information. Later the same day: no occupied overnight record will be supplied; model from the data in hand, and table comfort-only failures across the cases until WP7–WP10, WP13 and WP12 Phase A are implemented. The steady nights and synthetic fixtures below are reconstructed inputs.
+
+## What drove the v6.6.15 spread
+
+`tools/analysis/offset-decomposition.cjs`, one `AIR_WEATHER_CASES` field at a time from the working estimate, change in the bedroom-minus-front offset (mean after the first hour, nominal body):
+
+| Field | 30°F FURNACE 63 | 45°F AUTO HP 67/71 | Airflow term? |
+| --- | --- | --- | --- |
+| `cabFactor` 4.5 / 1.5 | +1.15 / −1.20°F | +0.49 / −0.49°F | No |
+| `mix` 0.7 / 1.3 | +0.88 / −0.64°F | +0.43 / −0.30°F | Yes |
+| `tempOffset` +2 / −2°F | −0.23 / +0.27°F | −0.11 / +0.11°F | No |
+| `flow`, `windSign`, `rhOffset`, `surfaceFactor` | ≈ 0 (closed coach) | ≈ 0 | — |
+
+The calibrated duct share, furnace share and buoyant width were not varied at all.
+
+## What the garage runs support
+
+Profile likelihood on the joint fit (`calibration-profile.cjs`, each value held while every other parameter is refitted). A value is **data-supported** when every front, rear and gap RMSE of both runs stays within the v6.6.15 residual combined in quadrature with the 0.3°F digitizing tolerance: heat pump 0.384 / 0.396 / 0.453°F, furnace 0.476 / 0.461 / 0.484°F.
+
+| Parameter | v6.6.15 | Supported range | Comment |
+| --- | --- | --- | --- |
+| Ducted rear share | 0.38 | ≈ 0.34–0.41 | Well identified by the heat-pump gap |
+| Furnace rear share | 0.57 | ≈ 0.51–0.69 | Trades against mixing |
+| Buoyant width | 0.58 ft | below 0.1 to about 2 ft | Not identified separately from forced mixing |
+| Forced-mix scale | 1 (held) | 0 to about 3.4 | Free optimum 0–0.8 |
+| Cab factor (not airflow) | 3 (held) | 0.75–4.5 all supported | Mild preference for lower cab conductance; no basis for narrowing the cases |
+
+The runs fix total exchange at 2–4°F gaps with no occupants. Forced (ΔT-independent) and buoyant (∝ √ΔT) exchange fit them equally well, so they extrapolate apart at the 4–9°F gaps of an occupied cold night.
+
+## New case values
+
+`airflow-extremes.cjs` searched the four airflow terms, with every non-airflow value at its v6.6.15 calibration, for the data-supported sets that most and least isolate the rear (sum of bedroom offsets on reconstructed 30°F FURNACE 63 and 45°F AUTO HEAT PUMP 67/71 nights). Two engineering floors exclude degenerate corners: buoyant width ≥ 0.25 ft and forced-mix scale ≥ 0.5 (blower circulation with a single central return must move some air between zones). Without the floors the restricted extreme is wider still.
+
+| Field | Working estimate | Restricted airflow | Greater airflow | Tier / confidence |
+| --- | --- | --- | --- | --- |
+| `mix` (× 60 CFM + 120 CFM × circulation) | 1 | **0.5** (was 0.7) | **2.8** (was 1.3) | Field-calibrated range, Cal (two runs); floor Eng. Low–medium |
+| `ductRear` | 0.38 (calibrated) | **0.40** | **0.35** | Cal (two runs). Medium |
+| `furnaceRear` | 0.57 (calibrated) | **0.52** | **0.65** | Cal (two runs). Low–medium |
+| `widthFt` | 0.58 ft (calibrated) | **0.28 ft** | **0.30 ft** | Cal (two runs); floor Eng. Low |
+| `flow`, `windSign` | 1, 0 | 0.7, +1 | 1.2, −1 | Eng, unchanged (no new evidence) |
+| `cabFactor`, `tempOffset`, `rhOffset`, `surfaceFactor` | unchanged | unchanged | unchanged | Not airflow; separate owner decision |
+
+Each set reproduces both garage runs within the limits above (restricted: HP 0.26/0.27/0.37, furnace 0.40/0.39/0.48°F; greater: HP 0.28/0.30/0.45, furnace 0.38/0.37/0.42°F), pinned in `tests/airflow-scenarios.test.cjs`. The working estimate leaves the new fields null and is unchanged.
+
+**Tolerance sensitivity.** With 0.15°F instead of 0.3°F, the sets narrow to mix 0.87 / 1.38, duct 0.39 / 0.37, furnace 0.55 / 0.58, width 0.39 / 0.60 ft. That bracket is about as wide as v6.6.15's mix 0.7 / 1.3 (30°F offset 5.2–6.8°F), and the 45°F plan is kept. The 0.3°F tolerance was the method as specified; the fitted residual already contains digitizing error, so it may double-count it. Owner decision: 0.3°F.
+
+## Consequences (before → after)
+
+| Check | v6.6.15 | v6.6.16 |
+| --- | --- | --- |
+| Offset, airflow fields only, 30°F / 45°F | 5.3–6.8 / 1.4–2.2°F | 4.4–8.3 / 0.7–3.2°F |
+| Nine-case offset, 30°F FURNACE 63 (`scenario-sweep.cjs`) | 4.0–7.8°F | 3.5–9.8°F |
+| `steady-plan.cjs` 30°F | none | none |
+| `steady-plan.cjs` 45°F | AUTO HEAT PUMP 67/71 | none (bedroom to 71.6°F in a restricted case) |
+| `fixtures-beforeafter.cjs` | 5 of 10 qualify | 1 of 10 (surface synthetic) |
+| `cycles.cjs` (nominal) | — | identical |
+
+Lost plans: March historical, Winterset 2025-10-01 and 2026-05-08, and the bedtime-preparation synthetic, all on the sleep band or its 65°F lower bound; in each, no case fails an equipment or moisture check (`fixtures-beforeafter.cjs` now reports failing cases by kind). Tabled per owner direction. The steady 30°F night fails in the working estimate alone: each front-sensed furnace cycle swings the bedroom 4.2–5.7°F against a 4°F band. No case revision changes that.
+
+## Durable assumptions changed (Project Reference)
+
+- The nine scenarios now vary the forced mixing scale, both delivery splits and the buoyant width over the range the garage runs support. The cab and outdoor-offset terms are unchanged.
+- Comfort-only failures across the cases are tabled until WP7–WP10, WP13 and WP12 Phase A.
+
 # v6.6.15 — WP11 two-node storage calibrated to the garage tests
 
 Owner direction, November 17, 2026: implement WP11 ahead of WP7–WP10, and correct the rear/front heat split to match measured behavior. The calibrated values below replace the scope's WP11 nominal priors and the former furnace estimates. They come from two field tests in the same garage and are labeled **Cal (two tests)**.
