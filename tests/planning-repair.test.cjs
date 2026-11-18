@@ -36,22 +36,22 @@ test('sleep forbids later thermostat or physical changes even when remote contro
 });
 test('AUTO readiness accepts normal cycling only after cooling target has been reached',()=>{
  const a=app();load(a,require('./fixtures/winterset-planning-regressions.json')[0]);
- // v6.6.11 places the Cube's heat in the front zone, so COOL TO 67 now drives the
- // bedroom below the 65F floor before bedtime. 64/68 keeps the same readiness check.
- a.run(`p=simulatePlan([{time:+r.start,setup:withSetting(planSetup('auto',true),{heat:64,cool:68})}],e,r);`);
+ // v6.6.15 calibrated storage and duct split restore the original 63/67 case
+ // (v6.6.14 had to use 64/68).
+ a.run(`p=simulatePlan([{time:+r.start,setup:withSetting(planSetup('auto',true),{heat:63,cool:67})}],e,r);`);
  assert.equal(a.run('p.ready'),true);
  assert.ok(a.run('p.trace.some(p=>p.bedroom<=68.5)'));
- a.run(`late=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+planBounds(r.start).bedtime,setup:withSetting(planSetup('auto',true),{heat:64,cool:68})}],e,r);`);
+ a.run(`late=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+planBounds(r.start).bedtime,setup:withSetting(planSetup('auto',true),{heat:63,cool:67})}],e,r);`);
  assert.equal(a.run('late.ready'),false);
 });
 test('preparation search checks a fine-grid timing island after coarse proposals fail',()=>{
  // The October 2025 fixture has no qualifying fixed COOL night under the v6.6.2+
- // EasyTouch cycle, so a labeled synthetic clear 60F night supplies a night setup
+ // EasyTouch cycle, so a labeled synthetic clear 52F night supplies a night setup
  // that qualifies at every switch time. Awake COOL, overnight AUTO 67/71.
  // Retain the working body and all three weather cases.
  // A synthetic narrow readiness window supplies a non-monotonic timing oracle;
  // real temperature, humidity and equipment checks must still pass inside it.
- const a=app();load(a,require('./fixtures/synthetic-clear-60f-night.cjs'));
+ const a=app();load(a,require('./fixtures/synthetic-cool-52f-night.cjs'));
  a.run(`AIR_SCENARIOS.splice(3);island=+planBounds(r.start,r).bedtime-15*60000;
  planSetups=sleep=>[sleep?withSetting(planSetup('auto',true,null,'Low'),{heat:67,cool:71}):withSetting(planSetup('ac',false,null,'Low'),71)];
  optimizePhase=plan=>plan;shortlistVents=()=>[];

@@ -74,7 +74,8 @@ test('cached preparation trials preserve continuous heat, water, comfort and moi
  assert.equal(a.run('JSON.stringify(direct.trials[0].trace)'),a.run('JSON.stringify(cached.trials[0].trace)'));
 });
 test('morning natural recovery outranks a small active-heating score advantage only when viable',()=>{
- const a=scenario('2026-10-23T12:30Z');a.run(`r.initial.temperature=[67,67];e.points[0].tOut=70;ph=[{time:+r.start,setup:planSetup('passive',false)}];p=simulatePlan(ph,e,r);recovery=naturalRecovery([p,p,p],r,ph[0].setup)`);
+ // v6.6.15 storage slows natural warming; an 86F synthetic morning keeps recovery within 30 min.
+ const a=scenario('2026-10-23T12:30Z');a.run(`r.initial.temperature=[67,67];e.points[0].tOut=86;ph=[{time:+r.start,setup:planSetup('passive',false)}];p=simulatePlan(ph,e,r);recovery=naturalRecovery([p,p,p],r,ph[0].setup)`);
  assert.ok(a.run('recovery.minutes')>0);assert.ok(a.run('recovery.minutes')<=30);
  a.run(`plans=[{suitable:true,ready:true,natural:null,score:0,type:'hp'},{suitable:true,ready:true,natural:recovery,score:.2,type:'passive'}];plans.sort(comparePlans)`);
  assert.equal(a.run('plans[0].type'),'passive');

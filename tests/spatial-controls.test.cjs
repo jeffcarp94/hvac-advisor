@@ -6,12 +6,13 @@ function scenario(){
  r={start:new Date('2026-10-24T03:00Z'),initial:{temperature:[67,63],rh:[30,30]},occupancy:'staying',remote:false};
  e=makeEnvelope(r.start,planBounds(r.start,r).end,'Spatial controls',300000);to=+r.start+90*60000;rows=planRows(e,r,.5,[to]).filter(x=>x.to<=to);`);return a;
 }
-test('scale geometry includes open cab and overhead output is uniform per served volume',()=>{
+test('scale geometry includes open cab and ducted output follows the calibrated rear share',()=>{
  const a=app();close(a.run('M.volumeFt3[0]'),431.1094631498402,1);close(a.run('M.volumeFt3[1]'),533.4600,1);
  close(a.run('M.fraction.reduce((s,x)=>s+x,0)'),1);
  for(const op of ['ac','hp']){
   a.run(`q=zoneHeatGains([0,0],0,10000,'${op}')`);close(a.run('q[0]+q[1]'),10000);
-  close(a.run('q[0]/M.volumeFt3[0]'),a.run('q[1]/M.volumeFt3[1]'));
+  // v6.6.15: owner garage test calibrates ducted delivery to 38% rear (was uniform per volume).
+  close(a.run('q[0]/(q[0]+q[1])'),a.run('ductRearFraction()'));
  }
  a.run("q=zoneHeatGains([0,0],0,10000,'furnace')");close(a.run('q[0]'),7000);close(a.run('q[1]'),3000);
 });
@@ -38,8 +39,12 @@ test('furnace maintenance cannot claim an ideal clamped setpoint with real hyste
  const a=scenario();a.run(`p=stagePlan([],planSetup('furnace',true),+r.start,to,e,r,rows);
  old=stagePlanRaw([],withSetting(planSetup('furnace',true),63),+r.start,to,e,r,rows)`);
  assert.equal(a.run('old.suitable'),false);
- assert.equal(a.run('p.suitable'),false);
- assert.ok(a.run('p.trials.some(t=>!t.comfortEligible)'));
+ // The optimized setting is simulated through real EasyTouch cycling, not a clamped
+ // setpoint: the front sensor spans heat-on (HEAT TO − 2) to shutoff (HEAT TO + 1).
+ // v6.6.15 storage lets the optimized HEAT TO 65 pass; v6.6.14 rejected every setting.
+ const heat=a.run('p.setup.setpoints.heat');
+ assert.ok(a.run('p.trials.every(t=>Math.max(...t.trace.slice(1).map(x=>x.midCoach))>='+(heat+1-.05)+')'),'every case reaches shutoff');
+ assert.ok(a.run('p.trials.some(t=>Math.min(...t.trace.slice(1).map(x=>x.midCoach))<='+(heat-2+.05)+')'),'a case returns to the restart threshold');
  assert.match(a.run('frontOutlook(p.trials,+r.start,to)'),/Dinette comfort differs/);
 });
 test('AUTO control uses independent EasyTouch setpoints instead of a midpoint',()=>{
