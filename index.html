@@ -213,7 +213,7 @@
     <button class="analyze-btn" id="analyzeBtn" onclick="analyze()">Build my HVAC plan</button>
 
     <details class="input-section" id="parkingObservations"><summary>Parking observations</summary>
-        <p class="hint">Heading and tree cover are recorded only and are not yet used in calculations.</p>
+        <p class="hint">Heading and tree cover set the solar gain on each side of the coach. With an Unknown or unconfirmed heading, plans must pass with the front facing each of N, E, S and W, which takes about four times longer.</p>
         <label class="field">Direction the front faces<select id="parkingHeading" onchange="editParkingLog()"></select></label>
         <button type="button" class="minor-btn" id="compassBtn" onclick="readPhoneCompass()" hidden>Use phone compass</button>
         <p class="hint" id="compassStatus" role="status"></p>
@@ -747,6 +747,171 @@ function solarHourFactor(date,lat,lon){
     }catch(e){return 1;}
 }
 
+// WP8 solar model. Pinned sources:
+//  sun position: NOAA solar calculator equations (as solarHourFactor), extended to azimuth;
+//  clear sky: ASHRAE Clear Sky model, I_DN = A/exp(B/sin β), diffuse horizontal = C·I_DN, monthly
+//    A/B/C for the 21st (EnergyPlus Engineering Reference 8.3 "Climate Calculations", from ASHRAE HOF
+//    2005 Ch. 31), interpolated linearly by day between months;
+//  clouds: Kasten & Czeplak (1980), GHI = GHI_clear·(1 − 0.75·(N/8)^3.4), N = 8 × sky cover / 100;
+//  beam/diffuse split: Erbs, Klein & Duffie (1982) on the clearness index;
+//  sky: isotropic diffuse, ground albedo 0.2 (engineering assumption);
+//  glass angular effect (beam only): ASHRAE HOF 2005 Ch. 31 Table 13, glazing 1a SHGC ratios to normal;
+//    diffuse uses the hemispherical ratio 0.78/0.86.
+const SOLAR_ABC=[[1202,.141,.103],[1187,.142,.104],[1164,.149,.109],[1130,.164,.120],[1106,.177,.130],[1092,.185,.137],
+    [1093,.186,.138],[1107,.182,.134],[1136,.165,.121],[1166,.152,.111],[1190,.144,.106],[1204,.141,.103]];
+const SOLAR_GLASS_ANGLE=[[0,.86],[40,.84],[50,.82],[60,.78],[70,.67],[80,.42],[90,0]];
+const SOLAR=Object.freeze({albedo:.2,absorptance:.5,exteriorFilm:4,wToBtuFt2:.316998,hemisphericalGlass:.78/.86,
+    windshieldTiltDeg:55}); // windshield rake from horizontal: engineering estimate, unverified for this cab
+function solarPosition(date,lat,lon){
+    const rad=Math.PI/180,deg=1/rad;
+    const Y=date.getUTCFullYear(),Mo=date.getUTCMonth()+1,D=date.getUTCDate();
+    const a=Math.floor((14-Mo)/12),y=Y+4800-a,m=Mo+12*a-3;
+    const JDN=D+Math.floor((153*m+2)/5)+365*y+Math.floor(y/4)-Math.floor(y/100)+Math.floor(y/400)-32045;
+    const utHour=date.getUTCHours()+date.getUTCMinutes()/60+date.getUTCSeconds()/3600;
+    const T=(JDN-0.5+utHour/24-2451545)/36525;
+    const L0=((280.46646+T*(36000.76983+T*0.0003032))%360+360)%360,M=(357.52911+T*(35999.05029-T*0.0001537))*rad;
+    const e=0.016708634-T*(0.000042037+T*0.0000001267);
+    const C0=(1.914602-T*(0.004817+0.000014*T))*Math.sin(M)+(0.019993-T*0.000101)*Math.sin(2*M)+0.000289*Math.sin(3*M);
+    const omega=(125.04-1934.136*T)*rad,lambda=(L0+C0-0.00569-0.00478*Math.sin(omega))*rad;
+    const eps=(23+(26+(21.448-T*(46.8150+T*(0.00059-T*0.001813)))/60)/60+0.00256*Math.cos(omega))*rad;
+    const dec=Math.asin(Math.sin(eps)*Math.sin(lambda)),L0r=L0*rad,yt=Math.tan(eps/2)**2;
+    const eqTime=4*deg*(yt*Math.sin(2*L0r)-2*e*Math.sin(M)+4*e*yt*Math.sin(M)*Math.cos(2*L0r)-0.5*yt*yt*Math.sin(4*L0r)-1.25*e*e*Math.sin(2*M));
+    const ha=((utHour*60+eqTime+lon*4)/4-180)*rad,phi=lat*rad;
+    const sinAlt=Math.sin(phi)*Math.sin(dec)+Math.cos(phi)*Math.cos(dec)*Math.cos(ha);
+    const altitude=Math.asin(Math.max(-1,Math.min(1,sinAlt)))*deg;
+    const azimuth=((Math.atan2(Math.sin(ha),Math.cos(ha)*Math.sin(phi)-Math.tan(dec)*Math.cos(phi))*deg+180)%360+360)%360;
+    const start=Date.UTC(Y,0,1),dayOfYear=Math.floor((date.getTime()-start)/86400000)+1;
+    return{altitude,azimuth,sinAlt:Math.max(0,sinAlt),declination:dec*deg,eqTime,dayOfYear,
+        extraterrestrial:1367*(1+0.033*Math.cos(2*Math.PI*dayOfYear/365))};
+}
+function solarABC(date){
+    // Monthly constants apply to the 21st; interpolate linearly by day between adjacent 21sts.
+    const y=date.getUTCFullYear(),m=date.getUTCMonth(),t=date.getTime();
+    const anchor=k=>Date.UTC(y,k,21),i=t>=anchor(m)?m:m-1,j=i+1;
+    const t0=Date.UTC(y,i,21),t1=Date.UTC(y,j,21),f=(t-t0)/(t1-t0),A=SOLAR_ABC[(i+12)%12],B=SOLAR_ABC[j%12];
+    return A.map((v,k)=>v+(B[k]-v)*f);
+}
+function clearSkyIrradiance(date,sun){
+    if(sun.altitude<=0)return{dni:0,dhi:0,ghi:0};
+    const [A,B,Cd]=solarABC(date),dni=A/Math.exp(B/Math.sin(sun.altitude*Math.PI/180)),dhi=Cd*dni;
+    return{dni,dhi,ghi:dni*sun.sinAlt+dhi};
+}
+function kastenCzeplak(ghiClear,skyPercent){const N=8*Math.max(0,Math.min(100,skyPercent))/100;return ghiClear*(1-.75*Math.pow(N/8,3.4));}
+function erbsDiffuseFraction(kt){
+    if(kt<=.22)return 1-.09*kt;
+    if(kt<=.8)return .9511-.1604*kt+4.388*kt*kt-16.638*kt**3+12.336*kt**4;
+    return .165;
+}
+// Global horizontal (W/m²) from clear sky and sky cover, split into beam (normal) and diffuse (horizontal).
+function solarComponents(date,lat,lon,skyPercent){
+    const sun=solarPosition(date,lat,lon);
+    if(sun.altitude<=0)return{sun,ghi:0,dni:0,dhi:0,kt:0};
+    const ghi=kastenCzeplak(clearSkyIrradiance(date,sun).ghi,skyPercent),kt=Math.min(1,ghi/(sun.extraterrestrial*sun.sinAlt));
+    const dhi=ghi*erbsDiffuseFraction(kt),dni=Math.max(0,(ghi-dhi)/sun.sinAlt);
+    return{sun,ghi,dni,dhi,kt};
+}
+const SOLAR_SUN_CACHE=new Map();
+function solarComponentsCached(date,lat,lon,sky){
+    const k=+date+'|'+lat+'|'+lon+'|'+sky;let v=SOLAR_SUN_CACHE.get(k);
+    if(!v){if(SOLAR_SUN_CACHE.size>20000)SOLAR_SUN_CACHE.clear();v=solarComponents(date,lat,lon,sky);SOLAR_SUN_CACHE.set(k,v);}
+    return v;
+}
+// Irradiance on a plane tilted Σ from horizontal whose outward normal faces azimuth ψ (degrees from north).
+function planeIrradiance(c,tiltDeg,azimuthDeg,albedo=SOLAR.albedo){
+    const r=Math.PI/180,tilt=tiltDeg*r,alt=c.sun.altitude*r;
+    const cosTheta=c.sun.altitude<=0?0:Math.cos(alt)*Math.cos((c.sun.azimuth-azimuthDeg)*r)*Math.sin(tilt)+Math.sin(alt)*Math.cos(tilt);
+    const beam=c.dni*Math.max(0,cosTheta),sky=c.dhi*(1+Math.cos(tilt))/2,ground=c.ghi*albedo*(1-Math.cos(tilt))/2;
+    return{cosTheta,incidenceDeg:Math.acos(Math.max(-1,Math.min(1,cosTheta)))/r,beam,sky,ground,total:beam+sky+ground};
+}
+function glassAngularRatio(incidenceDeg){
+    const t=Math.max(0,Math.min(90,incidenceDeg));
+    for(let i=1;i<SOLAR_GLASS_ANGLE.length;i++){const [a0,v0]=SOLAR_GLASS_ANGLE[i-1],[a1,v1]=SOLAR_GLASS_ANGLE[i];
+        if(t<=a1)return (v0+(v1-v0)*(t-a0)/(a1-a0))/SOLAR_GLASS_ANGLE[0][1];}
+    return 0;
+}
+// WP8 glazing inventory (ft²). Cab: windshield 17.56 ft² cover rectangle × 0.85 and two door-cover
+// rectangles of 7.15 ft² × 0.80, scaled to the retained 27 ft² cab total (engineering estimate). Body: owner
+// measurements — the WINDOW_SECTIONS panes plus the rear window (25 × 19 in) and entry-door window
+// (13 × 22 in), 11/18/2026 — total 15.96 ft². Conduction keeps the calibrated 18 ft² (envelope unchanged).
+let SOLAR_GLAZING_CACHE=null;
+function solarGlazing(){if(SOLAR_GLAZING_CACHE)return SOLAR_GLAZING_CACHE;return SOLAR_GLAZING_CACHE=(()=>{
+    const ft2=(w,h)=>w*h/144,sec=id=>{const x=WINDOW_SECTIONS.find(w=>w.id===id);return ft2(x.width,x.height);};
+    const cabRaw={windshield:17.56*.85,door:7.15*.8},cabScale=27/(cabRaw.windshield+2*cabRaw.door);
+    const jeff=sec('jeff1')+sec('jeff2'),kim=sec('kim'),sink=sec('sink'),dinette=sec('dinette1')+sec('dinette2');
+    const rearWindow=ft2(25,19),entryDoor=ft2(13,22);
+    return Object.freeze([
+        {id:'windshield',zone:1,facade:'windshield',area:cabRaw.windshield*cabScale,shade:'cab'},
+        {id:'cabDriverDoor',zone:1,facade:'driver',area:cabRaw.door*cabScale,shade:'cab'},
+        {id:'cabPassengerDoor',zone:1,facade:'entry',area:cabRaw.door*cabScale,shade:'cab'},
+        {id:'jeff',zone:0,facade:'entry',area:jeff,shade:'coach'},
+        {id:'kim',zone:0,facade:'driver',area:kim,shade:'coach'},
+        {id:'rearWindow',zone:0,facade:'rear',area:rearWindow,shade:'coach'},
+        {id:'sink',zone:1,facade:'entry',area:sink,shade:'coach'},
+        {id:'dinette',zone:1,facade:'driver',area:dinette,shade:'coach'},
+        {id:'entryDoorWindow',zone:1,facade:'entry',area:entryDoor,shade:'coach'}]);
+})();}
+// Facade orientation relative to the direction the front faces. US chassis: driver side is on the left.
+const SOLAR_FACADES=Object.freeze({front:{offset:0,tilt:90},windshield:{offset:0,tilt:SOLAR.windshieldTiltDeg},entry:{offset:90,tilt:90},
+    rear:{offset:180,tilt:90},driver:{offset:270,tilt:90},roof:{offset:0,tilt:0}});
+const TREE_TRANSMISSION=Object.freeze({None:1,Partial:.5,Full:.15});
+const TREE_FACADE=Object.freeze({front:'tree_front',windshield:'tree_front',rear:'tree_rear',driver:'tree_driver',entry:'tree_entry',roof:'tree_overhead'});
+// Per-surface solar coefficients (BTU/h per BTU/(h·ft²) of incident irradiance) by zone and facade.
+// Glass: area × shade-and-glass SHGC (applied once). Opaque: sol-air excess α·I/h_o through the
+// surface's own conductance K = A/R, so no conduction is counted twice. The underside is unexposed.
+function solarSurfaceCoefficients(cabFactor=3,bodyCase=BODY_CASES[0]){
+    const e=envelopeAllocation(cabFactor,bodyCase),g=GEOMETRY,fpp=g.ftPerPixel,h=g.coachHeight;
+    const rearLen=(1484-960)*fpp,frontLen=(960-490)*fpp,W=(550-90)*fpp,cabW=(505-155)*fpp,cabLen=(490-220)*fpp;
+    const area=id=>solarGlazing().find(x=>x.id===id).area,areas=bodySurfaces(),door=28*72/144;
+    const opening=areas.opening,rearOpening=opening*.7,solAir=SOLAR.absorptance/SOLAR.exteriorFilm;
+    const list=[];
+    for(const x of solarGlazing())list.push({kind:'glass',zone:x.zone,facade:x.facade,coef:x.area*(x.shade==='cab'?C.cabGlassSHGC:C.coachDayGlassSHGC)});
+    const opaque=(zone,facade,a,r)=>{if(a>0)list.push({kind:'opaque',zone,facade,coef:a/r*solAir});};
+    opaque(0,'driver',rearLen*h-area('kim'),bodyCase.wall);opaque(0,'entry',rearLen*h-area('jeff'),bodyCase.wall);
+    opaque(0,'rear',W*h-area('rearWindow'),bodyCase.wall);opaque(0,'roof',g.rearFloor-rearOpening,bodyCase.roof);opaque(0,'roof',rearOpening,bodyCase.opening);
+    opaque(1,'driver',frontLen*h-area('dinette'),bodyCase.wall);opaque(1,'entry',frontLen*h-area('sink')-area('entryDoorWindow')-door,bodyCase.wall);
+    opaque(1,'entry',door,bodyCase.door);opaque(1,'front',Math.max(0,W*h-cabW*g.cabHeight),bodyCase.wall);
+    opaque(1,'roof',g.frontBodyFloor-(opening-rearOpening),bodyCase.roof);opaque(1,'roof',opening-rearOpening,bodyCase.opening);
+    // Cab opaque conductance (scenario cab factor) distributed by exposed area; the cab floor gets no sun.
+    const cabGlass=solarGlazing().filter(x=>x.shade==='cab'),glassOn=f=>cabGlass.filter(x=>x.facade===f).reduce((t,x)=>t+x.area,0);
+    const cabFaces={roof:g.cabFloor,front:Math.max(0,cabW*g.cabHeight-glassOn('windshield')),driver:Math.max(0,cabLen*g.cabHeight-glassOn('driver')),entry:Math.max(0,cabLen*g.cabHeight-glassOn('entry'))};
+    const kPerArea=e.cabConduction/e.cabOpaque;
+    for(const [facade,a] of Object.entries(cabFaces))list.push({kind:'opaque',zone:1,facade,coef:a*kPerArea*solAir});
+    return list;
+}
+function headingDegrees(heading){const i=PARKING_HEADINGS.indexOf(heading);return i<0?null:i*22.5;}
+function solarCover(cover){return Object.fromEntries(Object.values(TREE_FACADE).map(k=>[k,TREE_TRANSMISSION[cover?.[k]]??1]));}
+// Effective irradiance per facade (BTU/h·ft²) for one heading: glass uses the beam angular ratio and the
+// hemispherical ratio for diffuse; opaque uses total incident irradiance. Tree cover reduces beam per
+// facade and diffuse by the mean of all five settings.
+function facadeIrradiance(c,headingDeg,cover){
+    const tr=solarCover(cover),diffuseT=Object.values(tr).reduce((a,b)=>a+b,0)/5,out={};
+    for(const [f,o] of Object.entries(SOLAR_FACADES)){
+        const az=(((headingDeg??0)+o.offset)%360+360)%360,p=planeIrradiance(c,o.tilt,az),beamT=tr[TREE_FACADE[f]];
+        const beam=p.beam*beamT,diffuse=(p.sky+p.ground)*diffuseT;
+        out[f]={glass:(beam*glassAngularRatio(p.incidenceDeg)+diffuse*SOLAR.hemisphericalGlass)*SOLAR.wToBtuFt2,opaque:(beam+diffuse)*SOLAR.wToBtuFt2};
+    }
+    return out;
+}
+// Facade irradiance depends only on time, sky cover, heading and tree cover: cache it across rows,
+// scenarios and candidate plans within a run (rows are rebuilt per simulation).
+const SOLAR_FACADE_CACHE=new Map();
+function solarZoneGains(row,heading,cover,coeffs){
+    if(!row.sunC)return null;
+    if(!row.facadeCache){const k=+row.date+'|'+row.sunC.ghi.toFixed(3)+'|'+JSON.stringify(cover||{});
+        row.facadeCache=SOLAR_FACADE_CACHE.get(k);if(!row.facadeCache){if(SOLAR_FACADE_CACHE.size>20000)SOLAR_FACADE_CACHE.clear();row.facadeCache={};SOLAR_FACADE_CACHE.set(k,row.facadeCache);}}
+    const key=heading==='avg'?'avg':String(heading);
+    if(!row.facadeCache[key]){
+        if(heading==='avg'){
+            // Display-only central estimate: mean over the 16 compass points (never used to qualify).
+            const all=PARKING_HEADINGS.map((h,i)=>facadeIrradiance(row.sunC,i*22.5,cover)),avg={};
+            for(const f of Object.keys(SOLAR_FACADES))avg[f]={glass:all.reduce((t,x)=>t+x[f].glass,0)/all.length,opaque:all.reduce((t,x)=>t+x[f].opaque,0)/all.length};
+            row.facadeCache[key]=avg;
+        }else row.facadeCache[key]=facadeIrradiance(row.sunC,heading,cover);
+    }
+    const fac=row.facadeCache[key],z=[0,0];
+    for(const s of coeffs)z[s.zone]+=s.coef*fac[s.facade][s.kind];
+    return z;
+}
 function effectiveGlassSHGC(){return C.cabGlassFraction*C.cabGlassSHGC+(1-C.cabGlassFraction)*C.coachDayGlassSHGC;}
 function solarLoad(cf,isDay,dateForSolar,lat,lon){
     if(!isDay) return 0;
@@ -1307,7 +1472,21 @@ const AIR_WEATHER_CASES=[
     {name:'greater airflow / cooler',flow:1.2,windSign:-1,mix:2.8,ductRear:.35,furnaceRear:.65,widthFt:.30,rhOffset:5,tempOffset:-2,surfaceFactor:.9,cabFactor:1.5}];
 // Cross all body assemblies with every existing weather/airflow/cab case.
 // The first remains the nominal case for fast screening, then all nine verify.
-const AIR_SCENARIOS=BODY_CASES.flatMap(bodyCase=>AIR_WEATHER_CASES.map(s=>({...s,bodyCase,name:s.name+' / '+bodyCase.name})));
+const BASE_AIR_SCENARIOS=Object.freeze(BODY_CASES.flatMap(bodyCase=>AIR_WEATHER_CASES.map(s=>({...s,bodyCase,name:s.name+' / '+bodyCase.name}))));
+const AIR_SCENARIOS=[...BASE_AIR_SCENARIOS];
+// WP8: with a known location and an Unknown (or unconfirmed) heading, qualification runs every case at the
+// four cardinal headings as fixed cases (scope WP8 item 11, before WP13). Member 0 is the working case at the
+// 16-point heading average, used only as the displayed central estimate and nominal screen.
+function configureSolarScenarios(envelope){
+    const site=envelope?.site||{},known=site.confirmed&&headingDegrees(site.heading)!=null,located=envelope?.lat!=null&&envelope?.lon!=null;
+    // Exact reduction: with no sun above the horizon anywhere in the window, every heading gives the same result.
+    const sunlit=located&&envelope.windowStart&&envelope.windowEnd&&(()=>{for(let t=+envelope.windowStart;t<=+envelope.windowEnd;t+=600000)
+        if(solarPosition(new Date(t),envelope.lat,envelope.lon).altitude>0)return true;return false;})();
+    const next=known||!located||!sunlit?BASE_AIR_SCENARIOS.map(s=>({...s})):[{...BASE_AIR_SCENARIOS[0],heading:'avg',name:BASE_AIR_SCENARIOS[0].name+' / heading averaged (central estimate)'},
+        ...BASE_AIR_SCENARIOS.flatMap(s=>[0,90,180,270].map(h=>({...s,heading:h,name:s.name+' / front faces '+'NESW'[h/90]})))];
+    AIR_SCENARIOS.length=0;AIR_SCENARIOS.push(...next);
+    return AIR_SCENARIOS.length;
+}
 const COMFORT=Object.freeze({tolerance:.5,
     sleeping:Object.freeze({low:65,high:69,target:67}),
     nonSleeping:Object.freeze({low:68,high:73,target:71})});
@@ -1707,7 +1886,10 @@ function scheduleWeather(envelope,start,end,maxStepMin=.5){
         const from=timeline[i-1],to=timeline[i],date=new Date((from+to)/2),weather=lookupEnvelopeAt(envelope,new Date(from));
         const hour=localParts(date).hour,isDay=envelope.lat!=null||hour>=6&&hour<19;
         const solar=isDay?solarLoad(weather.cloud??envelope.cloud,true,date,envelope.lat,envelope.lon):0;
-        rows.push({from,to,date,dt:(to-from)/3600000,tOut:weather.tOut,rh:weather.rh,wind:weather.wind??envelope.wind??0,solar});
+        // WP8: with a known location, irradiance comes from sun position, clear sky and hourly sky cover.
+        const sky=Number.isFinite(weather.sky)?weather.sky:(1-(weather.cloud??envelope.cloud??.6))*100;
+        const sunC=envelope.lat!=null&&envelope.lon!=null?solarComponentsCached(date,envelope.lat,envelope.lon,sky):null;
+        rows.push({from,to,date,dt:(to-from)/3600000,tOut:weather.tOut,rh:weather.rh,wind:weather.wind??envelope.wind??0,solar,sunC});
     }
     return rows;
 }
@@ -1728,6 +1910,10 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     const fallbackChargeEnd=rows[0].phoneCharging===undefined?sleepChargingStart(start)+2*3600000:0;
     const envelopeParts=envelopeAllocation(scenario.cabFactor??3,scenario.bodyCase),solarWeights=solarAllocation(1,scenario.cabFactor??3,scenario.bodyCase);
     const delivery={ductRear:scenario.ductRear??null,furnaceRear:scenario.furnaceRear??null};
+    // WP8: per-surface solar by zone. Heading: the scenario's fixed heading (qualification cases), else the
+    // confirmed site heading, else the 16-point average (display-only central estimate).
+    const solarCoeffs=solarSurfaceCoefficients(scenario.cabFactor??3,scenario.bodyCase),site=envelope.site||{};
+    const solarHeading=scenario.heading??(site.confirmed?headingDegrees(site.heading):null)??'avg';
     let config=mode==='maxxfan'?(options.config||{fanZone:1,fanName:'Mid-coach MaxxFan',gaps:[0,0,0,4,0,0]}):null;
     let sp={...setpoints,fan:setpoints.fan??setpoints.cool},maxFan=options.fanSetting||(isOvernight?'Low':'Auto');
     const initialRH=Math.max(5,Math.min(100,(state.indoorRH??rhFromRatio(startIndoor,humidityRatio(rows[0].tOut,rows[0].rh,pressure),pressure)*.85)+scenario.rhOffset));
@@ -1821,7 +2007,8 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const people=options.controlAt?row.occupants:2;
         const charging=row.phoneCharging??(sleeping&&people>0&&row.from<fallbackChargeEnd);
         const priorInternal=zoneInternalGains(meta,priorDehumHeat,sleeping,charging);
-        const initialGains=priorInternal[0]+priorInternal[1]+row.solar*(solarWeights[0]+solarWeights[1]);
+        const solarZ=solarZoneGains(row,solarHeading,site.cover,solarCoeffs)||[row.solar*solarWeights[0],row.solar*solarWeights[1]];
+        const initialGains=priorInternal[0]+priorInternal[1]+solarZ[0]+solarZ[1];
         if(operation==='ac'||operation==='hp'||operation==='furnace'){
             const target=operation==='ac'?sp.cool:sp.heat;
             const fan=comparisonSettings&&maxFan==='Auto'?autoFanSpeed(sensed,target):maxFan;
@@ -1871,9 +2058,9 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             workRows.splice(rowIndex,1,{...row,to:cut,dt:wetCoolingStep},{...row,from:cut,dt:dt-wetCoolingStep});
             rowIndex--;continue;
         }
-        const gains=zoneHeatGains(zoneInternalGains(meta,moisture.heatBTU,sleeping,charging),row.solar,q,operation,solarWeights,delivery);
+        const gains=zoneHeatGains(zoneInternalGains(meta,moisture.heatBTU,sleeping,charging),1,q,operation,solarZ,delivery);
         const furnaceRear=delivery.furnaceRear??FURNACE.rearFraction;
-        const massGains=solarWeights.map((f,z)=>row.solar*f*STORAGE.solarToMass+(operation==='furnace'?q*FURNACE.toMass*(z===0?furnaceRear:1-furnaceRear):0)),airGains=gains.map((g,z)=>g-massGains[z]);
+        const massGains=solarZ.map((f,z)=>f*STORAGE.solarToMass+(operation==='furnace'?q*FURNACE.toMass*(z===0?furnaceRear:1-furnaceRear):0)),airGains=gains.map((g,z)=>g-massGains[z]);
         const advance=hours=>twoNodeAdvance(t,tm,storage,ua,air.incoming,air.bulk,mix,airGains,massGains,out,hours,insideHeatFactor,outsideHeatFactor);
         const stepped=advance(dt),nextT=stepped.air;
         if(thermostatMode(mode)&&operation!=='defrost'&&dt>1/60000){
@@ -2857,7 +3044,7 @@ function recoveryActionHTML(action){
     return '<div class="mitigation-box"><strong>Start temperature recovery '+(action.request.future?'at the planned start':'now')+'</strong><p>'+escapeHTML(setupName(action.setup))+': '+planActionText({time:+action.request.start,setup:action.setup},action.request)+'</p><p>This improves the predicted temperature compared with leaving HVAC off. A complete comfort plan has not passed; available capacity or later conditions may prevent reaching or maintaining the target. Refresh both readings by '+escapeHTML(formatTime(new Date(action.reviewAt)))+' and rebuild the plan.</p></div>'+recoveryNotice(action.recoveryInfo);
 }
 function* searchPlansCore(envelope,request){
-    validatePlanRequest(request);envelope.planCache=new Map();
+    validatePlanRequest(request);envelope.planCache=new Map();configureSolarScenarios(envelope);
     if(request.occupancy==='leaving'||request.occupancy==='away')return yield* searchDeparturePlans(envelope,request);
     const bounds=planBounds(request.start,request),rows=planRows(envelope,request),vents=shortlistVents(envelope,request,bounds.sleep);
     const nightVents=bounds.bedtime?shortlistVents(envelope,request,true):vents;
@@ -3464,6 +3651,8 @@ function initializeParkingLog(){
     for(const id of PARKING_LOG_FIELDS)document.getElementById(id).value=parkingLog.cover[id]||'';
     refreshParkingLogStatus();
 }
+// WP8 simulation inputs (no credentials): confirmed heading and anticipated tree cover.
+function siteSolarInputs(){const p=captureParkingLog();return{heading:p.heading,confirmed:!!p.heading_confirmed,cover:Object.fromEntries(PARKING_LOG_FIELDS.map(k=>[k,p[k]||'None']))};}
 function captureParkingLog(){
     const confirmed=parkingLog.confirmed&&!parkingLogMoved(parkingLog.location,parkingLogLocation());
     return {heading:parkingLog.heading,heading_confirmed:confirmed,...parkingLog.cover};
@@ -3760,6 +3949,7 @@ async function analyze(){
     try{
         await new Promise(resolve=>setTimeout(resolve,0));
         const bounds=planBounds(request.start,request),envelope=makeEnvelope(request.start,bounds.end,'HVAC Plan',THERMAL_STEP_MIN*60000);
+        envelope.site=siteSolarInputs();
         logEvent=prepareRunLog(request,envelope);
         let result;
         if(typeof Worker!=='undefined')result=await calculateInWorker(request,envelope);
