@@ -98,7 +98,7 @@ test('predeparture cooling cannot qualify by using sleeping comfort while still 
 
 function awayFixture({start='2026-10-24T11:58Z',back='2026-10-24T12:02Z',out=70,actual='passive',choices="withSetting(planSetup('ac',false,null,'High'),70)"}={}){
  const a=app();
- a.run(`forecast.timeZone='America/Chicago';state.temp=${out};state.rh=25;state.wind=2;state.cloud=0;solarLoad=()=>0;
+ a.run(`forecast.timeZone='America/Chicago';state.temp=${out};state.rh=25;state.wind=2;state.cloud=0;solarLoad=()=>0;solarZoneGains=()=>[0,0];
  const start=new Date('${start}'),back=new Date('${back}');
  const r={start,reading:start,initial:{temperature:[71,71],rh:[30,30]},occupancy:'away',remote:true,departure:start,returnTime:back,
    actualConfirmed:true,actual:withSetting(planSetup('${actual}',false,null,'Low'),65)};

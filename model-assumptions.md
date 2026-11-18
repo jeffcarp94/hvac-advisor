@@ -1,3 +1,57 @@
+# v6.6.18 — WP8 solar rebuild
+
+Scope v3 WP8 (decision change; no further gate). Owner decisions, November 18, 2026: **B**, a plan window with daylight requires a confirmed heading; owner measurements of the rear window (25 × 19 in) and entry-door window (13 × 22 in).
+
+## Method and sources
+
+| Step | Method | Source / tier | Confidence |
+| --- | --- | --- | --- |
+| Sun position | NOAA solar-calculator equations (existing), extended to azimuth | Ref | High (matches NREL SPA within 0.003° at the reference case) |
+| Clear sky | ASHRAE Clear Sky model: I_DN = A/exp(B/sin β), diffuse horizontal = C·I_DN; monthly A/B/C for the 21st, linear between months | EnergyPlus Engineering Reference 8.3 "Climate Calculations" (ASHRAE HOF 2005 Ch. 31) | Medium (generic, not site-specific) |
+| Clouds | Kasten & Czeplak (1980): GHI = GHI_clear·(1 − 0.75(N/8)^3.4), N = 8 × NWS sky cover | Ref | Medium |
+| Beam/diffuse | Erbs, Klein & Duffie (1982) on k_t = GHI/(I₀ sin β), I₀ = 1367(1 + 0.033 cos(2πn/365)) W/m² | Ref | Medium |
+| Sky and ground | Isotropic diffuse; ground albedo 0.2 | Eng | Low |
+| Glass angle | Beam × SHGC(θ)/SHGC(0) for ASHRAE single clear glazing 1a (0.86, 0.84, 0.82, 0.78, 0.67, 0.42 at 0/40/50/60/70/80°); diffuse × 0.78/0.86 | ASHRAE HOF 2005 Ch. 31 Table 13 | Medium |
+| Shades | Glass-plus-shade SHGC applied once: cab 0.20 (MagneShade), coach 0.50 (MCD day screen) | Eng (retained) | Low |
+| Opaque | Sol-air excess α·I/h_o through each surface's own K = A/R; α 0.5, h_o 4 BTU/(h·ft²·°F) (interim until WP10); underside unexposed | Eng | Low |
+| Windshield | Tilted 55° from horizontal, facing the heading | Eng; Ford rake not found | Low |
+| Tree cover | Beam per facade × None 1.0 / Partial 0.5 / Full 0.15 (roof uses Overhead, windshield and front use Front); diffuse × mean of the five | Eng (scope provisional) | Low |
+| Zones | Each surface's gain goes to its zone; 50% to air, 50% to stored mass (WP11 prior, unchanged) | Model | — |
+
+## Glazing inventory (ft²)
+
+| Zone | Pane | Facade | Area | Basis |
+| --- | --- | --- | --- | --- |
+| Front | Windshield | front, tilted | 15.29 | 17.56 ft² cover rectangle × 0.85, scaled to 27 ft² cab total (Eng) |
+| Front | Cab doors (each) | driver / entry | 5.86 | 7.15 ft² × 0.80, scaled (Eng) |
+| Rear | Jeff's panes | entry | 3.15 | Owner measurement |
+| Rear | Kim's pane | driver | 2.96 | Owner measurement |
+| Rear | Rear window | rear | 3.30 | Owner measurement, 25 × 19 in |
+| Front | Sink pane | entry | 1.40 | Owner measurement |
+| Front | Dinette panes | driver | 3.15 | Owner measurement |
+| Front | Entry-door window | entry | 1.99 | Owner measurement, 13 × 22 in |
+
+Measured body glass is 15.96 ft²; the rear zone holds 59% of it (formerly 58%). The conduction model keeps the calibrated 18 ft² body glazing. Changing it would alter the calibrated WP11 envelope, which is a gated change, so the 2 ft² difference is reported rather than refit.
+
+## Headings
+
+The driver side faces heading + 270°, the entry side +90°, the rear +180°. A confirmed 16-point heading is used directly; the phone compass gives magnetic north (declination not corrected, under one compass point in the continental US except the far Northeast and Northwest). A plan window with any sun above the horizon and no confirmed heading is refused with a prompt (decision B). Overnight-only windows run at the 16-point average, which is exact there because every heading gives zero sun. The four-cardinal-heading expansion remains available to analysis runs (`allowUnknownHeading`). With it, an afternoon run did not finish within 28 minutes, against about 7 minutes with a confirmed heading.
+
+## Checks
+
+- Reference case 41.33°N, 94.01°W, 2026-07-15 18:00 CDT (23:00 UTC): altitude 29.08°, azimuth 273.83° (NREL SPA 29.081°, 273.831°); cosine of incidence on the west wall 0.8720 (0.8717) and on the horizontal 0.4861 (0.4865).
+- Old versus new, clear sky, 16-point average: 18:00 CDT 2,023 versus 1,416 BTU/h (×1.43); solar noon 2,354 versus 2,738 (×0.86); 09:00 CDT 2,104 versus 1,547. By heading at 18:00: front facing N 2,201, E 1,277, S 2,214, W 1,764 BTU/h.
+- GHI closure, non-negative irradiance through sunrise and sunset, Kasten–Czeplak at 0/50/100%, heading wrap, averaged-within-individual, facade-by-facade shading, and the zone ledger are pinned in `tests/solar-model.test.cjs`.
+- The garage reproduction tests and the joint-fit tool zero the new solar path as they already zeroed the old one (indoor runs).
+
+## Fixtures (before → after)
+
+Night fixtures (March historical, Winterset 2025-10-01, October saved, falling, rising, away-return) and the steady 30°F / 45°F nights are unchanged, as expected with no sun. Sunlit fixtures run at each cardinal heading (labeled assumption). Winterset 2026-05-08 and the preparation synthetic are identical at all four headings. On the hot synthetic, the overnight setup now depends on heading, and it still fails comfort at every heading. Qualified fixtures: 1 of 10 before and after.
+
+## Retired and retained
+
+`solarPeakGains`, `solarAllocation`, `shellSunFrac` and `glassSunFrac` remain only for the no-location fallback (manual weather without a location) and the WP6 comparison's roof-heating fraction; no located run uses them.
+
 # v6.6.17 — WP7 coil-icing comparison mode with advisory (D1)
 
 Scope v3 WP7, owner decision D1 (comparison mode with advisory; no blocking rule without explicit approval). The existing `coolingPolicy` screen (empirical coil formula and the 60°F dew-point High-fan rule) remains the sole eligibility check. No value below is fitted to any fixture.
