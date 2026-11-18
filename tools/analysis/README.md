@@ -11,7 +11,8 @@ path as the first argument (Node 24).
 | `steady-plan.cjs` | Full planner on a steady night at a given outdoor temperature | Synthetic weather |
 | `cycles.cjs` | Thermostat cycle lengths and zone ranges at 45°F, 30°F and 85°F | Synthetic weather |
 | `furnace-capacity.cjs` | FURNACE 72 duty and final temperatures at 10 to −20°F | Synthetic weather |
-| `fixtures-beforeafter.cjs` | Live planner on every runnable fixture (qualification, winner, bedroom range) | Archived and labeled synthetic fixtures |
+| `fixtures-beforeafter.cjs` | Live planner on every runnable fixture (qualification, winner, bedroom range, max room RH and longest >65% run since v6.6.19); `DEHUM=off` runs with the dehumidifier disabled | Archived and labeled synthetic fixtures |
+| `gulf-shores-matrix.cjs` | WP7 Gulf Shores away-plan matrix, every fan × both dehumidifier states (`HEADING` env, default S); since v6.6.19 also max room RH, >65% run and the air/buffer/coil water split | `tests/fixtures/kjka-asos-2025-03-03-05.csv` (owner-supplied, reconstructed) |
 
 v6.6.15 adopted parameters (`joint-fit.cjs` names): `ca` 297, `cm` 574, `tau` 0.98, `f` 0.38,
 `w` 0.58, `ff` 0.57, `sf` 0.77 (× 15,000 = 11,550 BTU/h), `fm` 0.49, with `shp` = 1 and

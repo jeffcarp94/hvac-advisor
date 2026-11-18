@@ -1,3 +1,107 @@
+# v6.6.19 — WP9 humidity model
+
+Scope v3 WP9 (decision change; no further gate). Nothing below is fitted to any fixture. Unchanged: the shared (well-mixed) coach moisture balance, the room-air RH rule (`M.humidLimit` 65%, `M.humidMinutes` 30, counted after `M.recoveryMinutes` 30, maximum of the two zones), the `coolingPolicy` screen and the advisory-only surface checks.
+
+## Method and sources
+
+| Item | Method | Value | Source / tier | Confidence |
+| --- | --- | --- | --- | --- |
+| Moisture buffer | One EMPD-style layer storing water **mass** (not an equivalent humidity ratio), sorption isotherm linear in RH: equilibrium m = B·RH. Split by zone volume; each part exchanges with its zone's RH (shared water content, zone temperature). Solved implicitly with the air balance (`mixedMoistureStep`), isotherm linearized about the step-start state; the air–buffer exchange conserves water exactly | B = Σ A·MBV = 40 m² × 0.75 g/(m²·%RH) = **30 g/%RH**; τ_b **4 h** | Ref (Nordtest "moderate" MBV class, Rode et al. 2005) transfer; area and τ_b Eng | Low-medium (B), Low (τ_b) |
+| Buffer start | In equilibrium with each zone's starting room-air RH | — | Eng (labeled assumption) | Low |
+| Dehumidifier below 59°F | NREL curve unchanged above 59°F. Below, capacity × (T − 41)/(59 − 41), clamped 0–1. Electrical input stays at the 59°F value while the humidistat calls (the compressor runs even at zero removal). Below 41°F (manufacturer minimum) the unit does not run. The fan cycles with the humidistat | linear 59 → 41°F | Eng (provisional shape; the 41°F minimum does not establish linearity) | Low |
+| Dehumidifier returned moisture | One process covering retained water, drainage, run-on and return: while the humidistat cycles, 15% of each cycle's removal re-evaporates, so cycling nets 85% of capacity. When cycling at that rate cannot meet the demand, the unit runs on continuously and the return falls linearly to zero at full load (continuous in demand). Heat counts only the net latent release | 15% | Ref transfer (NREL/TP-5500-61076: up to 42% at 3–6-minute runtimes with fan run-on) | Low |
+| AC latent degradation | Henderson & Rengarajan (1996) "linear decay" model as in the EnergyPlus 25.1 Engineering Reference, *Latent Capacity Degradation* (single-speed DX coil), applied in time-domain form because this planner simulates every compressor cycle (see below) | t_wet 1000 s, γ 1.5, N_max 3 cycles/h (closed-form check only), τ 45 s | Ref: EnergyPlus I/O Reference suggested values (9.6, `Coil:Cooling:DX:CurveFit:OperatingMode`; same fields as `Coil:Cooling:DX:SingleSpeed`) | Medium-low (generic residential values) |
+| Coil start | Dry at the start of every plan | — | Eng (labeled assumption) | Low |
+
+### AC latent degradation, time-domain form
+
+EnergyPlus applies the model only with a continuous fan and a cycling compressor, as a part-load ratio over each timestep, assuming N_max cycles/h. This planner already resolves each thermostat cycle, so it applies the underlying model directly:
+
+- Coil holding capacity M_o = Q_L,rated · t_wet. Live model: Q_L,rated = (15,000 − 11,250)/1,060 = 3.54 lb/h, so M_o = 0.98 lb (446 g). (Comparison runs use the WP6 rated split.)
+- On cycle: latent removal from the room air ramps as Q_L·(1 − e^(−t/τ)) after start-up (continuous fan only; EnergyPlus applies no degradation with a cycling fan). Water accumulates on the coil and drains once the coil holds M_o. The start-up latent shortfall is delivered as sensible cooling, so total capacity is unchanged.
+- Off cycle with the blower running (fixed fan between calls per CCC2 p.10, heat-pump operation): held water returns to the room at γ·Q_L,rated·(T_db − T_wb)/(T_db − T_wb)_rated from a full coil (EnergyPlus' scaling, rated 26.7/19.4°C), decaying linearly in time to zero (rate ∝ √(M/M_o)); a full coil dries in 2·t_wet/γ = 22 min at the rated depression. Re-evaporation is adiabatic: its latent gain is a matching sensible cooling of the supply air, delivered through the ducts (rear 0.38).
+- AUTO fan: the blower stops with the compressor, so nothing re-evaporates and the room-air removal equals the steady-state latent. Defrost and passive/MaxxFan modes do not run the rooftop blower.
+
+**Check against the EnergyPlus closed form.** Periodic cycling at the EnergyPlus cycle lengths (t_on = 3600/(4·N_max·(1 − X)), t_off = 3600/(4·N_max·X)) at the rated entering condition gives a drained-to-latent ratio of 0.000 / 0.000 / 0.000 / 0.295 / 0.668 at runtime fractions 0.2 / 0.35 / 0.5 / 0.65 / 0.8. The EnergyPlus LHR/LHR_ss closed form gives the same values to three decimals. At or below 50% runtime with a continuous fan, the coil never drains: everything it removes during the on cycle returns during the off cycle.
+
+## Ledger
+
+Room water = air + buffer. The coil is tracked separately; only drained water leaves through the AC. `moisture.residualLb` closes the whole-coach balance: initial room water + initial coil water + occupants + outdoor exchange − AC drained − dehumidifier net − condensed − final room water − final coil water. New totals: `acDrained`, `coilEvaporated`, `bufferUptake`, `dehumidifierReturned`; `totals.ac` remains the net room-air AC removal (negative while the coil re-evaporates). `finalZones` and checkpoints carry the buffer (`wb`) and coil (`coilWater`) states; cached and direct continuations are identical.
+
+## Checks (synthetic, labeled)
+
+| Check | Result |
+| --- | --- |
+| Moisture residual, 24 h: AC Low and Auto with dehumidifier, AC High without, heat pump, AUTO, passive with dehumidifier | at most 1.6 × 10⁻¹⁰ g/day and 8 × 10⁻¹² %/day of the starting room water (acceptance: < 1 g/day and < 0.1%/day) |
+| Buffer time constant (fixed room RH) | 63.2% of the step after 4 h (±0.02 points) |
+| Dehumidifier taper | continuous at 59°F; zero removal at 41°F with compressor heat continuing; half at 50°F |
+| Returned moisture | 15% of cycling removal; continuous through the cycling limit; zero at full load |
+| Equal duty, equal airflow (8 min on / 12 min off, 75°F/60%) | continuous fan removes less than AUTO fan (room air and drained water) |
+| Heat accounting | stored sensible heat lost while the coil re-evaporates matches the latent heat returned within 0.1% after conduction |
+| Dry coil and handoffs | no accumulation on a dry coil; evaporation only while the blower runs; none in AUTO off-cycles, defrost or passive modes |
+
+Buffer scale: 30 g/%RH is about 5.8 times the coach air's own 5.2 g/%RH at 70°F, so room RH now moves several times more slowly under a moisture source or sink, with the 4 h exchange.
+
+Dehumidifier at 45°F / 70% RH: about 4.7 pints/day (was the 59°F value, 21.2 pints/day, ≈ 106% of rated).
+
+Synthetic humid night (80°F, 80% RH outdoors; COOL 70, start 72°F / 60% RH; dehumidifier off; 6 h): AUTO fan drains 1.1 lb and peaks at 64% RH. A fixed Low or High fan drains nothing (the coil re-evaporates 2.0 lb between calls), peaks at 91% RH, and fails the room-air RH rule for 284 minutes. With the dehumidifier on, both stay at or below 60% RH.
+
+## Interaction with the existing High-fan rule (finding, unchanged policy)
+
+`coolingPolicy` requires a fixed High fan whenever the indoor dew point exceeds 60°F (`C.humidityDewpointThresh`). Under WP9 a fixed fan re-evaporates coil water between compressor calls, so in exactly those humid conditions the rule now selects the setup that removes the least moisture. The rule is gated equipment policy and is unchanged; this is reported for the D1/WP7 review. The overnight fan list (Low, Medium, High; AUTO is not offered overnight when not monitored) is also unchanged.
+
+## Remaining uncertainty
+
+- t_wet, γ and τ are generic EnergyPlus suggested values for residential split systems; no RV rooftop-unit data were found. M_o (0.98 lb) is about the whole coach air's water content at 70°F / 60% RH, so fixed-fan RH results are sensitive to it.
+- Buffer area, MBV and τ_b are transfer values; none is measured in this coach.
+- The coil and buffer start states are assumptions; a plan that starts with the AC already running continuously would start with a wet coil.
+- The dehumidifier taper shape and the returned-moisture fraction are provisional.
+- WP13 samples B (15–50 g/%RH), τ_b (2–6 h) and the returned fraction (0–40%).
+
+## Fixtures, dehumidifier on (v6.6.18 → v6.6.19; `tools/analysis/fixtures-beforeafter.cjs`)
+
+Qualification is unchanged: 1 of 10 runnable fixtures (surface-advisory synthetic, identical plan). **Phase times in the fixture tables are UTC, as the tool prints them** (CDT = UTC − 5); setup changes fall at the start, before or at bedtime, never during sleep. Every other fixture already failed comfort before WP9 (tabled per owner decision 2); what changed is the best available plan displayed when nothing qualifies, and its margins. Sunlit fixtures run at N/E/S/W (labeled assumption).
+
+| Fixture | v6.6.18 displayed | v6.6.19 displayed | Failing cases (equip/moisture/comfort) |
+| --- | --- | --- | --- |
+| March historical | AC 70 Low → HP 67 Low | AC 69 Low → HP 67 Auto | 0/0/1 → 0/0/2 |
+| Winterset 2025-10-01 | passive → AUTO 63/67 Low at 02:05 | passive → AUTO 63/67 Auto at 02:35 | comfort only |
+| Winterset 2026-05-08 (all headings) | MaxxFan 70 → AUTO 62/66 Low at 02:55 | passive → AUTO 62/66 Low at 03:00 | comfort only |
+| October saved | AUTO 66/71 Low → AUTO 62/66 Low (below 65°F) | MaxxFan 69 → AUTO 63/67 Low (above 69°F) | 0/0/1 → 0/0/3 |
+| Preparation synthetic (all headings) | passive → AUTO 62/66 Low | AC 67 Low → AUTO 62/66 Low | comfort only |
+| Hot synthetic E | AUTO 68/72 High → AC 68 Auto | AUTO 68/72 High → MaxxFan 68; max RH 60 → 82% | 0/0/9 both |
+| Hot synthetic N, S, W | AUTO 68/72 High, overnight change 02:00–02:45 (bedroom 65–78°F) | WP9 alone: AC 72 High for 15 min, then passive (bedroom to 100–103°F). With the fallback-ordering fix: AUTO 68/72 High → AC 68 Low → HP 66 Auto (65–78°F) | 0/0/9 → 0/0/9 with the fix |
+| Rising synthetic | HP 67 Low | HP 68 Low | 0/0/7 → 0/0/9 |
+| Surface, falling, away-return (both) | — | unchanged | — |
+
+### Owner decision: non-qualifying fallback ordering (November 18, 2026)
+
+When no plan qualifies, `comparePlans` prefers the plan that "remains acceptable longer", measured by each trial's in-run stop (`failureTime`). A trial that never recovers into the comfort band never sets that stop (the warm-run counters start only after recovery, and "Available HVAC does not restore comfort" is decided at the end), so it counted as lasting the whole horizon. WP9 exposed this. The hot passive coach now stays at or below 65% RH, so the AC-then-passive sequence no longer tripped any stop. It outranked AUTO 68/72 High, which stops on comfort at about 10:15 PM CDT, and became the internal fallback at N/S/W ("AC 72 High 15 min, then passive", bedroom to 100–103°F).
+
+**Change (owner-directed, folded into this release):** a trial with no in-run stop, no recovery (`recoveryMinutes` null) and a comfort reason counts as failing at start + 30 minutes (`M.recoveryMinutes`). Trials that recover keep their full duration. This affects only the ordering of plans that do not qualify; qualifying plans, eligibility and the WP13 admission rule are untouched. Tests: `tests/fallback-ordering.test.cjs`.
+
+**Effect (rerun with the change, dehumidifier on):** only the hot synthetic changes. All four headings now fall back to AUTO 68/72 High from 1 PM CDT → AC 68 Low from 6:50–8:30 PM CDT (heading-dependent) → HP 66 Auto at 10 PM CDT (bedtime), bedroom 65–78°F, comfort-only failures in 9/9 cases, the same family as v6.6.18. Every other fixture keeps its WP9 result, and qualification stays 1 of 10.
+
+## Fixtures, dehumidifier off (scope WP9 item 6: both states stay in all reviews)
+
+Qualification is unchanged (1 of 10, the surface-advisory synthetic). With no dehumidifier the buffer mostly helps: RH failures disappear on October saved (moisture 9 → 0 cases; the binding limit becomes comfort), falling synthetic (8 → 0), rising synthetic (2 → 0) and March historical (6 → 3), and Winterset 2026-05-08's peak falls from 69% to 66%. The preparation synthetic now fails RH in 3 cases (MaxxFan 69 → AC 65 Auto). Before the fallback-ordering fix, on the hot synthetic at every heading, the internal best-available sequence became AC 72 High for 10 minutes and then the furnace (bedroom to 103–105°F). That's the comparator behavior fixed above (not rerun with the dehumidifier off, per the owner decision below): every AC plan with the required High fan now trips the RH rule early (indoor dew point above 60°F forces High, and the fixed fan re-evaporates coil water), and a sequence that heats the coach dries its air and stops later. What the owner sees for this fixture is unchanged in kind: the bedtime-recovery card says "COOL 72°F, fan High, now" (checked by rendering the plan, dehumidifier on and off).
+
+**Owner decision (November 18, 2026):** the owner always runs the dehumidifier at a 50% setpoint. Future reviews, including the Gulf Shores rerun after WP10, run with the dehumidifier on only. This replaces scope WP9 item 6's "both states" rule.
+
+## Gulf Shores matrix rerun (reconstructed; KJKA, March 3–5, 2025; heading S assumed)
+
+Full output: `reports/wp9-gulf-shores-matrix.txt` (v6.6.19) and `reports/wp9-gulf-shores-matrix-v6618-baseline.txt` (v6.6.18, same tool), `tools/analysis/gulf-shores-matrix.cjs`.
+
+| Case | v6.6.18 → v6.6.19 |
+| --- | --- |
+| Dehumidifier on, every fan, away and occupied | Same acceptance (9/9) and physics flags (9/9); compressor time within ±7 min; 17:00 RH 0–8 points higher (buffer releases stored water); peak RH 55% |
+| Dehumidifier off, away, March 3 and 5 | Same acceptance and flags; 17:00 RH 47–50% (was 41–44%) |
+| **Dehumidifier off, away, March 4 (most humid day)** | **Low and Medium now rejected by the current check (9/9 → 0/9)**: fixed-fan re-evaporation lifts the indoor dew point above 60°F, which triggers the High-fan rule. Auto still accepted 9/9 and flagged 9/9. High accepted, but peaks at 69% RH with a 35-min run above 65% (fails the room-air RH rule) |
+| Dehumidifier off, occupied sensitivity | Auto fan now accepted in 3 of 9 cases (was 0): the buffer holds the dew point down at the start. Fixed fans: High reaches 77–95% RH at 17:00 (was 57–60%) |
+| Full planner, away plan | Still displays AUTO with Low or Auto fan on every date and state, all flagged by the physics model. March 4 with dehumidifier off now displays AUTO 68/72 **Auto fan** for the whole day (was AUTO 67/71 Low then AC High at 17:55); not a complete plan |
+
+**For the D1 review:** with the dehumidifier off on the most humid day, the planner's displayed away setup is now AUTO fan, the kind of setup that iced. The physics model still flags it. WP9 doesn't change the WP7 conclusion: the current cooling check permits, and the planner displays, a setup the physics model flags.
+
 # v6.6.18 — WP8 solar rebuild
 
 Scope v3 WP8 (decision change; no further gate). Owner decisions, November 18, 2026: **B**, a plan window with daylight requires a confirmed heading; owner measurements of the rear window (25 × 19 in) and entry-door window (13 × 22 in).

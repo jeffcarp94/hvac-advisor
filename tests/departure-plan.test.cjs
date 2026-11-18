@@ -29,9 +29,12 @@ test('absence remains awake-policy/unoccupied after 10 PM; return starts sleep a
  assert.equal(a.run('setupChangeAllowed(off,cool,+r.returnTime+60000,r)'),false);
 });
 test('complete departure plan carries state, covers each stage and renders the six requested presentations',()=>{
- // Labeled synthetic clear 48F night (v6.6.15 calibrated model) supplies a complete
- // departure plan. Remote access stays enabled.
- const a=scenario({start:'2026-10-24T04:00Z',departure:'2026-10-24T04:10Z',temp:48});a.run("state.cloud=0;r.initial={temperature:[69,69],rh:[35,35]};e=makeEnvelope(r.start,planBounds(r.start,r).end,'Synthetic clear 48F night',300000);r.remote=true;result=runUnifiedPlan(r,e);html=renderPlan(result)");
+ // Labeled synthetic clear 50F night supplies a complete departure plan. Remote access stays enabled.
+ // v6.6.19 (WP9): at the former 48F the same plan now fails one airflow case on bedroom comfort only
+ // (above 70F for 15 min after return, ~0.1F warmer): the moisture buffer cuts dehumidifier runtime,
+ // which shifts heat-pump cycling. No equipment or moisture check fails. This test checks plan
+ // structure, not that night's qualification, so the input moved to 50F (qualifies; 52F also does).
+ const a=scenario({start:'2026-10-24T04:00Z',departure:'2026-10-24T04:10Z',temp:50});a.run("state.cloud=0;r.initial={temperature:[69,69],rh:[35,35]};e=makeEnvelope(r.start,planBounds(r.start,r).end,'Synthetic clear 50F night',300000);r.remote=true;result=runUnifiedPlan(r,e);html=renderPlan(result)");
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
  for(const kind of ['current','departure'])assert.ok(a.run(`result.stages.${kind}.recommended`));
  assert.ok(a.run('result.stages.night.recommendation'));
