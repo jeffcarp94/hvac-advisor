@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.16 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.17 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.16</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.17</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -1571,6 +1571,20 @@ function wp6HeatSource(previous,roofF,settings){
     if(previous==='furnace')return roofF>returnAt?'hp':'furnace';
     return roofF<=switchAt?'furnace':'hp';
 }
+// WP7 (decision D1): experimental physics coil-icing comparison. Advisory only: it never changes
+// eligibility, ranking, timing or the existing coolingPolicy screen. Uses the experimental WP6 coil
+// model in parallel (live AC capacity unchanged). ΔT_cold 4°F is a fixed low-confidence prior, not
+// fitted to any fixture; a flag is an instantaneous crossing, not proof that frost accumulates.
+const WP7_COIL=Object.freeze({coldDeltaF:4,flagAtF:32,
+    // Micro-Air EasyTouch RV 350 Reference Manual 2.0 p.7: Full Auto "automatically adjusts the speed
+    // based on the difference between setpoint and inside temperature"; thresholds are not documented,
+    // and the Dometic zone board performs the staging. Until verified, AUTO is assessed at Low while
+    // the compressor runs; the CCC2 staging (autoFanSpeed) is reported alongside.
+    autoAssumedFan:'Low'});
+function wp7CoilState(returnF,w,outF,pressure,fan){
+    const coil=wp6CoolingOutput(returnF,w,outF,pressure,fan),coldestF=coil.adpF-WP7_COIL.coldDeltaF;
+    return{fan,adpF:coil.adpF,leavingSaturationF:coil.leavingSaturationF,coldestF,flag:coldestF<=WP7_COIL.flagAtF,clamped:coil.clamped,shr:coil.shr,cfm:coil.cfm};
+}
 function openingFlow(area,pressure,density=1.2){return M.discharge*M.screenFactor*area*Math.sign(pressure)*Math.sqrt(2*Math.abs(pressure)/density)*2118.88;}
 function autoVentSpeed(indoor,set){return indoor<=set?0:Math.min(1,.15+.17*(indoor-set));}
 function ventilationNetwork(config,temperatures,tOut,wind,speed,scenario=AIR_SCENARIOS[0],density=1.2){
@@ -1721,6 +1735,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     const airMass=M.volumeFt3.map((v,z)=>v*.075*densityScale(pressure,t[z]));
     const totalAirMass=airMass[0]+airMass[1];
     let didCool=false,didHeat=false,heatMinutes=0,coolMinutes=0,capacityCool=false,capacityHeat=false,heatingFloorLimited=false;
+    const coilLog=options.coilAdvisory?{coolingMinutes:0,flagMinutes:0,stagedFlagMinutes:0,minColdestF:null,first:null,clamped:false,autoAssumed:false}:null;
     let hpRunMinutes=0,defrostRemaining=0,defrostMinutes=0;
     let priorDehumHeat=0,dehumRuntimeMinutes=0,moistureTotals={occupants:0,dehumidifier:0,ac:0,outside:0},initialWaterLb=w.reduce((sum,v,z)=>sum+v*airMass[z],0);
     let condensedLb=0,humidRun=0,humidMax=0,surfaceRun=[0,0],surfaceMax=0,minMargin=Infinity,maxRH=0,minRH=100,maxSurfaceRH=0;
@@ -1873,6 +1888,16 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
                 workRows.splice(rowIndex,1,{...row,to:split,dt:first},{...row,from:split,dt:dt-first});rowIndex--;continue;
             }
         }
+        if(coilLog&&operation==='ac'&&duty>0){
+            // Compressor running: entering (return) air is the front zone at the start of the step.
+            const auto=maxFan==='Auto',assessed=wp7CoilState(t[1],sharedW,roofF,pressure,auto?WP7_COIL.autoAssumedFan:maxFan);
+            const staged=auto?wp7CoilState(t[1],sharedW,roofF,pressure,autoFanSpeed(sensed,sp.cool)):assessed,minutes=dt*60;
+            coilLog.coolingMinutes+=minutes;coilLog.autoAssumed||=auto;coilLog.clamped||=assessed.clamped;
+            coilLog.minColdestF=Math.min(coilLog.minColdestF??Infinity,assessed.coldestF);
+            if(assessed.flag){coilLog.flagMinutes+=minutes;coilLog.first??={time:row.from,mode,setpoint:sp.cool,fan:maxFan,assessedFan:assessed.fan,
+                coldestF:assessed.coldestF,adpF:assessed.adpF,returnF:t[1],outdoorF:roofF,indoorDewPointF:dpFromRatio(sharedW,pressure)};}
+            if(staged.flag)coilLog.stagedFlagMinutes+=minutes;
+        }
         if(sensor)sensorReading=advanceComparisonSensor(sensorReading,t[1],nextT[1],dt,sensor);
         t=nextT;tm=stepped.mass;
         if(operation==='defrost'){defrostRemaining=Math.max(0,defrostRemaining-dt*60);defrostMinutes+=dt*60;}
@@ -1927,7 +1952,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         complete:recovered,final:finalIndoor,progress:recoveryProgress,through:trace.at(-1).time}:null;
     const comfortEligible=!comfortReason,moistureEligible=!moistureReason,equipmentEligible=!unsafe.length;
     const suitable=equipmentEligible&&comfortEligible&&moistureEligible;
-    return{start,end,trace,segments,unsafe,maxFan,freezeRisk,isOvernight,recoveryInfo,warnings:[...warnings],score:score+draftScore,draftScore,hoursOut,didCool,didHeat,heatMinutes,coolMinutes,
+    return{start,end,trace,segments,unsafe,maxFan,freezeRisk,isOvernight,recoveryInfo,coil:coilLog,warnings:[...warnings],score:score+draftScore,draftScore,hoursOut,didCool,didHeat,heatMinutes,coolMinutes,
         finalIndoor,capacityCool,capacityHeat,heatingFloorLimited,defrostMinutes,config,comfortLow:band.low,comfortHigh:band.high,floorCompliant:min>=floor-1e-6,
         endInBand:finalIndoor>=floor&&finalIndoor<=band.high,comfortEligible,comfortReason,moistureEligible,moistureReason,equipmentEligible,suitable,
         moisture:{condensedLb,initialWaterLb,finalWaterLb:w.reduce((sum,v,z)=>sum+v*airMass[z],0),totals:{...moistureTotals},dehumRuntimeMinutes,maxRH,minRH,minMargin,maxSurfaceRH,surfaceMax,humidMax,estimated:options.initialZones?false:state.indoorRH==null},surfaceWarning,surfaceConcern,condensationConcern,comfortProblem,recoveryMinutes:recovery,finalZones:{temperature:t.slice(),mass:tm.slice(),water:w.slice()},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
@@ -2190,7 +2215,7 @@ function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=nul
     const first=phases[0].setup;
     const activeRows=resume?split.filter(row=>row.from>=resume.time):split;
     const sim=zoneProfile(first.type,envelope,bounds.sleep,first.setpoints,C.metaAwake,request.initial.temperature[0],{
-        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry,comparisonSensor:envelope.comparisonSensor,capacityComparison:envelope.capacityComparison,sleepAt:time=>bounds.hasSleep&&time>=+bounds.sleepFrom&&time<+bounds.end&&!isAwayAt(request,time)});
+        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry,comparisonSensor:envelope.comparisonSensor,capacityComparison:envelope.capacityComparison,coilAdvisory:!!envelope.coilAdvisory,sleepAt:time=>bounds.hasSleep&&time>=+bounds.sleepFrom&&time<+bounds.end&&!isAwayAt(request,time)});
     if(activeRows.length&&sim.trace.length)SEARCH_WORK+=Math.max(0,+sim.trace.at(-1).time-activeRows[0].from)/3600000;
     if(resume){sim.trace=[...resume.prefix.trace.filter(p=>+p.time<resume.time),...sim.trace];sim.segments=[...resume.prefix.segments.filter(s=>s.endMs<=resume.time),...sim.segments];}
     const atBedtime=bounds.bedtime?sim.trace.find(p=>+p.time===+bounds.bedtime):null;
@@ -2657,7 +2682,68 @@ function* searchPlans(envelope,request){
     const hasCurrent=result.stages?!!result.stages.current?.recommended||!!result.stages.departure.recommended:(result.winner.suitable&&result.winner.ready)||!!result.current;
     if(!hasCurrent&&request.occupancy!=='away')result.recoveryAction=recoveryAction(envelope,request);
     result.bedtimeRecovery=bedtimeRecovery(result,envelope,request);
+    result.coilAdvisory=wp7CoilAdvisory(result,envelope,request);
     return result;
+}
+// WP7 (D1) comparison mode. Re-simulates the displayed plan in every case with the experimental coil
+// model running alongside; the plan, its ranking and timing are not changed.
+const WP7_COOLING_TYPES=['ac','auto','auto_furnace'];
+function wp7DisplayedPlan(result){
+    const w=result.winner;if(w?.suitable&&w.ready)return w;
+    return result.current||result.stages?.current?.recommended||result.stages?.departure?.recommended||null;
+}
+function wp7CoilCheck(plan,envelope,request){
+    const phases=plan.phases||[{time:+request.start,setup:plan.setup}];
+    if(!phases.some(p=>WP7_COOLING_TYPES.includes(p.setup.type)))return null;
+    const end=plan.trials?.[0]?.trace?.at(-1)?.time;
+    const rows=end==null?null:planRows(envelope,request,.5,phases.map(p=>p.time)).filter(r=>r.to<=+end);
+    const env={...envelope,coilAdvisory:true,planCache:null};
+    const cases=AIR_SCENARIOS.map(s=>simulatePlan(phases,env,request,s,rows,null,false,true).coil).filter(Boolean);
+    const flagged=cases.filter(c=>c.flagMinutes>0),firsts=flagged.map(c=>c.first).filter(Boolean).sort((a,b)=>a.time-b.time);
+    const finite=cases.map(c=>c.minColdestF).filter(Number.isFinite);
+    return{cases:cases.length,cooling:cases.filter(c=>c.coolingMinutes>0).length,flagged:flagged.length,
+        stagedFlagged:cases.filter(c=>c.stagedFlagMinutes>0).length,autoAssumed:cases.some(c=>c.autoAssumed),
+        flagMinutes:Math.max(0,...cases.map(c=>c.flagMinutes)),minColdestF:finite.length?Math.min(...finite):null,
+        first:firsts[0]||null,clamped:cases.some(c=>c.clamped)};
+}
+function wp7CoilAdvisory(result,envelope,request){
+    const plan=wp7DisplayedPlan(result);if(!plan)return null;
+    const check=wp7CoilCheck(plan,envelope,request);if(!check)return null;
+    const advisory={check,flagged:check.flagged>0,alternative:null,alternativesChecked:0};
+    if(!advisory.flagged||plan!==result.winner||!result.plans)return advisory;
+    // Only an evaluated, executable plan that passes the current policy (suitable and ready) and the
+    // physics check in every case is offered. A plan without compressor cooling passes the physics check.
+    const bounds=result.bounds||planBounds(request.start,request),start=+request.start,end=+bounds.end;
+    for(const alt of result.plans){
+        if(alt===plan||!(alt.suitable&&alt.ready))continue;
+        if(advisory.alternativesChecked>=4)break;
+        advisory.alternativesChecked++;
+        const altCheck=wp7CoilCheck(alt,envelope,request);
+        if(altCheck&&altCheck.flagged>0)continue;
+        advisory.alternative={phases:alt.phases.map(p=>({time:p.time,setup:p.setup})),check:altCheck,
+            bedroom:traceRange(alt,start,end,'bedroom'),front:traceRange(alt,start,end,'midCoach'),
+            planBedroom:traceRange(plan,start,end,'bedroom'),planFront:traceRange(plan,start,end,'midCoach')};
+        break;
+    }
+    return advisory;
+}
+function wp7CoilAdvisoryHTML(advisory,request){
+    if(!advisory?.flagged)return '';
+    const c=advisory.check,f=c.first;
+    let html='<div class="mitigation-box" id="coilAdvisory"><strong>Coil-icing advisory (experimental; this recommendation is unchanged)</strong>'+
+        '<p>The experimental coil model flags possible icing at this fan setting. The current cooling check permits this setup.</p>'+
+        '<p class="hint">Flagged in '+c.flagged+' of '+c.cases+' tested conditions'+(f?', first at '+escapeHTML(formatTime(new Date(f.time)))+' ('+escapeHTML(f.fan)+' fan'+
+        (f.fan==='Auto'?', assessed at '+escapeHTML(f.assessedFan):'')+'; estimated coldest coil surface '+f.coldestF.toFixed(1)+'°F, return air '+f.returnF.toFixed(1)+'°F, outdoor '+f.outdoorF.toFixed(1)+'°F)':'')+
+        '. The model estimates the coldest coil surface as the apparatus dew point minus '+WP7_COIL.coldDeltaF+'°F and flags '+WP7_COIL.flagAtF+'°F or colder while the compressor runs. A flag is not an observation of ice.</p>';
+    if(c.autoAssumed)html+='<p class="hint">With the AUTO fan, the flag assumes the fan can run at Low while the compressor runs. Micro-Air does not document the speed thresholds. With the CCC2 staging the app otherwise uses, it flags in '+c.stagedFlagged+' of '+c.cases+'.</p>';
+    const alt=advisory.alternative;
+    if(alt){
+        html+='<p><strong>Evaluated alternative that passes both checks:</strong> '+alt.phases.filter((p,i)=>i===0||!sameSetup(alt.phases[i-1].setup,p.setup)).map(p=>escapeHTML(setupName(p.setup))+
+            (p.setup.type==='passive'&&!p.setup.config?'':' ('+escapeHTML(isAutoMode(p.setup.type)?autoSetpointLabel(p.setup.setpoints):p.setup.type==='ac'?p.setup.setpoints.cool+'°F':p.setup.type==='maxxfan'?p.setup.setpoints.fan+'°F':p.setup.setpoints.heat+'°F')+(p.setup.fan&&p.setup.type!=='passive'?', '+escapeHTML(p.setup.fan)+' fan':'')+')')+' from '+escapeHTML(formatTime(new Date(p.time)))).join(' → ')+
+            '.</p><p class="hint">Predicted bedroom '+alt.bedroom+'°F and front '+alt.front+'°F, compared with '+alt.planBedroom+'°F and '+alt.planFront+'°F for the recommended plan. It ranks lower under the current comparison.</p>';
+    }else html+='<p class="hint">No evaluated alternative passes both checks'+(advisory.alternativesChecked?' (checked '+advisory.alternativesChecked+')':'')+'.</p>';
+    html+='<p class="hint">Not yet modeled: moisture returning from a wet coil while the fan keeps running (WP9). If you see ice: stop cooling, check the filter and vents, run FAN ONLY until the ice clears, then resume at a warmer setting.</p></div>';
+    return html;
 }
 function bedtimeRecovery(result,envelope,request){
     if(request.occupancy!=='staying')return null;
@@ -3063,13 +3149,13 @@ function currentOutlook(current,bounds){
     return html+surfaceOutlook(p.trials);
 }
 function renderPlan(result){
-    if(result.stages)return renderDeparturePlan(result);
+    if(result.stages)return renderDeparturePlan(result)+wp7CoilAdvisoryHTML(result.coilAdvisory,result.request);
     if(result.bedtimeRecovery&&!result.bedtimeRecovery.overnight)return bedtimeRecoveryHTML(result.bedtimeRecovery);
     const {winner:p,bounds,request}=result,initial=p.phases[0],sleepFrom=bounds.bedtime?+bounds.bedtime:+bounds.start;
     const step=(title,time,body)=>'<div class="plan-step"><div class="plan-time">'+escapeHTML(time)+'</div><strong>'+escapeHTML(title)+'</strong><p>'+body+'</p></div>';
     const safe=p.suitable&&p.ready,current=!safe&&result.current;
     const badge=current?'<div class="risk-badge moderate"><div class="risk-dot moderate"></div><span>Recheck overnight</span></div>':policyBadge(safe&&p.recoveryInfo?.complete!==false,true);
-    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+badge+'</div>'+comfortPolicyText()+spatialModelText()+recoveryActionHTML(result.recoveryAction);
+    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+badge+'</div>'+wp7CoilAdvisoryHTML(result.coilAdvisory,request)+comfortPolicyText()+spatialModelText()+recoveryActionHTML(result.recoveryAction);
     if(result.bedtimeRecovery?.overnight)html+=bedtimeRecoveryHTML(result.bedtimeRecovery);
     if(current){
         html+='<div class="result-primary">'+escapeHTML(setupName(current.setup))+'</div>';
@@ -3177,7 +3263,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.16';
+const LOG_APP_VERSION='6.6.17';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
@@ -3546,6 +3632,11 @@ function recordRunLog(event,result,nextAction){
             event.prediction_2h_json=sample(start+7200000);
             event.prediction_next_action_json=sample(nextAction);
         }
+        // WP7 (D1) comparison record for the review trigger: flagged cases, first flag and fan basis.
+        const coil=result.coilAdvisory?.check;
+        event.coil_advisory=coil?JSON.stringify({flagged:coil.flagged,cases:coil.cases,staged_flagged:coil.stagedFlagged,auto_assumed:coil.autoAssumed,
+            min_coldest_f:coil.minColdestF==null?null:+coil.minColdestF.toFixed(1),first_utc:coil.first?new Date(coil.first.time).toISOString():null,
+            first_fan:coil.first?.fan??null,alternative:!!result.coilAdvisory.alternative}):'no cooling';
     }
     enqueueLogEvent(event);
 }

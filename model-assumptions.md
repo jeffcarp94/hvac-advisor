@@ -1,3 +1,51 @@
+# v6.6.17 — WP7 coil-icing comparison mode with advisory (D1)
+
+Scope v3 WP7, owner decision D1 (comparison mode with advisory; no blocking rule without explicit approval). The existing `coolingPolicy` screen (empirical coil formula and the 60°F dew-point High-fan rule) remains the sole eligibility check. No value below is fitted to any fixture.
+
+## Physics coil model (comparison only)
+
+| Quantity | Value / method | Tier | Confidence |
+| --- | --- | --- | --- |
+| Coil state | `wp6CoolingOutput` (EnergyPlus single-speed DX curves, ADP/bypass method, 15,000 BTU/h at ISO T1 as gross, 280 CFM High, Medium 0.82, Low 0.68), run in parallel; live AC capacity unchanged (D2 pending) | OEM-proxy + Ref | Medium-low |
+| Coldest surface | T_cs = ADP − ΔT_cold, ΔT_cold = 4°F | Eng (scope prior; sampled 2–6°F in WP13) | Low |
+| Flag | T_cs ≤ 32°F during compressor operation; an instantaneous crossing, not proof that frost accumulates | Scope | — |
+| Entering air | Front-zone air node at the start of each step, shared moisture | Model convention (as the WP6 comparison) | Medium |
+| Condenser air | Outdoor dry bulb; roof-heating increment 0 (interim, before WP8) | Eng | Low |
+| AUTO fan | Assessed at Low while the compressor runs. Micro-Air EasyTouch RV 350 Reference Manual 2.0 p.7: Full Auto "automatically adjusts the speed based on the difference between setpoint and inside temperature"; no thresholds; the Dometic zone board performs operation. CCC2 staging (Low < 5°F, Medium 5–7°F, High ≥ 8°F difference) reported alongside | OEM-exact (behavior), thresholds unverified | Low |
+
+The advisory re-simulates the displayed plan in all nine cases with the coil model enabled. A test confirms that enabling it leaves every trajectory, check and reason byte-identical. An alternative is offered only from the evaluated plans that are suitable and ready (current policy pass, executable) and have no physics flag in any case (a plan without compressor cooling passes trivially). At most four are checked. Alternatives are offered only when the displayed plan is the complete winner. The bedtime-recovery card does not show the advisory; the logged result covers the winner.
+
+## Gulf Shores validation matrix (reconstructed)
+
+Weather: KJKA hourly ASOS, March 3–5, 2025 (Iowa Environmental Mesonet; CSV supplied by the owner, `tests/fixtures/kjka-asos-2025-03-03-05.csv`). Two routine observations lack temperature/RH and hold the previous hour; the 05:15 special is skipped. Sky cover from the highest layer (CLR 0, FEW 19, SCT 44, BKN 75, OVC 100%). Labeled assumptions: away 09:00–17:00 CST, zero occupants, closed coach, start 72°F / 55% RH both zones, heading Unknown and tree cover None (not used before WP8). Full output: `reports/wp7-gulf-shores-matrix.txt` / `.json` (`tools/analysis/gulf-shores-matrix.cjs`).
+
+| Case | Current check | Physics flags | Nominal coldest surface |
+| --- | --- | --- | --- |
+| Away, dehumidifier on or off, Auto / Low, all three dates | accepts 9/9 | 9/9 (CCC2 staging also 9/9) | 16–20°F |
+| Away, Medium | accepts 9/9 | 9/9 | 22–26°F |
+| Away, High | accepts 9/9 | 9/9 | 27–30°F |
+| Occupied sensitivity, dehumidifier off, Auto / Low / Medium | rejects (High-fan rule, dew point > 60°F) | — | — |
+| Occupied sensitivity, High, or dehumidifier on | accepts | 9/9 | 18–31°F |
+| Full planner, away plan | displays AUTO 66/70 or 67/71 with Low or Auto fan (no complete plan: bedtime, RH or comfort) | 9/9; no alternative searched (offered only for a complete plan) | — |
+
+Away compressor runtime is 15–35 minutes (nominal), and the model ends near 73°F at 17:00 with cooling working. It cannot represent ice blocking airflow, so the observed 78°F is outside its scope. Water closes: the change in air water content equals dehumidifier + AC + outside exchange to within rounding.
+
+**Answer to scope "not yet shown":** for the unattended event conditions, v6.6.16's check permits Auto and Low COOL 72, and its planner displays AUTO with Low or Auto fan for an away day. The physics model flags those setups; it also flags High.
+
+## Controls (synthetic, labeled)
+
+| Case (steady, closed coach, COOL 72, start 76°F) | Auto / Low | Medium | High |
+| --- | --- | --- | --- |
+| 95°F, 40% RH (false-flag control) | flagged 9/9 (T_cs 25.7°F) | flagged (30.4°F) | clear (33.9°F) |
+| 85°F, 60% RH | flagged (23.2°F) | flagged (28.3°F) | clear (32.2°F) |
+| 78°F, 55% RH (marginal) | flagged (21.2°F) | flagged (26.7°F) | flagged (30.9°F) |
+
+**Finding for the D1 review:** the model has low specificity. It flags nearly all non-High cooling, including hot days on which the owner has not reported icing. Expect frequent advisories and an early review trigger. Per D1 and scope §1.5, ΔT_cold, the airflow proxy and the flag threshold are not tuned.
+
+## Unchanged
+
+Eligibility, ranking, timing, recommendations (fixture decisions identical to v6.6.16), the empirical coil screen, the High-fan rule, the icing response text, and the comfort/RH rules. No "Unsafe" wording.
+
 # v6.6.16 — Evidence-based airflow sensitivity cases
 
 Owner direction, November 18, 2026: update the airflow scenarios on all known information. Later the same day: no occupied overnight record will be supplied; model from the data in hand, and table comfort-only failures across the cases until WP7–WP10, WP13 and WP12 Phase A are implemented. The steady nights and synthetic fixtures below are reconstructed inputs.

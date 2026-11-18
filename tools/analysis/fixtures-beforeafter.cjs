@@ -41,7 +41,8 @@ for(const [name,job] of jobs){
    phases:w.phases.map(p=>new Date(p.time).toISOString().slice(11,16)+' '+p.setup.type+(p.setup.type==='passive'?'':' '+(['auto','auto_furnace'].includes(p.setup.type)?p.setup.setpoints.heat+'/'+p.setup.setpoints.cool:p.setup.type==='ac'?p.setup.setpoints.cool:p.setup.type==='maxxfan'?p.setup.setpoints.fan:p.setup.setpoints.heat))+' '+p.setup.fan),
    bed:Math.min(...w.trials.flatMap(t=>t.trace.map(p=>p.bedroom))).toFixed(1)+'-'+Math.max(...w.trials.flatMap(t=>t.trace.map(p=>p.bedroom))).toFixed(1),
    reason:(w.reason||'').slice(0,70),remote:res.stages?.remoteAction?new Date(res.stages.remoteAction.time).toISOString().slice(11,16)+' '+res.stages.remoteAction.setup.type:null,bounded:!!res.stages?.boundedSearch,
-   failing:Object.fromEntries(['equipment','moisture','comfort'].map(k=>[k,w.trials.filter(t=>t[k+'Reason']).length]))})`));
+   failing:Object.fromEntries(['equipment','moisture','comfort'].map(k=>[k,w.trials.filter(t=>t[k+'Reason']).length])),
+   coil:typeof res.coilAdvisory==='undefined'?'n/a':res.coilAdvisory?{flagged:res.coilAdvisory.check.flagged,cases:res.coilAdvisory.check.cases,staged:res.coilAdvisory.check.stagedFlagged,alternative:!!res.coilAdvisory.alternative}:null})`));
   console.log(JSON.stringify({fixture:name,s:+((performance.now()-t0)/1000).toFixed(0),...out}));
  }catch(err){console.log(JSON.stringify({fixture:name,error:err.message.slice(0,120)}));}
 }
