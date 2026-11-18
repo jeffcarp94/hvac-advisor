@@ -1836,12 +1836,9 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         // Limit the explicit temperature–humidistat coupling during concurrent
         // cooling and dehumidification. Other modes retain the ordinary step.
         const wetCoolingStep=.125/60;
-        // v6.6.15: with mass nodes, dehumidifier-only intervals also need a shorter
-        // explicit moisture step (15 s) to keep the 0.05°F convergence tolerance.
-        const moistureStep=operation==='ac'?wetCoolingStep:.25/60;
-        if(moisture.removal>0&&dt>moistureStep+1e-10){
-            const cut=row.from+moistureStep*3600000;
-            workRows.splice(rowIndex,1,{...row,to:cut,dt:moistureStep},{...row,from:cut,dt:dt-moistureStep});
+        if(operation==='ac'&&moisture.removal>0&&dt>wetCoolingStep+1e-10){
+            const cut=row.from+wetCoolingStep*3600000;
+            workRows.splice(rowIndex,1,{...row,to:cut,dt:wetCoolingStep},{...row,from:cut,dt:dt-wetCoolingStep});
             rowIndex--;continue;
         }
         const gains=zoneHeatGains(zoneInternalGains(meta,moisture.heatBTU,sleeping,charging),row.solar,q,operation,solarWeights);

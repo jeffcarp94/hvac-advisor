@@ -4,7 +4,7 @@
 - **Calibrated to field data.** Values are fitted to the owner's November 16, 2026 YoLink garage run, with the front and rear sensors measured during heat-pump warm-up and cool-down. Air storage is 290 BTU/°F and mass storage 565 BTU/°F, with a 0.95 h coupling. The rooftop unit's ducted air goes **38% to the rear** (previously 45% by volume), and the effective buoyant mixing width is 1 ft. The model reproduces both sensors within 0.25°F RMSE. See [the calibration](model-assumptions.md#v6615--wp11-two-node-storage-calibrated-to-the-garage-test).
 - **Effects.** Recovery from very hot or cold starts takes longer. Modeled heat-pump cycles run about 4 min on and 15–20 min off at 45°F, instead of very short cycles. Steady cool nights (45–56°F) now produce qualified overnight heating plans. With occupants asleep in the rear, the bedroom is predicted to run warmer than the front sensor overnight.
 - **Not calibrated:** the furnace's 70% rear outlet split, overnight occupied behavior, and the separation of heat-pump output from envelope heat loss (one test cannot separate them).
-- Dehumidifier-only intervals use a 15 s moisture step to keep numerical convergence within 0.05°F.
+- Planner runtime: the reconstructed full-night staying search takes 343 s on the 2-core reference machine, up from 272 s (+26%). It explores the same number of plans.
 
 # v6.6.14 — Test baseline, bounded absence search and WP1–WP4 acceptance coverage
 

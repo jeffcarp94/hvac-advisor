@@ -67,15 +67,23 @@ test('cached handoffs preserve moisture totals, prior heat and accumulated dehum
 });
 
 test('active AC and dehumidifier coupling converges as the timestep is refined',()=>{
+ // v6.6.15: thermostat cycling shifts cycle phase with the step, so an end-instant value
+ // measures phase, not convergence. Compare time-averaged and envelope quantities at the
+ // original tolerances (0.05°F, 2e-5 lb/lb, 1.2 min).
  const a=app();a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;
  e={windowStart:new Date('2026-10-24T03:00Z'),windowEnd:new Date('2026-10-24T05:00Z'),wind:2,cloud:0,points:[{time:new Date('2026-10-24T03:00Z'),tOut:78,rh:85,wind:2,cloud:0}]};
- ps=[.5,.25,.0625].map(maxStepMin=>zoneProfile('ac',e,true,confirmedSetpoints(true),C.metaSleep,72,{maxStepMin,initialZones:{temperature:[72,72],rh:[70,70]},fanSetting:'Low',frontControl:true}));`);
+ ps=[.5,.25,.0625].map(maxStepMin=>zoneProfile('ac',e,true,confirmedSetpoints(true),C.metaSleep,72,{maxStepMin,initialZones:{temperature:[72,72],rh:[70,70]},fanSetting:'Low',frontControl:true}));
+ m=p=>{const h=p.segments.reduce((s,g)=>s+g.hours,0);return{bed:p.segments.reduce((s,g)=>s+g.hours*(g.t0+g.t1)/2,0)/h,
+  water:p.trace.reduce((s,x,i,arr)=>i?s+(x.water[0]+arr[i-1].water[0])/2*((+x.time-+arr[i-1].time)/3600000):s,0)/h,
+  max:Math.max(...p.trace.map(x=>x.bedroom)),min:Math.min(...p.trace.map(x=>x.bedroom)),dehum:p.moisture.dehumRuntimeMinutes,cool:p.coolMinutes};};
+ ms=ps.map(m);`);
  assert.ok(a.run('ps[2].segments.length>ps[0].segments.length'));
- for(const p of ['ps[0]','ps[1]']){
-  assert.ok(a.run(`Math.abs(${p}.finalIndoor-ps[2].finalIndoor)`)<.05);
-  assert.ok(a.run(`Math.abs(${p}.finalZones.water[0]-ps[2].finalZones.water[0])`)<.00002);
-  assert.ok(a.run(`Math.abs(${p}.moisture.dehumRuntimeMinutes-ps[2].moisture.dehumRuntimeMinutes)`)<1.2);
-  assert.ok(a.run(`${p}.moisture.totals.ac`)>0);assert.ok(a.run(`${p}.moisture.totals.dehumidifier`)>0);
+ for(const i of [0,1]){
+  for(const k of ['bed','max','min'])assert.ok(a.run(`Math.abs(ms[${i}].${k}-ms[2].${k})`)<.05,k);
+  assert.ok(a.run(`Math.abs(ms[${i}].water-ms[2].water)`)<.00002,'water');
+  assert.ok(a.run(`Math.abs(ms[${i}].dehum-ms[2].dehum)`)<1.2,'dehumidifier runtime');
+  assert.ok(a.run(`Math.abs(ms[${i}].cool-ms[2].cool)`)<1.2,'cooling runtime');
+  assert.ok(a.run(`ps[${i}].moisture.totals.ac`)>0);assert.ok(a.run(`ps[${i}].moisture.totals.dehumidifier`)>0);
  }
 });
 
