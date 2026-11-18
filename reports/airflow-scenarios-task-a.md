@@ -1,7 +1,8 @@
 # Task A — airflow sensitivity cases: evidence review (November 18, 2026)
 
-Status: **decision pending (owner).** The v6.6.16 candidate on branch `airflow-scenarios` implements the
-method as specified in the handoff. Its decision changes are large, so it is reported before any PR.
+Status: **owner direction received, November 18, 2026.** No occupied overnight record will be supplied; model from
+the data in hand. Comfort-only failures across the cases are tabled until WP7–WP10, WP13 and WP12 Phase A.
+No tolerance substitution was approved, so v6.6.16 uses the 0.3°F tolerance as specified.
 Steady nights and labeled synthetic fixtures below are reconstructed inputs, not field data.
 
 ## 1. What drives the 3.9–8.5°F bedroom-minus-front spread (v6.6.15)
@@ -71,11 +72,11 @@ no-blower-exchange corners; without them the restricted extreme reaches 8.4°F (
 With the 0.15°F tolerance the 45°F plan is kept (AUTO HEAT PUMP 67/71) and 30°F still fails.
 With the 0.3°F airflow sets and `cabFactor`/`tempOffset` neutralized, 45°F still fails.
 
-## 5. Owner decisions needed
+## 5. Questions raised (resolved 11/18/2026 unless noted)
 
-1. Tolerance for "data-supported": 0.3°F in quadrature (as specified), or tighter. The fitted residual
+1. Tolerance for "data-supported": 0.3°F in quadrature (as specified; adopted), or tighter. The fitted residual
    (0.24–0.38°F) already contains the digitizing error, so adding 0.3°F again may double-count it.
-2. Separately: whether to keep `cabFactor` and `tempOffset` bundled in these cases (not airflow; the garage
+2. Open: whether to keep `cabFactor` and `tempOffset` bundled in these cases (not airflow; the garage
    data do not narrow the cab range).
 3. The 30°F result is a control/comfort-criterion question (front-sensed 3°F furnace cycle vs a 4°F band
-   with 57% rear delivery), not a scenario question.
+   with 57% rear delivery), not a scenario question. Tabled.

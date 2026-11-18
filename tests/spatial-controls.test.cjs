@@ -1,8 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {app}=require('./helpers.cjs');
 const close=(a,b,tol=1e-8)=>assert.ok(Math.abs(a-b)<tol,`${a} != ${b}`);
-function scenario(){
- const a=app();a.run(`forecast.timeZone='America/Chicago';state.temp=55;state.rh=25;state.wind=0;state.cloud=1;state.dehumidifierEnabled=false;
+function scenario(temp=55){
+ const a=app();a.run(`forecast.timeZone='America/Chicago';state.temp=${temp};state.rh=25;state.wind=0;state.cloud=1;state.dehumidifierEnabled=false;
  r={start:new Date('2026-10-24T03:00Z'),initial:{temperature:[67,63],rh:[30,30]},occupancy:'staying',remote:false};
  e=makeEnvelope(r.start,planBounds(r.start,r).end,'Spatial controls',300000);to=+r.start+90*60000;rows=planRows(e,r,.5,[to]).filter(x=>x.to<=to);`);return a;
 }
@@ -37,12 +37,16 @@ test('bed-qualified plans prefer both areas comfortable; a dinette miss cannot d
  assert.ok(a.run('comparePlans(both,bed)')<0);assert.ok(a.run('comparePlans(bed,bad)')<0);
 });
 test('furnace maintenance cannot claim an ideal clamped setpoint with real hysteresis',()=>{
- const a=scenario();a.run(`p=stagePlan([],planSetup('furnace',true),+r.start,to,e,r,rows);
+ // Labeled synthetic manual-weather night. v6.6.16: at 55°F the evidence-derived greater-airflow
+ // case keeps the front 0.04°F above the restart threshold within the 90-minute window, so
+ // no case shows a restart; a 50°F night exercises the same real hysteresis with all assertions kept.
+ const a=scenario(50);a.run(`p=stagePlan([],planSetup('furnace',true),+r.start,to,e,r,rows);
  old=stagePlanRaw([],withSetting(planSetup('furnace',true),63),+r.start,to,e,r,rows)`);
  assert.equal(a.run('old.suitable'),false);
  // The optimized setting is simulated through real EasyTouch cycling, not a clamped
  // setpoint: the front sensor spans heat-on (HEAT TO − 2) to shutoff (HEAT TO + 1).
- // v6.6.15 storage lets the optimized HEAT TO 65 pass; v6.6.14 rejected every setting.
+ // v6.6.15 storage let the optimized HEAT TO 65 pass at 55°F; v6.6.14 rejected every setting.
+ // v6.6.16's airflow cases reject it on bedroom comfort only (tabled per owner, 11/18/2026).
  const heat=a.run('p.setup.setpoints.heat');
  assert.ok(a.run('p.trials.every(t=>Math.max(...t.trace.slice(1).map(x=>x.midCoach))>='+(heat+1-.05)+')'),'every case reaches shutoff');
  assert.ok(a.run('p.trials.some(t=>Math.min(...t.trace.slice(1).map(x=>x.midCoach))<='+(heat-2+.05)+')'),'a case returns to the restart threshold');

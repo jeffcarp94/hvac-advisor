@@ -8,3 +8,4 @@ console.log(temp+'F',((performance.now()-t)/1000).toFixed(0)+'s','qualified',a.r
 console.log(a.run('JSON.stringify(result.winner.phases.map(p=>[new Date(p.time).toISOString().slice(11,16),p.setup.type,p.setup.setpoints,p.setup.fan,p.setup.config?.gaps?.join("")]))'));
 console.log('reason',a.run('result.winner.reason'));
 console.log(a.run(`result.winner.trials.map(t=>Math.min(...t.trace.map(x=>x.bedroom)).toFixed(1)+'..'+Math.max(...t.trace.map(x=>x.bedroom)).toFixed(1)).join(' | ')`));
+console.log('failing trials (equipment / moisture / comfort):',a.run(`['equipment','moisture','comfort'].map(k=>result.winner.trials.filter(t=>t[k+'Reason']).length).join(' / ')`));
