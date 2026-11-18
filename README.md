@@ -1,3 +1,13 @@
+# v6.6.20 — WP10 wind and infiltration
+
+- **What changed.** Wind no longer raises all heat loss by 2% per mph. The forecast wind (measured at 10 m) is converted to the wind at the coach (3 m, about 0.55 × the forecast). That local wind changes only the outside surface film of each wall, roof, floor and window, and drives air leakage.
+  - **Calm conditions are unchanged.** That is the condition of your garage calibration.
+  - **Air leakage** now follows the ASHRAE basic (Sherman–Grimsrud) model: 0.25 air changes per hour at an 18°F indoor-outdoor difference and 7 mph at the coach, more in wind and cold, less when mild and calm.
+  - **Window ventilation** uses the same local wind.
+  - **Sun heat through walls and roof** now depends on wind too. The old fixed value matched a fairly windy 15 mph forecast, so on calmer days more sun heat comes through the walls, roof and cab.
+- **Effect.** At a 15 mph forecast on a 30°F night, total heat loss is 35% above calm (the old rule gave 30%). Furnace run time on a steady 10°F, 15 mph night rises about 5% over v6.6.19. Fixture qualification is unchanged (1 of 10); the best available plans move slightly on most fixtures. The garage calibration still fits (RMSE changes ≤ 0.01°F), with no refit. See [the method](model-assumptions.md#v6620--wp10-wind-and-infiltration).
+- **Finding, nothing changed.** Keeping calm values exactly leaves single-pane glass more wind-sensitive than real glass (+77% at 15 mph); a physical correction would change a calibrated calm value and needs approval.
+
 # v6.6.19 — WP9 humidity model
 
 - **What changed.** Room humidity now accounts for three things the model ignored:

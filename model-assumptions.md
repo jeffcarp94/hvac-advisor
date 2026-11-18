@@ -1,3 +1,73 @@
+# v6.6.20 — WP10 wind and infiltration
+
+Scope v3 WP10 (decision change; no further gate). Nothing below is fitted to any fixture. Calm-condition U values are unchanged (exactly, for every body case and cab factor).
+
+## Method and sources
+
+| Item | Method | Value | Source / tier | Confidence |
+| --- | --- | --- | --- | --- |
+| Conduction | `UA × (1 + 0.02·mph)` removed. Each assembly keeps its existing R as the calm value, which already contains the calm exterior film once; only that film varies: U(V) = 1/(R − 1/h_o(0) + 1/h_o(V)) | — | Scope method | — |
+| Exterior film h_o(V) | ASHRAE "simple combined" (convection + radiation): h_o = D + E·V + F·V², V = local wind (m/s). Applied to every exterior assembly, floor underside included (labeled) | Medium smooth: D 8.23, E 4.0, F −0.057 W/(m²·K); 1.45 BTU/(h·ft²·°F) calm, 2.30 / 3.12 / 3.91 at 5 / 10 / 15 mph forecast | Ref: EnergyPlus Engineering Reference, Simple Combined (ASHRAE HOF 1989 Ch. 22) | Medium |
+| Local wind | Power law V_z = V_met·(δ_met/z_met)^α_met·(z/δ)^α. NWS station 10 m, α_met 0.14, δ_met 270 m; site α 0.22, δ 370 m ("rough, wooded country / urban, industrial, forest"); z = 3 m | V_3m = **0.550 × forecast** | Ref: EnergyPlus Engineering Reference, local wind speed (ASHRAE HOF Ch. 16/24); site terrain Eng | Medium (law), Low (terrain) |
+| Window ventilation | The separate "0.5 × forecast wind" for window pressure is replaced by the same local wind (0.550×). The bidirectional turbulence term (`0.025 × wind`) is unchanged | — | Scope | — |
+| Infiltration | Basic Sherman–Grimsrud: Q (L/s) = A_L·√(C_s·\|ΔT\| + C_w·U²), A_L cm², ΔT K, U local wind m/s; ΔT uses the volume-weighted indoor temperature | One story C_s 0.000145; shelter class 3 C_w 0.000174; **A_L 33.8 cm² (5.24 in²)** = 0.25 ACH at ΔT 18°F and 7 mph local wind | Ref: ASHRAE HOF basic model, as EnergyPlus `ZoneInfiltration:EffectiveLeakageArea` (local wind); IP check 0.0150 / 0.0065 within 1%; shelter class Eng | Medium-low (FEMA/LBNL 0.15–0.39 h⁻¹ transfer) |
+| Combination | Infiltration is a balanced background exchange split by zone volume, entering the sensible and moisture balances once (`ventilationNetwork`). With windows or a MaxxFan open it adds to their flows, which are one to two orders of magnitude larger | — | Defined rule (Eng) | — |
+| Sol-air | Opaque solar = U(V)·A·α·I/h_o(V) per surface each step (replaces the interim h_o = 4). The legacy no-location aggregate path keeps 4 | α 0.5 (unchanged) | Scope | Low (α) |
+
+Legacy single-zone helpers (`condLoad`, `passiveEqAt`, `thermalEnvironment` and their callers) still contain the 2%/mph multiplier. None is on the live call path: `condLoad` and `simulateThermalProfileAtFan` have no callers, and the rest are reached only from those and from tests. They are unchanged.
+
+## Checks
+
+| Check | Result |
+| --- | --- |
+| Calm conduction, every body case × cab factor 1.5 / 3 / 4.5 | identical to v6.6.19 (≤ 10⁻⁹ BTU/(h·°F)); every assembly keeps a positive interior resistance |
+| Infiltration at reference (ΔT 18°F, 7 mph local) | 0.250 ACH; SI → IP Handbook form within 1%; zero at ΔT 0 and calm; monotonic in ΔT and wind |
+| Infiltration, ΔT 38°F | 0.246 / 0.257 / 0.285 / 0.328 ACH at calm / 5 / 10 / 15 mph forecast |
+| Garage calibration (joint fit at adopted parameters, calm, ΔT 10–15°F) | stack-only infiltration ≈ 0.14 ACH (was a fixed 0.25). RMSE front/rear/gap: heat pump 0.236 / 0.267 / 0.342°F (was 0.243 / 0.257 / 0.342), furnace 0.370 / 0.358 / 0.376 (was 0.370 / 0.354 / 0.376); cost 0.975 (was 0.971). Garage reproduction tests pass; no refit |
+
+**Heat-loss change at 15 mph** (NWS 10 m wind, local 3 m 8.25 mph, 68°F inside / 30°F outside, nominal envelope): total UA 126.3 → 170.3 BTU/(h·°F), **+35%** (the old multiplier gave +30%: 164.2). By component at 15 mph: glass 18 → 31.8 and cab glass 27 → 47.7, cab opaque 34.1 → 39.5, walls 13.6 → 14.0, roof 6.8 → 7.0, floor 16.1 → 17.1, door 2.8 → 3.1, roof openings 3.5 → 4.5, infiltration 4.3 → 5.7.
+
+**Cold-night cases** (synthetic, steady, FURNACE 66, front control, 9 h, no sun; v6.6.18 baseline, equal to v6.6.19 for this case, → v6.6.20): 30°F calm 220 → 219 furnace minutes, 30°F at 15 mph 288 → 300; 10°F calm 350 → 352, 10°F at 15 mph 461 → 485. Bedroom ranges within 0.6°F.
+
+**Solar.** The WP8 interim film (4 BTU/(h·ft²·°F)) corresponds to a 15.4 mph forecast. At lighter winds the walls, roof and cab pass more solar heat: evening total (18:00 CDT reference, 16-point average) 1.88× the legacy aggregate at 5 mph and 1.64× at 10 mph (WP8: 1.43×); at calm 2.37×. The WP8 evening-ratio test now runs at the 15.4 mph labeled wind to keep checking WP8's geometry.
+
+## Finding: glass at calm (no change made)
+
+Preserving the calm U of single glazing (R 1.0) and removing the calm film (1/1.45 = 0.69) leaves 0.31 h·ft²·°F/BTU for the glass and inside film. A physical inside film alone is about 0.68. So glass conduction is more wind-sensitive than real single glazing: +77% at a 15 mph forecast (U 1.0 → 1.77). Glass carries 34 of the 48 BTU/(h·°F) increase at 15 mph. A physical inside film would instead lower calm glass U to about 0.73, which changes a calm (calibration-protected) envelope value; that needs the owner's approval. Whole-coach loss at 15 mph is within 4% of the old multiplier's.
+
+## Remaining uncertainty
+
+- Site terrain (α 0.22) and shelter class 3 are assumptions; open sites have more wind (ratio 0.85 with open-country terrain).
+- EnergyPlus applies the basic model with local wind; whether the ASHRAE Handbook text defines U as local or station wind was not checked against the Handbook itself. A_L is sized at the reference point, so this changes only the stack/wind balance.
+- The floor underside gets the full local wind.
+- A_L is a transfer value (WP13 samples 0.15–0.50 ACH).
+
+## Fixtures (v6.6.19 → v6.6.20, dehumidifier on; phase times UTC as printed)
+
+`reports/wp10-fixtures-beforeafter.jsonl`. Qualification unchanged: 1 of 10 (surface-advisory synthetic, identical plan). No fixture gains or loses an equipment or moisture failure; every other fixture still fails comfort only (tabled, owner decision 2). Unchanged: surface synthetic, falling synthetic, Winterset 2026-05-08 (all headings), away-return (both), hot synthetic W.
+
+| Fixture | v6.6.19 displayed | v6.6.20 displayed | Failing cases (comfort) |
+| --- | --- | --- | --- |
+| March historical | AC 69 Low → HP 67 Auto | AC 70 Low → HP 67 Low | 2 → 1 |
+| Winterset 2025-10-01 | passive → AUTO 63/67 Auto (02:35) | AUTO 67/71 Auto → AC 55 Low (02:45, 15 min) → HP 66 Auto (03:00) | 3 → 9 |
+| October saved | MaxxFan 69 → AUTO 63/67 Low | AUTO 66/71 Low → AUTO 63/67 Low | 3 → 6 |
+| Preparation synthetic (all headings) | AC 67 Low → AUTO 62/66 Low | MaxxFan 71 → AUTO 61/65 Low | 1 → 1 |
+| Rising synthetic | HP 68 Low | HP 67 Auto | 9 → 9 |
+| Hot synthetic N, S | … AC 68 Low from 01:05 → HP 66 | … AC 68 Low from 01:30–01:35 → HP 66 | 9 → 9 |
+| Hot synthetic E | … AC 68 Low from 23:50 → HP 66 | AUTO 68/72 High → AUTO 65/69 Low (02:25) | 9 → 9 |
+
+All of these are best-available sequences for fixtures that don't qualify; they move with small changes in margins (wind on glass and the cab, calm-wind sol-air, stack infiltration).
+
+## Gulf Shores matrix rerun (reconstructed; dehumidifier on per the owner decision; heading S assumed)
+
+`reports/wp10-gulf-shores-matrix.txt` (v6.6.20) and `reports/wp10-gulf-shores-matrix-v6619-baseline.txt` (same tool).
+
+- Current-check acceptance (9/9) and physics flags (9/9) are unchanged for every fan, date and occupancy. The coldest-surface minimum moves by at most 0.2°F.
+- Compressor time: March 3 +16 to +20 min (the light-wind day; more solar through walls and roof), March 4 0 to +3 min, March 5 −1 to −5 min. 17:00 temperatures within 1.5°F; RH within 2 points; peak 55–56%.
+- Planner away plan: March 3 is now MaxxFan 70 until 17:30, then AUTO with Auto fan (was AUTO 67/71 Low); March 4 is AUTO 68/72 Auto fan all day (was AUTO 67/71 Low, AC at 21:55); March 5 unchanged. None is a complete plan.
+
+**For the D1 review:** unchanged. The current check permits, and the planner displays, setups the physics model flags.
+
 # v6.6.19 — WP9 humidity model
 
 Scope v3 WP9 (decision change; no further gate). Nothing below is fitted to any fixture. Unchanged: the shared (well-mixed) coach moisture balance, the room-air RH rule (`M.humidLimit` 65%, `M.humidMinutes` 30, counted after `M.recoveryMinutes` 30, maximum of the two zones), the `coolingPolicy` screen and the advisory-only surface checks.
