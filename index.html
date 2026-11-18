@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.14 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.15 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.14</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.15</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -373,8 +373,8 @@ function zoneInternalGains(occupantSensible,dehumidifier,sleeping,phoneCharging)
     return [rearOccupant+rearWatts*WATTS_TO_BTU_H,
         occupantSensible-rearOccupant+dehumidifier+frontWatts*WATTS_TO_BTU_H];
 }
-// Rooftop ducted delivery (heat pump, AC, defrost/blower) to the rear zone.
-// Before v6.6.15: uniform per served volume (M.fraction[0] ≈ 0.447).
+// Rooftop ducted delivery (heat pump, AC, defrost/blower) to the rear zone: 0.38,
+// fitted to the owner's garage run. Before v6.6.15: uniform per volume (≈ 0.447).
 const DUCT={rearFraction:.38};
 function ductRearFraction(){return DUCT.rearFraction??M.fraction[0];}
 function zoneHeatGains(internal,solar,hvac,operation,solarWeights=null){
@@ -1586,11 +1586,12 @@ function ventilationNetwork(config,temperatures,tOut,wind,speed,scenario=AIR_SCE
 }
 
 function solvePair(diagonal,off,rhs){const det=diagonal[0]*diagonal[1]-off[0]*off[1];return[(rhs[0]*diagonal[1]-off[0]*rhs[1])/det,(rhs[1]*diagonal[0]-off[1]*rhs[0])/det];}
-// WP11 (v6.6.15): each zone has an air node and a furnishings/structure mass node.
-// Whole-coach priors from the approved scope: air 60 and mass 213.14 BTU/°F (the
-// total keeps the legacy 273.14), mass time constant 1.5 h, allocated by volume.
+// WP11 (v6.6.15): each zone has an air node (air plus fast surfaces/furnishings) and a
+// slower mass node, allocated by served volume. Values are fitted to the owner's
+// 11/16/2026 YoLink garage heat-pump run (live HP curve, construction UA): air 290,
+// mass 565 BTU/°F, 0.95 h coupling. Single-test calibration; scope priors were 60/213/1.5.
 // HVAC, conduction, infiltration, ventilation and internal gains act on the air
-// node; solar splits 50/50 between air and mass. Engineering priors, not measured.
+// node; solar splits 50/50 between air and mass (scope prior).
 const STORAGE={airTotal:290,massTotal:565,massTauHours:.95,solarToMass:.5};
 function zoneStorage(){
     const air=M.fraction.map(f=>STORAGE.airTotal*f),mass=M.fraction.map(f=>STORAGE.massTotal*f);
@@ -1598,7 +1599,7 @@ function zoneStorage(){
 }
 // Buoyant exchange through the open bed-foundation boundary (not a doorway):
 // Q = (Cd/3)·W_eff·H·√(g·H·|ΔT|/T̄) each way, equal and opposite. Cd 0.6 and
-// H 6.33 ft per scope; W_eff 3.5 ft is an effective width (owner photo prior).
+// H 6.33 ft per scope; W_eff 1 ft fitted to the garage run (scope prior 3.5 ft).
 const INTERZONE={cd:.6,heightFt:6.33,widthFt:1};
 function buoyantExchangeCFM(t0,t1,width=INTERZONE.widthFt){
     const dT=Math.abs(t0-t1);if(dT<1e-12)return 0;
@@ -3163,7 +3164,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.14';
+const LOG_APP_VERSION='6.6.15';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';

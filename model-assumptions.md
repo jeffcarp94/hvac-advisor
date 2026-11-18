@@ -1,3 +1,39 @@
+# v6.6.15 — WP11 two-node storage calibrated to the garage test
+
+Owner direction, November 17, 2026: implement WP11 ahead of WP7–WP10, and correct the rear/front heat split to match measured behavior. The calibrated values below replace the scope's WP11 nominal priors. They come from one field test and are labeled **Cal (single test)**.
+
+## Method
+
+Each zone *z* has an air node (*C_a,z*) and a mass node (*C_m,z*), coupled by *H_am,z = C_m,z/τ*, all allocated by served volume. Each step is backward Euler. The mass node is eliminated analytically, so the zone solve stays a 2×2 system. HVAC, envelope conduction, infiltration, window/MaxxFan ventilation and internal gains act on the air node, and solar splits 50/50 between air and mass (scope prior). Condensation latent heat is added to both nodes in proportion to capacity. Interzone exchange is the existing forced term (60 CFM + 120 CFM × circulation, scenario-scaled) plus buoyant exchange *Q = (C_d/3)·W_eff·H·√(g·H·|ΔT|/T̄)* with *C_d* = 0.6 and *H* = 6.33 ft (scope). Its coefficient uses the start-of-step temperature difference. The thermostat, trace and comfort checks use air-node temperatures, which correspond to YoLink and EasyTouch air readings. Checkpoints carry both nodes.
+
+## Field data
+
+Owner YoLink screenshots, November 16, 2026: *RV Interior Front*, *RV Interior Rear* and *RV Garage*. They were digitized at 1-minute resolution from the curve pixels (about ±0.3°F, ±1 min). The data is stored in `tests/fixtures/garage-heat-pump-2026-11-16.json`. The coach was empty, with no sun or wind. The heat pump ran about 12:20–12:44 CST, warming the front from 54.1 to about 68.7°F, while the garage went from 55.5 to 57.9°F. Before heating, the rear read about 0.3°F below the front. During warm-up the gap widened to −2.1°F and then decayed over about 40 minutes after shutoff.
+
+## Fit
+
+The fit used Nelder–Mead on the live simulator, with RMSE on both sensors plus a weighted gap term. Heat-pump output and envelope heat loss are not separately identifiable from one warm-up and cool-down. A free fit drove envelope UA to 0.2× the construction estimate and heat-pump output to 1.4×, so both were anchored:
+
+| Anchor | C_a | C_m | τ | Rear duct share | RMSE front / rear / gap |
+| --- | --- | --- | --- | --- | --- |
+| **Live heat-pump curve (15,000 BTU/h at 55.6°F), construction UA (adopted)** | **290** | **565** | **0.95 h** | **0.38** | 0.25 / 0.24 / 0.34°F |
+| WP6 related-model proxy (≈10,200 BTU/h), construction UA | 200 | 325 | 0.85 h | 0.356 | 0.34 / 0.32 / 0.54°F |
+
+The adopted set matches the live capacity curve. If the D2 decision adopts the proxy heating output, refit with that anchor. The fit preferred little buoyant exchange: cost rose monotonically from 0.41 at 0.5 ft to 0.55 at 3.5 ft. The adopted 1 ft (scope prior 2–6 ft) lies just inside the best-fit edge. The scope's air-node prior (40–100 BTU/°F) is contradicted by the data. With 60 BTU/°F and full heat-pump output, front air would reach about 89°F in the 24-minute run instead of the observed 68.7°F. The compatibility check in WP11 item 3 (matching the previous model within 0.5°F) is superseded by the owner's instruction to match measured behavior.
+
+## Consequences found in testing
+
+- Nominal heat-pump cycles at 45°F: about 4 min on, 15–20 min off. At the scope's nominal priors they were 0.8 min on and 4 min off. In v6.6.14 they were 4 min on and 18 min off, with a bedroom peak of 75°F.
+- A steady 45°F night now qualifies (AUTO HEAT PUMP 66/70 overnight). On v6.6.14 no plan qualified.
+- Hot starts recover more slowly. In the test case, a 110°F start at 95°F outdoors with High-fan COOL reached the band in about 4.1 h, versus 81 min in v6.6.14. Initial mass nodes equal the measured air (assumption).
+- With occupants asleep in the rear, the model predicts the bedroom 2–4°F above the front sensor while it cycles. This is not yet validated. An occupied overnight YoLink record is requested.
+- Furnace delivery (70% rear, owner outlet geometry) is not calibrated. With the new storage, furnace cycles can lift the rear to about 73–76°F, so furnace-dependent nights often fail the sleep band.
+- Dehumidifier-only intervals use a 15 s moisture step. This is numerical. Without it, wet-cooling convergence error grew from 0.020 to 0.073°F at 30 s steps. The full-night planner runtime rose by about 34% on the reconstructed 45°F night.
+
+## Tests
+
+`tests/two-node-storage.test.cjs` covers storage allocation, buoyant symmetry and the square-root law, one-step energy conservation across both nodes and zones, relaxation to the capacity-weighted temperature, the duct and furnace splits, timestep convergence (cycle-averaged), checkpoint resume of both nodes, and reproduction of the garage run (RMSE < 0.4°F and the shutoff gap within 0.6°F). The garage test guards a calibration regression; it is not independent validation. Test inputs that depended on the old storage were moved to labeled synthetic conditions with assertions unchanged, and each change is commented in the test.
+
 # v6.6.14 — Test baseline and bounded absence search
 
 No thermodynamic constant, equipment-eligibility rule, comfort criterion or ranking comparator changes in this release. The absence search's coverage changes as described below, with owner approval of a bounded search on November 17, 2026.

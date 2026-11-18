@@ -151,6 +151,8 @@ test('full-night search verifies bedtime and the entire night after passive cool
  // winners changed with v6.6.2 (gaps) and v6.6.15 (calibrated storage); fixture reports track them.
  assert.ok(['hp','auto','auto_furnace','furnace'].includes(a.run('result.winner.nightSetup.type')));
  const heat=a.run('result.winner.nightSetup.setpoints.heat');assert.ok(heat>=63&&heat<=69,'HEAT TO '+heat);
- assert.match(a.run('renderPlan(result)'),/Bedroom at 10 PM/);
+ // Within 30 min of bedtime with a cooling-capable first stage, the app shows its
+ // bedtime-recovery card, which also states the predicted bedroom at 10 PM.
+ assert.match(a.run('renderPlan(result)'),/Bedroom at 10 PM|bedroom is projected to be [0-9.–]+°F at 10 PM/);
 });
 
