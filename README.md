@@ -1,3 +1,18 @@
+# v6.6.19 — WP9 humidity model
+
+- **What changed.** Room humidity now accounts for three things the model ignored:
+  - **Moisture stored in furnishings.** Cushions, bedding, wood and fabric absorb water when the air is humid and release it when it is dry. That store holds about six times the coach air's own moisture per percent RH, and it trades with the air over about 4 hours. Room RH now rises and falls more slowly.
+  - **Water on the AC coil.** It drips away only once the coil is fully wet. With a fixed fan (Low/Medium/High), the blower keeps running between cooling calls and blows that water back into the coach. With short cooling cycles the coil may never drip, so the AC removes almost no moisture. With the AUTO fan, the blower stops with the compressor and the water drains as before.
+  - **The dehumidifier in the cold.** Below 59°F its output now falls to zero at 41°F (it used to keep its full 59°F output), while it still draws power. About 15% of what it collects in short cycles returns to the room.
+- **Basis.** Henderson–Rengarajan coil model and suggested values from EnergyPlus; Nordtest moisture-buffer class; NREL dehumidifier tests. All are transfer evidence, not measurements of this coach. See [the method](model-assumptions.md#v6619--wp9-humidity-model).
+- **Effect.** On a humid night with the dehumidifier off, the AC on a fixed fan can now fail the 65% room-humidity check that AUTO fan passes. With the dehumidifier on, room RH mostly stays at or below 60%. Fixture qualification is unchanged (1 of 10) with the dehumidifier on or off. The best available plan, used when nothing qualifies, changes on most fixtures; with the dehumidifier off, several RH failures disappear because furnishings absorb moisture.
+- **Two findings for your decision (nothing changed):**
+  - **The High-fan rule now works against humidity.** The cooling check requires a fixed High fan whenever the indoor dew point is above 60°F. A fixed fan is now the setup that removes the least moisture. In the Gulf Shores rerun with the dehumidifier off on the most humid day, Low and Medium are now rejected and High fails the 65% RH check.
+  - **Fallback ordering.** When no plan qualifies, plans are compared by how long they last before a check trips. A plan that never cools down doesn't trip anything until the end, so on the hot synthetic afternoon the internal fallback became "AC for 15 minutes, then off", or with the dehumidifier off, "then furnace". What the screen shows for that case is still "COOL 72, fan High, now".
+  - Changing either rule needs your approval.
+- **Removed:** the coil advisory's "not yet modeled (WP9)" note.
+- **Unchanged:** the room-air RH rule (above 65% for 30 minutes), the High-fan cooling rule, eligibility, ranking and the advisory-only surface checks.
+
 # v6.6.18 — WP8 solar rebuild
 
 - **What changed.** Solar gain is now computed surface by surface. The model uses the sun's altitude and azimuth, a clear-sky estimate reduced by the hourly NWS sky cover, and a split into direct and diffuse light. Each roof section, wall, the rear, the windshield (55°, unverified) and every window receives its own share. Glass gain depends on the sun's angle of incidence. Walls and roof gain through their own insulation (sol-air), so nothing is counted twice. Gains go to the zone each surface belongs to, half to air and half to stored mass as before. See [the method](model-assumptions.md#v6618--wp8-solar-rebuild).
