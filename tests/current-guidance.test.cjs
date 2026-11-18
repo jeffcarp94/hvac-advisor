@@ -52,8 +52,9 @@ test('current guidance ends at departure and never certifies an unvalidated abse
 });
 test('current guidance chooses OFF when natural recovery matches the best target fit',()=>{
  // Synthetic manual-weather morning. v6.6.15 storage slows natural warming, so a warm
- // 86F morning is needed for natural recovery to match active heating (was 70F).
- const a=setup();a.run(`r.start=new Date('2026-10-23T12:30Z');r.reading=r.start;r.initial={temperature:[67,67],rh:[30,30]};
+ // 86F morning (was 70F) and a 68F start (was 67F, joint garage fit) are needed for
+ // natural recovery to match active heating.
+ const a=setup();a.run(`r.start=new Date('2026-10-23T12:30Z');r.reading=r.start;r.initial={temperature:[68,68],rh:[30,30]};
  state.temp=86;state.rh=25;state.wind=2;state.cloud=1;state.weatherMode='manual';e=makeEnvelope(r.start,planBounds(r.start).end,'Morning',300000);
  c=currentRecommendation(e,r,[])`);
  assert.equal(a.run('c.trials.every(t=>t.suitable)'),true);

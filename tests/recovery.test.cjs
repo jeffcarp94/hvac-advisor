@@ -31,8 +31,9 @@ test('recovery state survives a checkpoint and a departure boundary',()=>{
  assert.equal(a.run('resumed.suitable'),true);
 });
 test('recovery does not forgive a subsequent drop below the comfort floor',()=>{
- // 25 min of furnace completes recovery under the calibrated storage before the drop.
- const a=setup(53,20);a.run(`ph=[{time:+r.start,setup:heating},{time:+r.start+25*60000,setup:planSetup('passive',false)}];p=simulatePlan(ph,e,r,AIR_SCENARIOS[0],rows)`);
+ // 80 min of furnace completes recovery before the drop. v6.6.15: the 11/17/2026 garage
+ // furnace fit (11,550 BTU/h, 49% to stored mass) slows this 53F/20F recovery to ~70 min (was 25).
+ const a=setup(53,20);a.run(`ph=[{time:+r.start,setup:heating},{time:+r.start+80*60000,setup:planSetup('passive',false)}];p=simulatePlan(ph,e,r,AIR_SCENARIOS[0],rows)`);
  assert.equal(a.run('p.suitable'),false);assert.ok(a.run('p.recoveryMinutes')!==null);
  assert.match(a.run('p.comfortReason'),/below/);
 });

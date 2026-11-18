@@ -364,7 +364,10 @@ function solarAllocation(total,cabFactor=3,bodyCase=BODY_CASES[0]){
 }
 const GAIN_WATTS={multiPlusStandby:20,multiPlusConversion:0,cerboAndDisplay:6,sleepPhoneCharging:40,refrigerator:0};
 const WATTS_TO_BTU_H=3.412;
-const FURNACE_REAR_FRACTION=.7;
+// Furnace (under Jeff's bed): rear share of delivered heat (0.57) and the share that
+// enters structure (mass nodes) directly via the bed foundation and ducts (0.49), both
+// fitted to the owner's 11/17/2026 garage furnace run. Owner outlet estimate was 0.70 rear.
+const FURNACE={rearFraction:.57,toMass:.49};
 function zoneInternalGains(occupantSensible,dehumidifier,sleeping,phoneCharging){
     const rearOccupant=occupantSensible*(sleeping?1:M.fraction[0]);
     const rearWatts=GAIN_WATTS.multiPlusStandby+GAIN_WATTS.multiPlusConversion+
@@ -378,7 +381,7 @@ function zoneInternalGains(occupantSensible,dehumidifier,sleeping,phoneCharging)
 const DUCT={rearFraction:.38};
 function ductRearFraction(){return DUCT.rearFraction??M.fraction[0];}
 function zoneHeatGains(internal,solar,hvac,operation,solarWeights=null){
-    const weights=solarWeights||solarAllocation(1),rearDelivery=operation==='furnace'?FURNACE_REAR_FRACTION:ductRearFraction();
+    const weights=solarWeights||solarAllocation(1),rearDelivery=operation==='furnace'?FURNACE.rearFraction:ductRearFraction();
     return [internal[0]+solar*weights[0]+hvac*rearDelivery,internal[1]+solar*weights[1]+hvac*(1-rearDelivery)];
 }
 
@@ -424,7 +427,8 @@ const C={glassArea:45,rGlass:1,cabOpaqueUA:34.1108641985,acCapacity:15000,evapCF
     acSensibleCapacity:11250,
     hpCapacityWarm:15000,        // Working heating estimate at 50°F; not a certified map
     hpCapacityCold:13000,        // Retained working heating estimate at 41°F
-    furnaceOutput:15000,         // Suburban NT-20SQ: 19,000 BTU/hr input × 80% efficiency
+    furnaceOutput:11550,         // Delivered to the living space, fitted to the owner's 11/17/2026 garage run
+                                 // (0.77 × the former 15,000 = 19,000 input × 80%). v6.6.15 calibration.
     tiebreakRange:5};
 const UA_BASE=envelopeAllocation().total;
 
@@ -1588,19 +1592,19 @@ function ventilationNetwork(config,temperatures,tOut,wind,speed,scenario=AIR_SCE
 function solvePair(diagonal,off,rhs){const det=diagonal[0]*diagonal[1]-off[0]*off[1];return[(rhs[0]*diagonal[1]-off[0]*rhs[1])/det,(rhs[1]*diagonal[0]-off[1]*rhs[0])/det];}
 // WP11 (v6.6.15): each zone has an air node (air plus fast surfaces/furnishings) and a
 // slower mass node, allocated by served volume. Values are fitted to the owner's
-// 11/16/2026 YoLink garage heat-pump run (live HP curve, construction UA): air 290,
-// mass 565 BTU/°F, 0.95 h coupling. Single-test calibration; scope priors were 60/213/1.5.
+// 11/16 heat-pump and 11/17 furnace YoLink garage runs, fitted jointly (live HP curve,
+// construction UA): air 297, mass 574 BTU/°F, 0.98 h coupling. Scope priors were 60/213/1.5.
 // HVAC, conduction, infiltration, ventilation and internal gains act on the air
 // node; solar splits 50/50 between air and mass (scope prior).
-const STORAGE={airTotal:290,massTotal:565,massTauHours:.95,solarToMass:.5};
+const STORAGE={airTotal:297,massTotal:574,massTauHours:.98,solarToMass:.5};
 function zoneStorage(){
     const air=M.fraction.map(f=>STORAGE.airTotal*f),mass=M.fraction.map(f=>STORAGE.massTotal*f);
     return{air,mass,coupling:mass.map(c=>c/STORAGE.massTauHours)};
 }
 // Buoyant exchange through the open bed-foundation boundary (not a doorway):
 // Q = (Cd/3)·W_eff·H·√(g·H·|ΔT|/T̄) each way, equal and opposite. Cd 0.6 and
-// H 6.33 ft per scope; W_eff 1 ft fitted to the garage run (scope prior 3.5 ft).
-const INTERZONE={cd:.6,heightFt:6.33,widthFt:1};
+// H 6.33 ft per scope; W_eff 0.58 ft fitted to the garage runs (scope prior 3.5 ft).
+const INTERZONE={cd:.6,heightFt:6.33,widthFt:.58};
 function buoyantExchangeCFM(t0,t1,width=INTERZONE.widthFt){
     const dT=Math.abs(t0-t1);if(dT<1e-12)return 0;
     const meanR=(t0+t1)/2+459.67,h=INTERZONE.heightFt;
@@ -1842,7 +1846,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             rowIndex--;continue;
         }
         const gains=zoneHeatGains(zoneInternalGains(meta,moisture.heatBTU,sleeping,charging),row.solar,q,operation,solarWeights);
-        const massGains=solarWeights.map(f=>row.solar*f*STORAGE.solarToMass),airGains=gains.map((g,z)=>g-massGains[z]);
+        const massGains=solarWeights.map((f,z)=>row.solar*f*STORAGE.solarToMass+(operation==='furnace'?q*FURNACE.toMass*(z===0?FURNACE.rearFraction:1-FURNACE.rearFraction):0)),airGains=gains.map((g,z)=>g-massGains[z]);
         const advance=hours=>twoNodeAdvance(t,tm,storage,ua,air.incoming,air.bulk,mix,airGains,massGains,out,hours,insideHeatFactor,outsideHeatFactor);
         const stepped=advance(dt),nextT=stepped.air;
         if(thermostatMode(mode)&&operation!=='defrost'&&dt>1/60000){
