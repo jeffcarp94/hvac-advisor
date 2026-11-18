@@ -83,19 +83,20 @@ for(const [name,job] of jobs){
             // separate so neither truncated minima nor runtimes imply overnight coverage.
             let diagnostics=null,maxHeatResidualBtu=0;
             if(selectedPhases){
-                const advance=coupledAdvance;
-                coupledAdvance=(values,capacity,ua,incoming,bulk,mix,source,outside,dt,heatFactor,outdoorFactor=heatFactor)=>{
-                    const next=advance(values,capacity,ua,incoming,bulk,mix,source,outside,dt,heatFactor,outdoorFactor);
+                // v6.6.15: the live solver is twoNodeAdvance (air + mass nodes per zone).
+                const advance=twoNodeAdvance;
+                twoNodeAdvance=(air,massT,storage,ua,incoming,bulk,mix,sourceAir,sourceMass,outside,dt,heatFactor,outdoorFactor=heatFactor)=>{
+                    const next=advance(air,massT,storage,ua,incoming,bulk,mix,sourceAir,sourceMass,outside,dt,heatFactor,outdoorFactor);
                     const between=[Math.max(0,-bulk)+mix,Math.max(0,bulk)+mix];
                     for(let z=0;z<2;z++){
-                        const stored=capacity[z]*(next[z]-values[z]);
-                        const supplied=dt*((ua[z]+outdoorFactor*incoming[z])*(outside-next[z])+source[z]+heatFactor*between[z]*(next[1-z]-next[z]));
+                        const stored=storage.air[z]*(next.air[z]-air[z])+storage.mass[z]*(next.mass[z]-massT[z]);
+                        const supplied=dt*((ua[z]+outdoorFactor*incoming[z])*(outside-next.air[z])+sourceAir[z]+sourceMass[z]+heatFactor*between[z]*(next.air[1-z]-next.air[z]));
                         maxHeatResidualBtu=Math.max(maxHeatResidualBtu,Math.abs(stored-supplied));
                     }
                     return next;
                 };
                 try{diagnostics=AIR_SCENARIOS.map(s=>simulatePlan(winner.phases,envelope,r,s,null,null,false,true));}
-                finally{coupledAdvance=advance;}
+                finally{twoNodeAdvance=advance;}
             }
             const diagnostic=diagnostics?{
                 minimumBedroomF:number(Math.min(...diagnostics.flatMap(t=>t.trace.map(p=>p.bedroom)))),

@@ -375,7 +375,7 @@ function zoneInternalGains(occupantSensible,dehumidifier,sleeping,phoneCharging)
 }
 // Rooftop ducted delivery (heat pump, AC, defrost/blower) to the rear zone.
 // Before v6.6.15: uniform per served volume (M.fraction[0] ≈ 0.447).
-const DUCT={rearFraction:.35};
+const DUCT={rearFraction:.38};
 function ductRearFraction(){return DUCT.rearFraction??M.fraction[0];}
 function zoneHeatGains(internal,solar,hvac,operation,solarWeights=null){
     const weights=solarWeights||solarAllocation(1),rearDelivery=operation==='furnace'?FURNACE_REAR_FRACTION:ductRearFraction();
@@ -1591,7 +1591,7 @@ function solvePair(diagonal,off,rhs){const det=diagonal[0]*diagonal[1]-off[0]*of
 // total keeps the legacy 273.14), mass time constant 1.5 h, allocated by volume.
 // HVAC, conduction, infiltration, ventilation and internal gains act on the air
 // node; solar splits 50/50 between air and mass. Engineering priors, not measured.
-const STORAGE={airTotal:60,massTotal:213.14285714285717,massTauHours:1.5,solarToMass:.5};
+const STORAGE={airTotal:290,massTotal:565,massTauHours:.95,solarToMass:.5};
 function zoneStorage(){
     const air=M.fraction.map(f=>STORAGE.airTotal*f),mass=M.fraction.map(f=>STORAGE.massTotal*f);
     return{air,mass,coupling:mass.map(c=>c/STORAGE.massTauHours)};
@@ -1599,7 +1599,7 @@ function zoneStorage(){
 // Buoyant exchange through the open bed-foundation boundary (not a doorway):
 // Q = (Cd/3)·W_eff·H·√(g·H·|ΔT|/T̄) each way, equal and opposite. Cd 0.6 and
 // H 6.33 ft per scope; W_eff 3.5 ft is an effective width (owner photo prior).
-const INTERZONE={cd:.6,heightFt:6.33,widthFt:3.5};
+const INTERZONE={cd:.6,heightFt:6.33,widthFt:1};
 function buoyantExchangeCFM(t0,t1,width=INTERZONE.widthFt){
     const dT=Math.abs(t0-t1);if(dT<1e-12)return 0;
     const meanR=(t0+t1)/2+459.67,h=INTERZONE.heightFt;
