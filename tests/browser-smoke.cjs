@@ -141,7 +141,9 @@ function weather(url){
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:180000});
   assert.match(await page.locator('#setpointDisplay').innerText(),/Bed-area targets: awake\/away 71°F/);
   assert.equal(await page.evaluate(()=>!lastPlan.winner.suitable||lastPlan.winner.trials.every(t=>t.trace.every(p=>p.bedroom>=65-1e-6))),true,'accepted plans enforce the temperature floor at every point');
-  const text=await page.locator('#results').innerText();assert.match(text,/Next action|No suitable current setup/i);assert.doesNotMatch(text,/Preparing for Sleep from 9|Not chosen|weighted/);
+  // v6.6.15: with the calibrated storage this evening can instead show the computed
+  // bedtime-recovery card (a timed preparation with the predicted 10 PM bedroom).
+  const text=await page.locator('#results').innerText();assert.match(text,/Next action|No suitable current setup|Recovery before bed[\s\S]*bedroom is projected to be [0-9.–]+°F at 10 PM/i);assert.doesNotMatch(text,/Preparing for Sleep from 9|Not chosen|weighted/);
   await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-evening-plan.png'),fullPage:true});
   const widths=[];for(const width of [390,448,480]){await page.setViewportSize({width,height:950});widths.push(await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})));}
   assert.ok(widths.every(x=>x.width===x.scroll),JSON.stringify(widths));
