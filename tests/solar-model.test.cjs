@@ -16,11 +16,15 @@ test('reference case: sun position and incidence cosines match an independent ca
 
 test('evening ratio: the rebuilt model gives more late-afternoon gain than the aggregate sin(altitude) model',()=>{
  // 18:00 CDT, clear, 16-point heading average, nominal case. Legacy: one aggregate peak × sin(altitude).
- const a=app();a.run(`row={date:new Date('2026-07-15T23:00:00Z'),sunC:solarComponents(${REF},0)};co=solarSurfaceCoefficients();`);
+ // v6.6.20 (WP10): the exterior film now depends on wind. This WP8 check keeps its original film by
+ // running at the forecast wind where h_o = 4 BTU/(h·ft²·°F), the WP8 interim value (labeled input,
+ // about 15.4 mph). Calm-wind behavior is pinned in tests/wind-infiltration.test.cjs.
+ const a=app();a.run(`w4=(()=>{let lo=0,hi=40;for(let i=0;i<80;i++){const m=(lo+hi)/2;if(exteriorFilmBtu(localWindMph(m))>4)hi=m;else lo=m;}return(lo+hi)/2;})();
+  row={date:new Date('2026-07-15T23:00:00Z'),wind:w4,sunC:solarComponents(${REF},0)};co=solarSurfaceCoefficients();`);
  const avg=a.run('solarZoneGains(row,"avg",{},co).reduce((x,y)=>x+y)'),legacy=a.run(`solarLoad(1,true,${REF})`);
  const ratio=avg/legacy;assert.ok(ratio>1.3&&ratio<1.7,`evening ratio ${ratio.toFixed(2)}`);
  // Solar noon the same day: the vertical-surface model is lower than the aggregate peak.
- a.run(`noon={date:new Date('2026-07-15T18:20:00Z'),sunC:solarComponents(new Date('2026-07-15T18:20:00Z'),41.33,-94.01,0)};`);
+ a.run(`noon={date:new Date('2026-07-15T18:20:00Z'),wind:w4,sunC:solarComponents(new Date('2026-07-15T18:20:00Z'),41.33,-94.01,0)};`);
  assert.ok(a.run('solarZoneGains(noon,"avg",{},co).reduce((x,y)=>x+y)')<a.run("solarLoad(1,true,new Date('2026-07-15T18:20:00Z'),41.33,-94.01)"));
 });
 

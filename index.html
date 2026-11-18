@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.19 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.20 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.19</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.20</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -760,7 +760,7 @@ function solarHourFactor(date,lat,lon){
 const SOLAR_ABC=[[1202,.141,.103],[1187,.142,.104],[1164,.149,.109],[1130,.164,.120],[1106,.177,.130],[1092,.185,.137],
     [1093,.186,.138],[1107,.182,.134],[1136,.165,.121],[1166,.152,.111],[1190,.144,.106],[1204,.141,.103]];
 const SOLAR_GLASS_ANGLE=[[0,.86],[40,.84],[50,.82],[60,.78],[70,.67],[80,.42],[90,0]];
-const SOLAR=Object.freeze({albedo:.2,absorptance:.5,exteriorFilm:4,wToBtuFt2:.316998,hemisphericalGlass:.78/.86,
+const SOLAR=Object.freeze({albedo:.2,absorptance:.5,exteriorFilm:4 /* legacy aggregate path only since WP10 */,wToBtuFt2:.316998,hemisphericalGlass:.78/.86,
     windshieldTiltDeg:55}); // windshield rake from horizontal: engineering estimate, unverified for this cab
 function solarPosition(date,lat,lon){
     const rad=Math.PI/180,deg=1/rad;
@@ -862,10 +862,12 @@ function solarSurfaceCoefficients(cabFactor=3,bodyCase=BODY_CASES[0]){
     const e=envelopeAllocation(cabFactor,bodyCase),g=GEOMETRY,fpp=g.ftPerPixel,h=g.coachHeight;
     const rearLen=(1484-960)*fpp,frontLen=(960-490)*fpp,W=(550-90)*fpp,cabW=(505-155)*fpp,cabLen=(490-220)*fpp;
     const area=id=>solarGlazing().find(x=>x.id===id).area,areas=bodySurfaces(),door=28*72/144;
-    const opening=areas.opening,rearOpening=opening*.7,solAir=SOLAR.absorptance/SOLAR.exteriorFilm;
+    const opening=areas.opening,rearOpening=opening*.7;
     const list=[];
     for(const x of solarGlazing())list.push({kind:'glass',zone:x.zone,facade:x.facade,coef:x.area*(x.shade==='cab'?C.cabGlassSHGC:C.coachDayGlassSHGC)});
-    const opaque=(zone,facade,a,r)=>{if(a>0)list.push({kind:'opaque',zone,facade,coef:a/r*solAir});};
+    // WP10: opaque entries keep area·α and R; solarZoneGains applies U(V)·α/h_o(V) per row. coef is the
+    // calm-wind value (V = 0).
+    const opaque=(zone,facade,a,r)=>{if(a>0)list.push({kind:'opaque',zone,facade,aAlpha:a*SOLAR.absorptance,r,coef:a*SOLAR.absorptance*windU(r,exteriorFilmBtu(0))/exteriorFilmBtu(0)});};
     opaque(0,'driver',rearLen*h-area('kim'),bodyCase.wall);opaque(0,'entry',rearLen*h-area('jeff'),bodyCase.wall);
     opaque(0,'rear',W*h-area('rearWindow'),bodyCase.wall);opaque(0,'roof',g.rearFloor-rearOpening,bodyCase.roof);opaque(0,'roof',rearOpening,bodyCase.opening);
     opaque(1,'driver',frontLen*h-area('dinette'),bodyCase.wall);opaque(1,'entry',frontLen*h-area('sink')-area('entryDoorWindow')-door,bodyCase.wall);
@@ -875,7 +877,7 @@ function solarSurfaceCoefficients(cabFactor=3,bodyCase=BODY_CASES[0]){
     const cabGlass=solarGlazing().filter(x=>x.shade==='cab'),glassOn=f=>cabGlass.filter(x=>x.facade===f).reduce((t,x)=>t+x.area,0);
     const cabFaces={roof:g.cabFloor,front:Math.max(0,cabW*g.cabHeight-glassOn('windshield')),driver:Math.max(0,cabLen*g.cabHeight-glassOn('driver')),entry:Math.max(0,cabLen*g.cabHeight-glassOn('entry'))};
     const kPerArea=e.cabConduction/e.cabOpaque;
-    for(const [facade,a] of Object.entries(cabFaces))list.push({kind:'opaque',zone:1,facade,coef:a*kPerArea*solAir});
+    for(const [facade,a] of Object.entries(cabFaces))opaque(1,facade,a,1/kPerArea);
     return list;
 }
 function headingDegrees(heading){const i=PARKING_HEADINGS.indexOf(heading);return i<0?null:i*22.5;}
@@ -908,8 +910,9 @@ function solarZoneGains(row,heading,cover,coeffs){
             row.facadeCache[key]=avg;
         }else row.facadeCache[key]=facadeIrradiance(row.sunC,heading,cover);
     }
-    const fac=row.facadeCache[key],z=[0,0];
-    for(const s of coeffs)z[s.zone]+=s.coef*fac[s.facade][s.kind];
+    const fac=row.facadeCache[key],z=[0,0],film=exteriorFilmBtu(localWindMph(row.wind??0));
+    // Opaque sol-air excess through the wind-dependent assembly: U(V)·A·α·I/h_o(V) (WP10; was h_o 4).
+    for(const s of coeffs)z[s.zone]+=(s.kind==='opaque'?s.aAlpha*windU(s.r,film)/film:s.coef)*fac[s.facade][s.kind];
     return z;
 }
 function effectiveGlassSHGC(){return C.cabGlassFraction*C.cabGlassSHGC+(1-C.cabGlassFraction)*C.coachDayGlassSHGC;}
@@ -1772,13 +1775,67 @@ function wp7CoilState(returnF,w,outF,pressure,fan){
     const coil=wp6CoolingOutput(returnF,w,outF,pressure,fan),coldestF=coil.adpF-WP7_COIL.coldDeltaF;
     return{fan,adpF:coil.adpF,leavingSaturationF:coil.leavingSaturationF,coldestF,flag:coldestF<=WP7_COIL.flagAtF,clamped:coil.clamped,shr:coil.shr,cfm:coil.cfm};
 }
+// WP10 (v6.6.20): wind and infiltration. Pinned sources:
+// - Local wind: ASHRAE power law as in the EnergyPlus Engineering Reference ("Outside Surface Heat
+//   Balance", local wind speed): V_z = V_met·(δ_met/z_met)^α_met·(z/δ)^α. NWS station: 10 m, open
+//   terrain α 0.14, δ 270 m (EnergyPlus default for meteorological stations). Site: "rough, wooded
+//   country / urban, industrial, forest" α 0.22, δ 370 m (engineering assumption for campgrounds).
+//   Coach height 3 m. Ratio ≈ 0.55.
+// - Exterior film: ASHRAE "simple combined" (convection + radiation) h_o = D + E·V + F·V², V = local
+//   wind m/s, W/(m²·K); roughness "medium smooth" D 8.23, E 4.0, F −0.057 (EnergyPlus Engineering
+//   Reference, Simple Combined; ASHRAE HOF 1989 Ch. 22 Fig. 1).
+// - Infiltration: basic Sherman–Grimsrud (LBL) model, ASHRAE HOF "basic model" as implemented by
+//   EnergyPlus ZoneInfiltration:EffectiveLeakageArea: Q [L/s] = A_L·√(C_s·|ΔT| + C_w·U²), A_L in cm²,
+//   ΔT in K, U local wind m/s. One-story C_s = 0.000145 (L/s)²/(cm⁴·K); shelter class 3 ("typical
+//   shelter caused by other buildings across street") C_w = 0.000174 (L/s)²/(cm⁴·(m/s)²).
+//   A_L sized so the coach gets 0.25 ACH at ΔT 18°F and 7 mph local wind (scope prior).
+const WIND=Object.freeze({metHeightM:10,metAlpha:.14,metDeltaM:270,siteAlpha:.22,siteDeltaM:370,coachHeightM:3});
+function localWindMph(metMph){
+    const w=WIND;return Math.max(0,metMph||0)*Math.pow(w.metDeltaM/w.metHeightM,w.metAlpha)*Math.pow(w.coachHeightM/w.siteDeltaM,w.siteAlpha);
+}
+const EXTERIOR_FILM=Object.freeze({D:8.23,E:4.0,F:-.057,wPerM2KPerBtu:5.678263});
+// Combined exterior film, BTU/(h·ft²·°F), from local wind (mph).
+function exteriorFilmBtu(localMph){const v=localMph*.44704,f=EXTERIOR_FILM;return(f.D+f.E*v+f.F*v*v)/f.wPerM2KPerBtu;}
+const CALM_FILM_R=1/exteriorFilmBtu(0);
+// An assembly's existing R (calm-condition value, preserved) holds the calm exterior film once;
+// only that film varies with wind: U(V) = 1/(R − 1/h_o(0) + 1/h_o(V)).
+function windU(r,film){return 1/(r-CALM_FILM_R+1/film);}
+const INFILTRATION=(()=>{
+    const stack=.000145,wind=.000174,refACH=M.baseACH,refDeltaF=18,refLocalMph=7;
+    const refLps=refACH*M.volumeFt3.reduce((a,b)=>a+b)/60/2.1188799727;
+    const perArea=Math.sqrt(stack*refDeltaF*5/9+wind*(refLocalMph*.44704)**2);
+    return Object.freeze({stack,wind,refACH,refDeltaF,refLocalMph,leakageCm2:refLps/perArea});
+})();
+// Whole-coach infiltration, cfm (indoor temperature: zone-volume mean; wind: NWS 10 m mph).
+function infiltrationCFM(temperatures,tOut,metMph,leakageCm2=INFILTRATION.leakageCm2){
+    const tin=temperatures[0]*M.fraction[0]+temperatures[1]*M.fraction[1],dK=Math.abs(tin-tOut)*5/9,u=localWindMph(metMph)*.44704;
+    return leakageCm2*Math.sqrt(INFILTRATION.stack*dK+INFILTRATION.wind*u*u)*2.1188799727;
+}
+// Conduction assemblies by zone (area ft², calm-condition R), matching envelopeAllocation exactly at calm.
+function envelopeAssemblies(cabFactor=3,bodyCase=BODY_CASES[0]){
+    const e=envelopeAllocation(cabFactor,bodyCase),a=e.areas,list=[];
+    for(const key of ['wall','roof','floor','door','opening']){
+        list.push({zone:0,area:a.rear[key],r:bodyCase[key],key});list.push({zone:1,area:a[key]-a.rear[key],r:bodyCase[key],key});
+    }
+    list.push({zone:0,area:a.rear.glass,r:C.rGlass,key:'glass'},{zone:1,area:a.glass-a.rear.glass,r:C.rGlass,key:'glass'},
+        {zone:1,area:e.cabGlass,r:C.rGlass,key:'cabGlass'},{zone:1,area:e.cabOpaque,r:e.cabOpaque/e.cabConduction,key:'cabOpaque'});
+    return list.filter(x=>x.area>0);
+}
+function conductionUA(assemblies,metMph){
+    const film=exteriorFilmBtu(localWindMph(metMph)),ua=[0,0];
+    for(const x of assemblies)ua[x.zone]+=x.area*windU(x.r,film);
+    return ua;
+}
 function openingFlow(area,pressure,density=1.2){return M.discharge*M.screenFactor*area*Math.sign(pressure)*Math.sqrt(2*Math.abs(pressure)/density)*2118.88;}
 function autoVentSpeed(indoor,set){return indoor<=set?0:Math.min(1,.15+.17*(indoor-set));}
 function ventilationNetwork(config,temperatures,tOut,wind,speed,scenario=AIR_SCENARIOS[0],density=1.2){
-    const background=M.volumeFt3.map(v=>v*M.baseACH/60);
+    // WP10: Sherman–Grimsrud infiltration, split by zone volume, as a balanced background exchange.
+    // It adds to window and MaxxFan flows (defined combination); with any opening or fan running, those
+    // flows exceed infiltration by one to two orders of magnitude.
+    const leakage=infiltrationCFM(temperatures,tOut,wind),background=M.fraction.map(f=>leakage*f);
     if(!config)return{incoming:[...background],outgoing:[...background],bulk:0,flows:Array(6).fill(0),exhaust:0,background};
     const areas=WINDOW_SECTIONS.map((section,i)=>openingArea(section,config.gaps[i])*scenario.flow);
-    const dynamic=.5*density*Math.pow(wind*.44704*.5,2),cp=dynamic*.35*scenario.windSign;
+    const dynamic=.5*density*Math.pow(localWindMph(wind)*.44704,2),cp=dynamic*.35*scenario.windSign;
     const external=WINDOW_SECTIONS.map(section=>(section.side==='entry'?cp:-cp)+density*9.81*.5*(temperatures[section.zone]-tOut)/absoluteFahrenheit(tOut));
     // Open interior passage: one near-uniform pressure, two distinct thermal /
     // moisture zones. Bulk flow between zones follows the local mass balance.
@@ -1997,7 +2054,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     if(!rows.length||rows.some(row=>!Number.isFinite(row.dt)||row.dt<=0))throw new Error('The calculation needs positive-duration intervals. Rebuild the plan with valid times.');
     const scenario=options.scenario||AIR_SCENARIOS[0],pressure=sitePressurePa(envelope.elevationM);
     const fallbackChargeEnd=rows[0].phoneCharging===undefined?sleepChargingStart(start)+2*3600000:0;
-    const envelopeParts=envelopeAllocation(scenario.cabFactor??3,scenario.bodyCase),solarWeights=solarAllocation(1,scenario.cabFactor??3,scenario.bodyCase);
+    const assemblies=envelopeAssemblies(scenario.cabFactor??3,scenario.bodyCase),solarWeights=solarAllocation(1,scenario.cabFactor??3,scenario.bodyCase);
     const delivery={ductRear:scenario.ductRear??null,furnaceRear:scenario.furnaceRear??null};
     // WP8: per-surface solar by zone. Heading: the scenario's fixed heading (qualification cases), else the
     // confirmed site heading, else the 16-point average (display-only central estimate).
@@ -2080,8 +2137,9 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const sensed=config&&mode==='maxxfan'?t[config.fanZone]:sensor?sensorReading:options.frontControl?t[1]:isOvernight?t[0]:t[0]*.4+t[1]*.6;
         const outsideDensity=densityScale(pressure,out),insideDensity=densityScale(pressure,(t[0]+t[1])/2);
         const outsideHeatFactor=1.08*outsideDensity,insideHeatFactor=1.08*insideDensity;
-        const bgTotal=M.volumeFt3.reduce((a,b)=>a+b)*M.baseACH/60;
-        const ua=[envelopeParts.rear,envelopeParts.front].map((u,z)=>Math.max(0,u*(1+.02*row.wind)-1.08*M.volumeFt3[z]*M.baseACH/60));
+        // WP10: conduction varies only through the exterior film; infiltration is Sherman–Grimsrud.
+        const bgTotal=infiltrationCFM(t,out,row.wind);
+        const ua=conductionUA(assemblies,row.wind);
         const uaTotal=ua[0]+ua[1]+outsideHeatFactor*bgTotal;
         let operation='off',q=0,duty=0,cooling=null;
         const roofF=out;
@@ -3573,7 +3631,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.19';
+const LOG_APP_VERSION='6.6.20';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
