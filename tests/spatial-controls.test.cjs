@@ -119,12 +119,12 @@ test('owner-confirmed window sides change wind pressure with the same pane and s
  assert.ok(a.run('leeward.flows[0]<0&&leeward.flows[2]>0'));
  assert.equal(a.run("WINDOW_SECTIONS.filter(p=>p.bed).map(p=>p.id).join(',')"),'jeff1,jeff2,kim');
 });
-test('furnace delivery follows the confirmed duct layout while other heat uses the volume split',()=>{
+test('furnace delivery follows the confirmed duct layout while ducted heat uses the calibrated split',()=>{
  const a=app();
  // Furnace under the owner's bed: aisle and bathroom outlets (rear), weaker sink-cabinet outlet (front).
  const furnace=a.run('zoneHeatGains([0,0],0,10000,"furnace")'),hp=a.run('zoneHeatGains([0,0],0,10000,"hp")');
  assert.ok(Math.abs(furnace[0]-7000)<1e-9&&Math.abs(furnace[1]-3000)<1e-9);
- assert.ok(Math.abs(hp[0]-10000*a.run('M.fraction[0]'))<1e-9);
+ assert.ok(Math.abs(hp[0]-10000*a.run('ductRearFraction()'))<1e-9);
  for(const g of [furnace,hp])assert.ok(Math.abs(g[0]+g[1]-10000)<1e-9);
  const both=a.run('zoneHeatGains([100,200],0,10000,"furnace")');assert.ok(Math.abs(both[0]-7100)<1e-9&&Math.abs(both[1]-3200)<1e-9);
 });

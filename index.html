@@ -373,8 +373,12 @@ function zoneInternalGains(occupantSensible,dehumidifier,sleeping,phoneCharging)
     return [rearOccupant+rearWatts*WATTS_TO_BTU_H,
         occupantSensible-rearOccupant+dehumidifier+frontWatts*WATTS_TO_BTU_H];
 }
+// Rooftop ducted delivery (heat pump, AC, defrost/blower) to the rear zone.
+// Before v6.6.15: uniform per served volume (M.fraction[0] ≈ 0.447).
+const DUCT={rearFraction:.35};
+function ductRearFraction(){return DUCT.rearFraction??M.fraction[0];}
 function zoneHeatGains(internal,solar,hvac,operation,solarWeights=null){
-    const weights=solarWeights||solarAllocation(1),rearDelivery=operation==='furnace'?FURNACE_REAR_FRACTION:M.fraction[0];
+    const weights=solarWeights||solarAllocation(1),rearDelivery=operation==='furnace'?FURNACE_REAR_FRACTION:ductRearFraction();
     return [internal[0]+solar*weights[0]+hvac*rearDelivery,internal[1]+solar*weights[1]+hvac*(1-rearDelivery)];
 }
 
@@ -1582,6 +1586,36 @@ function ventilationNetwork(config,temperatures,tOut,wind,speed,scenario=AIR_SCE
 }
 
 function solvePair(diagonal,off,rhs){const det=diagonal[0]*diagonal[1]-off[0]*off[1];return[(rhs[0]*diagonal[1]-off[0]*rhs[1])/det,(rhs[1]*diagonal[0]-off[1]*rhs[0])/det];}
+// WP11 (v6.6.15): each zone has an air node and a furnishings/structure mass node.
+// Whole-coach priors from the approved scope: air 60 and mass 213.14 BTU/°F (the
+// total keeps the legacy 273.14), mass time constant 1.5 h, allocated by volume.
+// HVAC, conduction, infiltration, ventilation and internal gains act on the air
+// node; solar splits 50/50 between air and mass. Engineering priors, not measured.
+const STORAGE={airTotal:60,massTotal:213.14285714285717,massTauHours:1.5,solarToMass:.5};
+function zoneStorage(){
+    const air=M.fraction.map(f=>STORAGE.airTotal*f),mass=M.fraction.map(f=>STORAGE.massTotal*f);
+    return{air,mass,coupling:mass.map(c=>c/STORAGE.massTauHours)};
+}
+// Buoyant exchange through the open bed-foundation boundary (not a doorway):
+// Q = (Cd/3)·W_eff·H·√(g·H·|ΔT|/T̄) each way, equal and opposite. Cd 0.6 and
+// H 6.33 ft per scope; W_eff 3.5 ft is an effective width (owner photo prior).
+const INTERZONE={cd:.6,heightFt:6.33,widthFt:3.5};
+function buoyantExchangeCFM(t0,t1,width=INTERZONE.widthFt){
+    const dT=Math.abs(t0-t1);if(dT<1e-12)return 0;
+    const meanR=(t0+t1)/2+459.67,h=INTERZONE.heightFt;
+    return INTERZONE.cd/3*width*h*Math.sqrt(32.174*h*dT/meanR)*60;
+}
+function twoNodeAdvance(air,massT,storage,ua,incoming,bulk,mix,sourceAir,sourceMass,outside,dt,heatFactor,outdoorFactor=heatFactor){
+    const inBetween=[Math.max(0,-bulk)+mix,Math.max(0,bulk)+mix];
+    // Eliminate each mass node implicitly: Cm(m'−m)/dt = H(a'−m') + Sm.
+    const keep=storage.mass.map((c,z)=>c/dt+storage.coupling[z]);
+    const diagonal=air.map((_,z)=>storage.air[z]/dt+ua[z]+outdoorFactor*incoming[z]+heatFactor*inBetween[z]+storage.coupling[z]-storage.coupling[z]**2/keep[z]);
+    const off=inBetween.map(q=>-heatFactor*q);
+    const rhs=air.map((v,z)=>storage.air[z]/dt*v+ua[z]*outside+outdoorFactor*incoming[z]*outside+sourceAir[z]+
+        storage.coupling[z]*(storage.mass[z]/dt*massT[z]+sourceMass[z])/keep[z]);
+    const next=solvePair(diagonal,off,rhs);
+    return{air:next,mass:next.map((a,z)=>(storage.mass[z]/dt*massT[z]+sourceMass[z]+storage.coupling[z]*a)/keep[z])};
+}
 function coupledAdvance(values,capacity,ua,incoming,bulk,mix,source,outside,dt,heatFactor,outdoorFactor=heatFactor){
     const inBetween=[Math.max(0,-bulk)+mix,Math.max(0,bulk)+mix];
     // Mass conservation makes total outflow equal outside + interzone inflow.
@@ -1675,7 +1709,9 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     let priorDehumHeat=0,dehumRuntimeMinutes=0,moistureTotals={occupants:0,dehumidifier:0,ac:0,outside:0},initialWaterLb=w.reduce((sum,v,z)=>sum+v*airMass[z],0);
     let condensedLb=0,humidRun=0,humidMax=0,surfaceRun=[0,0],surfaceMax=0,minMargin=Infinity,maxRH=0,minRH=100,maxSurfaceRH=0;
     let warmRun=0,warmMax=0,coldRun=0,coldMax=0,severeRun=0,severeMax=0,recovery=null,freezeRisk=null,condensationConcern=null,failureTime=null,comfortProblem=null,surfaceConcern=null;
-    const unsafe=[],warnings=new Set(),trace=[],segments=[],mass=M.fraction.map(f=>C.thermalMass*f);
+    const unsafe=[],warnings=new Set(),trace=[],segments=[],storage=zoneStorage();
+    // Mass nodes start in equilibrium with the measured air (labeled assumption).
+    let tm=t.slice();
     let band=comfortPolicy(isOvernight);const floor=C.comfortFloor;let lastSetup=null;
     // Recovery is tied to the measured start, never restarted at a phase boundary.
     const initialBand=comfortPolicy(options.sleepAt?options.sleepAt(start.getTime()):isOvernight);
@@ -1698,11 +1734,11 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     let heatSource=carry?.comparisonHeatSource??comparisonSettings?.startHeatSource??'hp';
     let runningMin=t[0],sensorReading=sensor?(carry?.sensorReading??t[1]+sensor.bias):null;
     if(carry){
-        t=carry.t.slice();w=carry.w.slice();phase=carry.phase;lastSetup=carry.lastSetup||null;
+        t=carry.t.slice();tm=(carry.tm??carry.t).slice();w=carry.w.slice();phase=carry.phase;lastSetup=carry.lastSetup||null;
         ({score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern}=carry);
         moistureTotals={...carry.moistureTotals};surfaceRun=carry.surfaceRun.slice();unsafe.push(...carry.unsafe);carry.warnings.forEach(w=>warnings.add(w));
     }
-    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),w:w.slice(),phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin),...(sensor?{sensorReading}:{}),...(comparisonSettings?{comparisonHeatSource:heatSource}:{})});};
+    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),tm:tm.slice(),w:w.slice(),phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin),...(sensor?{sensorReading}:{}),...(comparisonSettings?{comparisonHeatSource:heatSource}:{})});};
     record(carry?rows[0].from:start.getTime(),carry?(rows[0].from-start.getTime())/60000:0);
     // Surface estimates are output-only observations, including at the initial state.
     const moistureCheck=(weather,elapsed,dt,rh)=>{
@@ -1791,7 +1827,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const speed=config&&mode==='maxxfan'?autoVentSpeed(sensed,sp.fan):0,air=ventilationNetwork(config,t,out,row.wind,speed,scenario,1.2*outsideDensity);
         if(config&&speed>0)operation='maxxfan';
         const circulation=operation==='defrost'?0:circulationFraction(mode,maxFan,operation,duty);
-        const mix=(M.mixCFM+M.ductMixCFM*circulation)*scenario.mix;
+        const forcedMix=(M.mixCFM+M.ductMixCFM*circulation)*scenario.mix,buoyantMix=buoyantExchangeCFM(t[0],t[1]),mix=forcedMix+buoyantMix;
         const occupant=occupantLoad(sleeping,people).moistureLbHr;
         const acRemoval=operation==='ac'&&duty>0?(cooling?.waterLbHr??acMoistureRemoval(sharedW,duty,pressure,densityScale(pressure,t[1]))):0;
         const outdoorCFM=air.incoming.reduce((sum,q)=>sum+q,0),outdoorW=humidityRatio(out,row.rh,pressure);
@@ -1805,21 +1841,23 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             rowIndex--;continue;
         }
         const gains=zoneHeatGains(zoneInternalGains(meta,moisture.heatBTU,sleeping,charging),row.solar,q,operation,solarWeights);
-        const nextT=coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,dt,insideHeatFactor,outsideHeatFactor);
+        const massGains=solarWeights.map(f=>row.solar*f*STORAGE.solarToMass),airGains=gains.map((g,z)=>g-massGains[z]);
+        const advance=hours=>twoNodeAdvance(t,tm,storage,ua,air.incoming,air.bulk,mix,airGains,massGains,out,hours,insideHeatFactor,outsideHeatFactor);
+        const stepped=advance(dt),nextT=stepped.air;
         if(thermostatMode(mode)&&operation!=='defrost'&&dt>1/60000){
             const sense=(values,hours)=>sensor?advanceComparisonSensor(sensorReading,t[1],values[1],hours,sensor):
                 options.frontControl?values[1]:isOvernight?values[0]:values[0]*.4+values[1]*.6;
             const nextSensed=sense(nextT,dt),trigger=thermostatBoundary(mode,operation,sp,nextSensed>sensed);
             if((sensed-trigger)*(nextSensed-trigger)<0&&Math.abs(sensed-trigger)>1e-6){
                 let low=0,high=dt;
-                for(let k=0;k<22;k++){const middle=(low+high)/2,value=sense(coupledAdvance(t,mass,ua,air.incoming,air.bulk,mix,gains,out,middle,insideHeatFactor,outsideHeatFactor),middle);
+                for(let k=0;k<22;k++){const middle=(low+high)/2,value=sense(advance(middle).air,middle);
                     if((sensed-trigger)*(value-trigger)>0)low=middle;else high=middle;}
                 const first=(low+high)/2,split=row.from+first*3600000;
                 workRows.splice(rowIndex,1,{...row,to:split,dt:first},{...row,from:split,dt:dt-first});rowIndex--;continue;
             }
         }
         if(sensor)sensorReading=advanceComparisonSensor(sensorReading,t[1],nextT[1],dt,sensor);
-        t=nextT;
+        t=nextT;tm=stepped.mass;
         if(operation==='defrost'){defrostRemaining=Math.max(0,defrostRemaining-dt*60);defrostMinutes+=dt*60;}
         else if(operation==='hp'&&roofF<HP.defrostBelow){hpRunMinutes+=dt*60*duty;
             if(hpRunMinutes>=HP.heatingMinutes-1e-7){hpRunMinutes=0;defrostRemaining=HP.pauseMinutes;}}
@@ -1829,7 +1867,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         let nextW=moisture.water;
         const coldZone=t[0]<=t[1]?0:1,saturated=humidityRatio(t[coldZone],100,pressure);
         if(nextW>saturated){const condensed=(nextW-saturated)*totalAirMass;condensedLb+=condensed;nextW=saturated;
-            t[coldZone]+=condensed*M.latentBTUPerLb/mass[coldZone];
+            const released=condensed*M.latentBTUPerLb/(storage.air[coldZone]+storage.mass[coldZone]);t[coldZone]+=released;tm[coldZone]+=released;
             if(!condensationConcern)condensationConcern={time:new Date(row.to),zone:coldZone,source:'air',margin:0};}
         w=[nextW,nextW];
         const now=record(row.to,elapsed),comfortT=now.comfortT,coldT=t[0];
@@ -1854,7 +1892,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const targets=[0].map(z=>(previousZones[z]+t[z])/2);
         const targetLoss=targets.reduce((sum,v)=>sum+targetPenalty(v,isOvernight,mode,operation),0)/targets.length;
         const targetAbsolute=targets.reduce((sum,v)=>sum+Math.abs(v-band.target),0)/targets.length;
-        segments.push({frontTemperature:t[1],comfortLow:band.low,comfortHigh:band.high,targetPenalty:targetLoss,targetAbsolute,sleeping:isOvernight,t0:previous,t1:comfortT,startMs:row.from,endMs:row.to,hours:dt,operation,duty,circulation,eq:comfortT,tau:0,airflow:air.exhaust,mode,occupied:options.controlAt?row.occupants:2});
+        segments.push({frontTemperature:t[1],interzoneCFM:mix,buoyantCFM:buoyantMix,comfortLow:band.low,comfortHigh:band.high,targetPenalty:targetLoss,targetAbsolute,sleeping:isOvernight,t0:previous,t1:comfortT,startMs:row.from,endMs:row.to,hours:dt,operation,duty,circulation,eq:comfortT,tau:0,airflow:air.exhaust,mode,occupied:options.controlAt?row.occupants:2});
         runningMin=Math.min(runningMin,t[0]);capture(row.to);
         if(options.stopOnFailure&&(unsafe.length||humidMax>M.humidMinutes||comfortProblem)){
             failureTime=unsafe[0]?.time?.getTime()??row.to;break;
@@ -1875,7 +1913,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     return{start,end,trace,segments,unsafe,maxFan,freezeRisk,isOvernight,recoveryInfo,warnings:[...warnings],score:score+draftScore,draftScore,hoursOut,didCool,didHeat,heatMinutes,coolMinutes,
         finalIndoor,capacityCool,capacityHeat,heatingFloorLimited,defrostMinutes,config,comfortLow:band.low,comfortHigh:band.high,floorCompliant:min>=floor-1e-6,
         endInBand:finalIndoor>=floor&&finalIndoor<=band.high,comfortEligible,comfortReason,moistureEligible,moistureReason,equipmentEligible,suitable,
-        moisture:{condensedLb,initialWaterLb,finalWaterLb:w.reduce((sum,v,z)=>sum+v*airMass[z],0),totals:{...moistureTotals},dehumRuntimeMinutes,maxRH,minRH,minMargin,maxSurfaceRH,surfaceMax,humidMax,estimated:options.initialZones?false:state.indoorRH==null},surfaceWarning,surfaceConcern,condensationConcern,comfortProblem,recoveryMinutes:recovery,finalZones:{temperature:t.slice(),water:w.slice()},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
+        moisture:{condensedLb,initialWaterLb,finalWaterLb:w.reduce((sum,v,z)=>sum+v*airMass[z],0),totals:{...moistureTotals},dehumRuntimeMinutes,maxRH,minRH,minMargin,maxSurfaceRH,surfaceMax,humidMax,estimated:options.initialZones?false:state.indoorRH==null},surfaceWarning,surfaceConcern,condensationConcern,comfortProblem,recoveryMinutes:recovery,finalZones:{temperature:t.slice(),mass:tm.slice(),water:w.slice()},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
 }
 function profileCandidate(type,sim,setpoints){
     const first=sim.unsafe[0],values=sim.trace.map(p=>p.indoor),min=Math.min(...sim.trace.map(p=>p.bedroom)),max=Math.max(...values);
