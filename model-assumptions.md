@@ -1,3 +1,51 @@
+# v6.6.14 — Test baseline and bounded absence search
+
+No thermodynamic constant, equipment-eligibility rule, comfort criterion or ranking comparator changes in this release. The absence search's coverage changes as described below, with owner approval of a bounded search on November 17, 2026.
+
+## Why the suite never finished
+
+GitHub Actions cancelled the Node job at its 6-hour limit on every run from v6.6.4 (PR #16) through v6.6.13. The v6.6.3 run completed in 17 minutes with 10 failures. The test "complete departure plan carries state…" took 28 s at v6.6.3 and did not finish in 10 minutes from v6.6.4. With remote access on, `searchDeparturePlans` ran `departureOvernight` for each viable current×departure pair until one qualified. `remoteDeparturePlan` then repeated it per fixed plan, change time and candidate setup. In the reconstructed stress case (steady 45°F, leave at 11:10 PM, back at 11:30 PM, synthetic weather), no overnight plan qualifies. The search reached about 44,000 distinct three-stage plans and 143,000 simulations in 150 s without finishing.
+
+## Bounds (engineering choices, owner-approved as a bounded search)
+
+| Bound | Value | Effect |
+| --- | --- | --- |
+| Overnight continuations per loop | 6 | First six in the existing preference order, in the fixed-setup loop and again in the remote loop |
+| Fixed setups entering the remote search | 6 | Top six by the existing order (suitable, then farthest through the absence) |
+| Absence work budget | 40,000 simulated hours (≈25 s on a 2-core reference) | 60% for fixed setups and continuations (the first current setup always completes), 40% reserved for the remote search |
+
+Simulated hours sum each trajectory's simulated span. They are deterministic and track runtime closely (about 1,600 h/s in both profiled cases). Results do not depend on device speed. A tested 30-minute grid for remote change times was rejected because it missed a valid change in the 84°F remote fixture. The 5-minute grid is retained.
+
+| Reconstructed case | v6.6.13 | v6.6.14 |
+| --- | --- | --- |
+| 45°F, short absence ending after 10 PM | did not finish (>10 min) | 29–35 s, bounded, disclosed |
+| 45°F, absence 5:00–11:30 PM | 250 s with continuation caps only | 35 s, budget reached, disclosed |
+
+## Inherited test failures
+
+| Test | First failing | Classification | Resolution |
+| --- | --- | --- | --- |
+| Front sensor governs HVAC calls | ≤ v6.6.3 | Stale: a 65°F front is above the 64°F heat-on point for HEAT TO 66 | Front reading 63°F |
+| AUTO readiness accepts normal cycling | v6.6.11 | Stale after WP4: with the dehumidifier's heat in the front, COOL TO 67 undershoots the bedroom to 65.73°F at 02:10 and crosses 65°F at 02:11:30 | HEAT 64 / COOL 68 |
+| Predeparture cooling cannot qualify | ≤ v6.6.3 | Stale structure: an unverified departure leaves `stages.night` null | Optional access, same claim |
+| Full-night search after passive cooldown | ≤ v6.6.3 | Stale pinned values: HEAT PUMP 66/68 no longer qualifies; MaxxFan then AUTO 67/71 is the only qualifying plan | Pin AUTO 67/71 |
+| Fine-grid timing island | ≤ v6.6.3 | No qualifying fixed COOL night in the October 2025 fixture | Synthetic clear 60°F night, awake COOL 71 → AUTO 67/71 |
+| Projected alternatives; complete departure plan | ≤ v6.6.3 | No heating plan qualifies on a steady 45°F night | Synthetic clear 60°F night; the 45°F case now tests the search bound |
+
+`tests/fixtures/synthetic-clear-60f-night.cjs` is synthetic input, not historical weather or field validation.
+
+## Model limitation found during this work
+
+On a steady 45°F night with HEAT PUMP at HEAT TO 66, the front sensor cycles between about 64 and 67°F while the modeled bedroom reaches about 72°F. The plan fails the sleep band in 7 of 9 cases. A passive night also fails at constant 57–58°F, because the spread across the nine cases exceeds the 4°F sleep band. At v6.6.1 the same heat-pump case peaked at 69.7°F. The 2°F EasyTouch gaps adopted in v6.6.2 widened the swing. Contributing factors are the cab's large share of front heat loss, per-volume ducted delivery, rear internal gains and single-node storage. The garage observation (rear YoLink 1.6°F cooler than front during an unoccupied heat-pump warm-up) is a validation case for the zone model. The scope's remedies are WP11 and WP13. On November 17, 2026 the owner approved evaluating heating with Jeff's window slightly open as a fallback when every closed-coach option fails (next release).
+
+## WP3 short-cycle note
+
+The scope's WP3 test asks for no thermostat cycle shorter than 3 minutes. The implemented test checks that call starts are at least 3 minutes apart. A synthetic zero-lag +3°F comparison run still produces one 2.79-minute heat-pump call followed by 177 minutes idle. That is a single short call from low modeled front storage, not chatter. It affects only the comparison-only sensor experiment. WP11's storage model is the scoped place to revisit it.
+
+## WP1 phone compass
+
+Chrome for Android's `deviceorientationabsolute` event is magnetometer-based. The heading is magnetic, without declination (roughly ±15° across the contiguous US), and a steel van body can distort it. The app averages about 3 s of readings on the circle, reports the spread and snaps to the nearest of 16 points. It never confirms the heading itself.
+
 # v6.6.13 — WP6 capacity comparison
 
 Comparison only. The experimental path is enabled by an explicit comparison envelope, with separate solver/cache state. The active app still uses its existing heating and cooling capacities and changeover policy. The EasyTouch outdoor reading is optional and logged as observed; it does not drive the solver.

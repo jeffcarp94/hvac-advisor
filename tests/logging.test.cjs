@@ -140,3 +140,41 @@ test('readings log keeps separate YoLink timestamps and records the reported vot
     assert.equal(a.run('e.actual_cool_to'), 70);
     assert.equal(a.run('e.actual_fan'), 'Low');
 });
+test('phone compass heading wraps, averages across north and snaps to the 16 points',()=>{
+    const a=app();
+    assert.equal(a.run('compassHeading(0)'),0);assert.equal(a.run('compassHeading(90)'),270);assert.equal(a.run('compassHeading(359)'),1);
+    const across=a.run('circularHeading([350,355,5,10])');
+    assert.ok(Math.min(across.mean,360-across.mean)<1e-9,'mean near north');assert.ok(across.spread<10);
+    assert.ok(a.run('circularHeading([0,90,180,270]).spread')>60);
+    assert.equal(a.run('snapHeading(0)'),'N');assert.equal(a.run('snapHeading(11.24)'),'N');assert.equal(a.run('snapHeading(11.26)'),'NNE');
+    assert.equal(a.run('snapHeading(337.5)'),'NNW');assert.equal(a.run('snapHeading(348.76)'),'N');assert.equal(a.run('snapHeading(-22.5)'),'NNW');
+    assert.equal(a.run('snapHeading(247)'),'WSW');
+});
+test('an app upgrade keeps a non-empty queue and retries each entry with its original ID and version',async()=>{
+    const a=loggingApp();
+    for(const [id,v] of [['bedTemp','68'],['frontTemp','69'],['bedRH','50'],['frontRH','48']])a.element(id).value=v;
+    a.run('logReadingsOnly()');
+    // Simulate an entry written by an older release (v6.6.6) still waiting in storage.
+    const queue=JSON.parse(a.ctx.localStorage.getItem(a.run('LOG_QUEUE_KEY')));
+    queue[0].event.app_version='6.6.6';a.ctx.localStorage.setItem(a.run('LOG_QUEUE_KEY'),JSON.stringify(queue));
+    const id=queue[0].event.event_id;
+    const upgraded=app();upgraded.ctx.localStorage=a.ctx.localStorage;upgraded.ctx.AbortSignal=AbortSignal;
+    upgraded.run('initializeLogging()');
+    assert.equal(upgraded.run('readLogQueue().length'),1);
+    let sent=null;
+    upgraded.ctx.fetch=async(url,options)=>{sent=JSON.parse(options.body).event;return {ok:true,json:async()=>({ok:true,event_id:id,row:7})};};
+    await upgraded.run('flushLogQueue()');
+    assert.equal(sent.event_id,id);assert.equal(sent.app_version,'6.6.6');
+    assert.equal(upgraded.run('readLogQueue().length'),0);
+});
+test('worker messages carry simulation inputs only, never logging credentials',()=>{
+    const a=loggingApp();let payload=null;
+    a.ctx.Blob=class{};a.ctx.URL={createObjectURL:()=>'blob:worker',revokeObjectURL:()=>{}};
+    a.ctx.Worker=class{postMessage(message){payload=message;}terminate(){}};
+    a.ctx.document.querySelector=()=>({textContent:''});
+    a.run(`calculateInWorker({start:new Date('2026-10-21T13:45Z')},{timeZone:'America/Chicago'}).catch(()=>{})`);
+    assert.ok(payload);
+    const text=JSON.stringify(payload);
+    assert.equal(text.includes(token),false);assert.equal(text.includes('script.google.com'),false);
+    assert.deepEqual(Object.keys(payload).sort(),['envelope','forecast','request','state']);
+});

@@ -24,8 +24,10 @@ test('natural daytime recovery is checked after 10 AM and after 7 PM',()=>{
  }
 });
 test('projected alternatives retain identical preparation and exact carried bedtime state',()=>{
- // A steady heating case isolates handoff identity from AUTO's wider cycle.
- const a=scenario();a.run(`e.points.forEach(p=>p.tOut=45)`);a.ctx.structuredClone=structuredClone;a.run(`result=runUnifiedPlan(r,e);records=[];originalEvaluate=evaluatePlan;
+ // Since v6.6.2 no heating plan qualifies on a steady 45F night (the bedroom swings
+ // out of the sleep band). A labeled synthetic clear 60F night yields a qualified plan
+ // whose alternatives must share the same preparation and carried bedtime state.
+ const a=scenario();a.run(`state.temp=60;state.rh=20;state.cloud=0;r.initial={temperature:[69,69],rh:[35,35]};e=makeEnvelope(r.start,planBounds(r.start).end,'Synthetic clear 60F night',300000)`);a.ctx.structuredClone=structuredClone;a.run(`result=runUnifiedPlan(r,e);records=[];originalEvaluate=evaluatePlan;
  evaluatePlan=(...args)=>{const p=originalEvaluate(...args);records.push(p);return p;};
  comparisons=periodComparisons(result,planSetups(false),planSetups(true),planRows(e,r));html=renderPlan({...result,comparisons});`);
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);

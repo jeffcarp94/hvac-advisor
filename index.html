@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.13 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.14 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -94,7 +94,7 @@
 
         [hidden]{display:none!important;} input,select,button{font:inherit;} input,select{max-width:100%;min-width:0;}
         .field{display:block;margin:10px 0;font-size:13px;font-weight:600;} .field input,.field select{display:block;width:100%;padding:11px;margin-top:5px;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;}
-        .sensor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;} .sensor-title{font-size:14px;font-weight:800;margin:7px 0;}
+        .sensor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;} .sensor-title{font-size:14px;font-weight:800;margin:7px 0;}
         .hint{font-size:12px;line-height:1.5;color:var(--text-secondary);margin:7px 0;} details>summary{cursor:pointer;font-size:13px;font-weight:700;padding:8px 0;} details .diag-title{margin-top:8px;}
         .minor-btn{background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:12px;cursor:pointer;}
         .plan-stage{margin:18px 0;padding-top:14px;border-top:1px solid var(--border);}.plan-stage h3{font-size:15px;margin-bottom:8px;}.plan-stage .result-primary{font-size:20px;} .plan-step{border-left:3px solid var(--accent-blue);padding:0 0 16px 12px;margin:12px 0;} .plan-time{font-family:var(--font-mono);font-size:12px;color:var(--accent-blue);margin-bottom:5px;} .plan-step p{font-size:13px;line-height:1.55;margin:5px 0;} .plan-metrics{font-size:12px;line-height:1.6;color:var(--text-secondary);margin-top:10px;}
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.13</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.14</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -135,14 +135,14 @@
           <div><div class="sensor-title">Sleeping area</div>
             <label class="field">Temperature (°F)<input id="bedTemp" type="number" inputmode="decimal" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
             <label class="field">Humidity (%)<input id="bedRH" type="number" inputmode="decimal" min="1" max="100" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
-            <label class="field">YoLink last updated (optional)<input id="bedLastUpdated" type="datetime-local" aria-label="Bedroom YoLink last updated"></label>
           </div>
           <div><div class="sensor-title">Front / thermostat</div>
             <label class="field">Temperature (°F)<input id="frontTemp" type="number" inputmode="decimal" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
             <label class="field">Humidity (%)<input id="frontRH" type="number" inputmode="decimal" min="1" max="100" step="any" placeholder="YoLink reading" oninput="planInputsChanged()"></label>
-            <label class="field">YoLink last updated (optional)<input id="frontLastUpdated" type="datetime-local" aria-label="Front YoLink last updated"></label>
           </div>
         </div>
+        <label class="field">Sleeping-area YoLink last updated (optional)<input id="bedLastUpdated" type="datetime-local" aria-label="Bedroom YoLink last updated"></label>
+        <label class="field">Front YoLink last updated (optional)<input id="frontLastUpdated" type="datetime-local" aria-label="Front YoLink last updated"></label>
         <label class="field">Readings taken at<input id="readingTime" type="datetime-local" onchange="planInputsChanged()"></label>
         <button class="minor-btn" onclick="freshReadings()">I have refreshed both readings now</button>
         <div class="hint" id="readingContext">Enter both sensor readings. Front temperature approximates the HVAC thermostat; bedroom conditions determine sleep comfort.</div>
@@ -215,6 +215,8 @@
     <details class="input-section" id="parkingObservations"><summary>Parking observations</summary>
         <p class="hint">Heading and tree cover are recorded only and are not yet used in calculations.</p>
         <label class="field">Direction the front faces<select id="parkingHeading" onchange="editParkingLog()"></select></label>
+        <button type="button" class="minor-btn" id="compassBtn" onclick="readPhoneCompass()" hidden>Use phone compass</button>
+        <p class="hint" id="compassStatus" role="status"></p>
         <div class="sensor-grid">
             <label class="field">Front (windshield end)<select id="tree_front" onchange="editParkingLog()"></select></label>
             <label class="field">Rear<select id="tree_rear" onchange="editParkingLog()"></select></label>
@@ -1987,7 +1989,16 @@ function renderRecommendation(id,title,result,isOvernight){return renderMethodRe
 
 // v6: a single measured-state plan. No network writes or equipment control.
 let planRevision=0,lastPlan=null,comparisonBase=null,planBusy=false,formTimeZone=null,planWorker=null,cancelPlanWorker=null;
-const PLAN={searchMinutes:5,bedtimeTransitionMinutes:30};
+const PLAN={searchMinutes:5,bedtimeTransitionMinutes:30,
+    // Bounded absence search (v6.6.14). Each overnight continuation is a full
+    // sleep-setup search; the fixed/remote cross product grew without limit in v6.6.4.
+    // Limits keep the existing preference order and are disclosed when they bind.
+    overnightContinuations:6,remoteFixedPlans:6,
+    // About 25 s on a 2-core reference machine. 60% for fixed setups and their
+    // overnight continuations, 40% reserved for the one-remote-change search.
+    absenceWorkHours:40000,remoteWorkShare:.4};
+// Simulated hours across all trajectories; a deterministic measure of search work.
+let SEARCH_WORK=0;
 function escapeHTML(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function partsInZone(date,timeZone=analysisTimeZone()){return Object.fromEntries(dateFormatter({timeZone,year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'}).formatToParts(date).filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));}
 function inputDate(date,timeZone=analysisTimeZone()){const p=partsInZone(date,timeZone),pad=n=>String(n).padStart(2,'0');return p.year+'-'+pad(p.month)+'-'+pad(p.day)+'T'+pad(p.hour)+':'+pad(p.minute);}
@@ -2125,6 +2136,7 @@ function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=nul
     const activeRows=resume?split.filter(row=>row.from>=resume.time):split;
     const sim=zoneProfile(first.type,envelope,bounds.sleep,first.setpoints,C.metaAwake,request.initial.temperature[0],{
         rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry,comparisonSensor:envelope.comparisonSensor,capacityComparison:envelope.capacityComparison,sleepAt:time=>bounds.hasSleep&&time>=+bounds.sleepFrom&&time<+bounds.end&&!isAwayAt(request,time)});
+    if(activeRows.length&&sim.trace.length)SEARCH_WORK+=Math.max(0,+sim.trace.at(-1).time-activeRows[0].from)/3600000;
     if(resume){sim.trace=[...resume.prefix.trace.filter(p=>+p.time<resume.time),...sim.trace];sim.segments=[...resume.prefix.segments.filter(s=>s.endMs<=resume.time),...sim.segments];}
     const atBedtime=bounds.bedtime?sim.trace.find(p=>+p.time===+bounds.bedtime):null;
     const sleepPolicy=comfortPolicy(true);
@@ -2363,16 +2375,18 @@ function remoteTrigger(held,bounds,request,sleepMiss){
     }
     return null;
 }
-function* remoteDeparturePlan(fixedPlans,nights,envelope,request,rows,bounds){
+function* remoteDeparturePlan(fixedPlans,nights,envelope,request,rows,bounds,bounded={overnightSkipped:0,remoteSkipped:0},over=()=>false){
     const back=+request.returnTime,departure=+request.departure;
     const setups=stageSetups(false,[]);
     if(back===+bounds.bedtime)setups.push(...stageSetups(true,[]));
     const stageRows=rows.filter(r=>r.to<=back);
     const seen=new Set();
-    let protectionFallback=null;
+    let protectionFallback=null,continuations=0;
     for(const {current,plan,sleepMiss,choices} of fixedPlans){
         const key=plan.phases.map(p=>p.setup.key).join(';');
         if(seen.has(key))continue;
+        if(seen.size>=PLAN.remoteFixedPlans){bounded.remoteSkipped++;continue;}
+        if(over()){bounded.budget=true;break;}
         seen.add(key);
         const held=planFromTrials(plan.phases,AIR_SCENARIOS.map(s=>simulatePlan(plan.phases,envelope,request,s,stageRows,null,false,true)),envelope,request);
         const trigger=remoteTrigger(held,bounds,request,sleepMiss);
@@ -2388,6 +2402,7 @@ function* remoteDeparturePlan(fixedPlans,nights,envelope,request,rows,bounds){
         const unique=controls.filter((s,i)=>controls.findIndex(other=>sameSetup(s,other))===i);
         for(const time of [...times].filter(t=>t<=trigger.time).sort((a,b)=>b-a)){
             if(nominal.failureTime!=null&&nominal.failureTime<time)continue;
+            if(over()){bounded.budget=true;break;}
             const candidates=[],checkpoint=checkpoints.get(time);
             for(const setup of unique){
                 if(sameSetup(plan.setup,setup)||!setupChangeAllowed(plan.setup,setup,time,request))continue;
@@ -2413,6 +2428,8 @@ function* remoteDeparturePlan(fixedPlans,nights,envelope,request,rows,bounds){
             }
             candidates.sort(comparePlans);
             for(const p of candidates){
+                if(bounds.hasSleep&&(continuations>=PLAN.overnightContinuations||over())){bounded.overnightSkipped++;if(over())bounded.budget=true;continue;}
+                if(bounds.hasSleep)continuations++;
                 const continuation=bounds.hasSleep?yield* departureOvernight(p.phases,nights,envelope,request,rows):null;
                 const complete=!continuation||!!(continuation.winner?.suitable&&continuation.winner.ready);
                 const action={time,setup:phaseControl(p.phases)(time),reason:trigger.reason,riskTime:trigger.time,
@@ -2440,8 +2457,10 @@ function* searchDeparturePlans(envelope,request){
     }else currents=[{suitable:true,ready:true,phases:[],setup:days[0],score:0,type:days[0].type}];
     let selectedCurrent=null,selectedDeparture=null,departurePlans=[],overnight=null,complete=false,partialReady=false;
     const depSetups=request.occupancy==='away'?[request.actual]:back===+bounds.bedtime?[...days,...stageSetups(true,vents)]:days;
-    const fixedPlans=[];
+    const fixedPlans=[],bounded={overnightSkipped:0,remoteSkipped:0,budget:false};let continuations=0;
+    const workStart=SEARCH_WORK,over=()=>SEARCH_WORK-workStart>PLAN.absenceWorkHours*(1-PLAN.remoteWorkShare);
     for(const current of currents.filter(p=>p.suitable)){
+        if(current!==currents.find(p=>p.suitable)&&over()){bounded.budget=true;break;}
         const prefix=departure>from?current.phases:[],tested=[];
         for(const setup of depSetups){
             tested.push(setup===request.actual?stagePlanRaw(prefix,setup,departure,back,envelope,request,rows):stagePlan(prefix,setup,departure,back,envelope,request,rows));
@@ -2459,6 +2478,8 @@ function* searchDeparturePlans(envelope,request){
                 selectedCurrent=current;selectedDeparture=plan;departurePlans=tested;partialReady=plan.ready;
             }
             if(!plan.ready||!returnComfort(plan,bounds,request))continue;
+            if(bounds.hasSleep&&(continuations>=PLAN.overnightContinuations||over())){bounded.overnightSkipped++;if(over())bounded.budget=true;continue;}
+            if(bounds.hasSleep)continuations++;
             const continuation=bounds.hasSleep?yield* departureOvernight(plan.phases,nights,envelope,request,rows):null;
             if(plan===selectedDeparture)overnight=continuation;
             if(continuation&&!(continuation.winner?.suitable&&continuation.winner.ready)){
@@ -2472,7 +2493,8 @@ function* searchDeparturePlans(envelope,request){
         // For someone still at the coach, a failed fixed setup need not be the
         // starting setup. Prefer the ones that got farthest through the absence.
         fixedPlans.sort((a,b)=>Number(b.suitable)-Number(a.suitable)||b.through-a.through);
-        const remote=yield* remoteDeparturePlan(fixedPlans,nights,envelope,request,rows,bounds);
+        const remoteStart=SEARCH_WORK,remoteOver=()=>SEARCH_WORK-remoteStart>PLAN.absenceWorkHours*PLAN.remoteWorkShare;
+        const remote=yield* remoteDeparturePlan(fixedPlans,nights,envelope,request,rows,bounds,bounded,remoteOver);
         if(remote){
             selectedCurrent=remote.current;selectedDeparture=remote.plan;overnight=remote.overnight;
             stages.remoteAction=remote.action;departurePlans=[];complete=remote.complete;
@@ -2514,6 +2536,7 @@ function* searchDeparturePlans(envelope,request){
     if(winner&&!complete){
         const previous=winner;winner={...previous,suitable:false};plans=[winner,...plans.filter(p=>p!==previous)];
     }
+    if(bounded.overnightSkipped||bounded.remoteSkipped||bounded.budget)stages.boundedSearch=bounded;
     return{winner,plans,bounds,envelope,request,current:null,stages,comparisons:{day:null,night:stages.night}};
 }
 function comfortPolicyText(){const s=COMFORT.sleeping,a=COMFORT.nonSleeping;return '<p class="hint">Indoor targets: sleeping '+s.target+'°F (allowed '+s.low+'–'+s.high+'°F); awake or unoccupied '+a.target+'°F (allowed '+a.low+'–'+a.high+'°F). Within ±'+COMFORT.tolerance+'°F is preferred. For misses, heating, cooling and ventilation favor the cooler side. Closer to target on that side ranks better. Equipment and moisture checks must pass first.</p>';}
@@ -2565,6 +2588,10 @@ function renderDeparturePlan(result){
         if(stages.night?.recommendation)html+='<p class="hint">The overnight setup runs through 7 AM without manual changes. AUTO HEAT PUMP may use the propane furnace below the 42°F gas-changeover setting.</p>';
     }else html+='<p class="hint">No overnight recommendation: your return is at or after 7 AM. The departure setup is evaluated through your return time.</p>';
     html+='<p class="hint">No occupant heat or moisture between departure and return. Non-sleeping comfort applies throughout the absence; any sleep-temperature setting is preparation. '+(stages.remoteAction?'The remote adjustment above is the only planned change while away.':'Keep the departure setup fixed throughout your absence.')+'</p>';
+    if(stages.boundedSearch)html+='<p class="hint" id="boundedSearchNote">This absence plan comes from a bounded search, not an exhaustive one. '+
+        (stages.boundedSearch.budget?'The search reached its computation limit. ':'')+
+        ((stages.boundedSearch.overnightSkipped||stages.boundedSearch.remoteSkipped)?'Lower-ranked departure setups were not checked through the night'+(stages.boundedSearch.remoteSkipped?' or for a remote adjustment':'')+'. ':'')+
+        'A setup outside the checked set could still work. Rebuild closer to departure for a fresh check.</p>';
     html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+interval(+bounds.start,+bounds.end)+' · '+escapeHTML(analysisTimeZone())+'. Temperature, water content, dehumidifier heat and exposure history carry continuously across departure, return and sleep preparation. Overnight alternatives share the displayed preparation.</p>'+'<p class="hint">'+escapeHTML(weatherProvenance(result.envelope))+'</p>'+spatialModelText(true)+'</details>';
     if(winner?.trials)html+=surfaceOutlook(winner.trials);
     return html+'</div>';
@@ -3095,7 +3122,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.13';
+const LOG_APP_VERSION='6.6.14';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
@@ -3244,6 +3271,38 @@ function parkingLogInput(){
 function editParkingLog(){
     persistParkingLog({...parkingLog,...parkingLogInput(),confirmed:false});
 }
+// Phone compass (WP1). Chrome for Android's deviceorientationabsolute uses the
+// magnetometer, so the reading is magnetic, not true, north; declination is not
+// applied and the coach's steel body can distort it. The owner confirms the result.
+function compassHeading(alpha){return ((360-alpha)%360+360)%360;}
+function circularHeading(values){
+    const r=Math.PI/180,x=values.reduce((t,v)=>t+Math.cos(v*r),0)/values.length,y=values.reduce((t,v)=>t+Math.sin(v*r),0)/values.length;
+    const length=Math.min(1,Math.hypot(x,y));
+    return {mean:((Math.atan2(y,x)/r)%360+360)%360,spread:length>0?Math.sqrt(-2*Math.log(length))/r:180};
+}
+function snapHeading(degrees){return PARKING_HEADINGS[Math.round((((degrees%360)+360)%360)/22.5)%16];}
+async function readPhoneCompass(){
+    const status=document.getElementById('compassStatus');
+    try{
+        if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'&&
+            await DeviceOrientationEvent.requestPermission()!=='granted'){status.textContent='Compass permission was not granted. Choose the heading manually.';return;}
+        if((screen.orientation?.angle??0)!==0){status.textContent='Hold the phone upright in portrait, then try again.';return;}
+        status.textContent='Hold the phone flat, top pointing the way the windshield faces…';
+        const readings=[],eventName='ondeviceorientationabsolute' in window?'deviceorientationabsolute':'deviceorientation';
+        const listener=event=>{
+            const heading=Number.isFinite(event.webkitCompassHeading)?event.webkitCompassHeading:event.absolute&&Number.isFinite(event.alpha)?compassHeading(event.alpha):null;
+            if(heading!=null)readings.push(heading);
+        };
+        window.addEventListener(eventName,listener);
+        await new Promise(resolve=>setTimeout(resolve,3000));
+        window.removeEventListener(eventName,listener);
+        if(readings.length<3){status.textContent='This browser did not provide an absolute compass reading. Choose the heading manually.';return;}
+        const {mean,spread}=circularHeading(readings),point=snapHeading(mean);
+        document.getElementById('parkingHeading').value=point;editParkingLog();
+        status.textContent='Phone compass: '+Math.round(mean)+'° magnetic → '+point+(spread>10?' (unsteady, ±'+Math.round(spread)+'°; move away from the coach and retry)':' (±'+Math.round(spread)+'°)')+
+            '. Magnetic declination is not applied, and the coach\'s steel body can distort the reading. Stand outside, a few feet away, facing the same way as the windshield. Check the selection, then tap Confirm parking details.';
+    }catch{status.textContent='The phone compass could not be read. Choose the heading manually.';}
+}
 function confirmParkingLog(){
     persistParkingLog({...parkingLogInput(),location:parkingLogLocation(),confirmed:true});
 }
@@ -3260,6 +3319,7 @@ function initializeParkingLog(){
     try{parkingLog=loadLogStorage(PARKING_LOG_KEY,parkingLog);}
     catch{logStatus('Saved parking details could not be read.');}
     heading.value=parkingLog.heading;
+    try{document.getElementById('compassBtn').hidden=typeof DeviceOrientationEvent==='undefined';}catch{}
     for(const id of PARKING_LOG_FIELDS)document.getElementById(id).value=parkingLog.cover[id]||'';
     refreshParkingLogStatus();
 }

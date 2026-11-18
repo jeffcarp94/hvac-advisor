@@ -29,8 +29,9 @@ test('absence remains awake-policy/unoccupied after 10 PM; return starts sleep a
  assert.equal(a.run('setupChangeAllowed(off,cool,+r.returnTime+60000,r)'),false);
 });
 test('complete departure plan carries state, covers each stage and renders the six requested presentations',()=>{
- // Steady cold weather gives a robust heating plan under the EasyTouch model.
- const a=scenario({start:'2026-10-24T04:00Z',departure:'2026-10-24T04:10Z',temp:50});a.run('e.points.forEach(p=>p.tOut=45);r.remote=true;result=runUnifiedPlan(r,e);html=renderPlan(result)');
+ // Since v6.6.2 no heating plan qualifies on a steady 45F night, so a labeled synthetic
+ // clear 60F night supplies a complete departure plan. Remote access stays enabled.
+ const a=scenario({start:'2026-10-24T04:00Z',departure:'2026-10-24T04:10Z',temp:60});a.run("state.cloud=0;r.initial={temperature:[69,69],rh:[35,35]};e=makeEnvelope(r.start,planBounds(r.start,r).end,'Synthetic clear 60F night',300000);r.remote=true;result=runUnifiedPlan(r,e);html=renderPlan(result)");
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
  for(const kind of ['current','departure'])assert.ok(a.run(`result.stages.${kind}.recommended`));
  assert.ok(a.run('result.stages.night.recommendation'));
@@ -89,7 +90,8 @@ test('predeparture cooling cannot qualify by using sleeping comfort while still 
  assert.equal(a.run('result.stages.current.recommended.setup.type'),'ac');
  assert.equal(a.run('planRows(e,r).filter(row=>row.to<=+r.departure).every(row=>!row.sleeping&&row.occupants===2)'),true);
  assert.equal(a.run('result.winner.trials.every(t=>t.segments.filter(s=>s.endMs<=+r.departure).every(s=>s.comfortLow===68&&s.comfortHigh===73))'),true);
- assert.equal(a.run('result.stages.night.recommendation'),null);
+ // With no verified departure stage the overnight section is absent (null) and renders as needing reassessment.
+ assert.equal(a.run('result.stages.night?.recommendation??null'),null);
  assert.equal(a.run('result.winner.trials.every(t=>t.trace.every(p=>[p.bedroom,p.midCoach,p.rh,p.midRH,...p.water].every(Number.isFinite)))'),true);
  assert.equal(a.run('planRows(e,r).every(row=>row.dt>0)'),true);
 });
@@ -137,4 +139,14 @@ test('coil icing justifies an immediate remote change even when return temperatu
  assert.equal(a.run('result.stages.remoteAction.setup.type'),'passive');
  assert.match(a.run('html'),/estimated coil-temperature margin/);
  assert.equal(a.run('result.winner.trials.every(t=>t.equipmentEligible)'),true);
+});
+test('absence search stays within its work budget and discloses a bounded result',()=>{
+ // Reconstructed stress case: steady 45F night, short absence ending after 10 PM,
+ // remote access on. Unbounded, v6.6.4-v6.6.13 ran >140,000 simulations here.
+ const a=scenario({start:'2026-10-24T04:00Z',departure:'2026-10-24T04:10Z',temp:50});
+ a.run('e.points.forEach(p=>p.tOut=45);r.remote=true;start=SEARCH_WORK;result=runUnifiedPlan(r,e);used=SEARCH_WORK-start;html=renderPlan(result)');
+ assert.ok(a.run('used')<=a.run('PLAN.absenceWorkHours')*1.5,'work '+a.run('used'));
+ assert.ok(a.run('result.stages.boundedSearch'));
+ assert.match(a.run('html'),/bounded search, not an exhaustive one/);
+ assert.equal(a.run('result.winner.trials.every(t=>t.trace.every(p=>[p.bedroom,p.midCoach].every(Number.isFinite)))'),true);
 });
