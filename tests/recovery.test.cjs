@@ -13,10 +13,12 @@ test('cold start warms from below floor without an immediate rejection',()=>{
  assert.ok(a.run('p.finalIndoor')>53.1);assert.equal(a.run('p.recoveryInfo.direction'),'heating');
 });
 test('hot starts retain AC beyond 30 minutes and report actual recovery',()=>{
+ // v6.6.15: calibrated storage (855 BTU/°F, owner garage test) makes a hot coach
+ // take hours to cool, so the window is six hours rather than three.
  for(const initial of [95,105,110]){
- const a=setup(initial,95);a.run('p=simulatePlan([{time:+r.start,setup:cooling}],e,r,AIR_SCENARIOS[0],rows)');
+ const a=setup(initial,95,360);a.run('p=simulatePlan([{time:+r.start,setup:cooling}],e,r,AIR_SCENARIOS[0],rows)');
  assert.equal(a.run('p.suitable'),true);assert.equal(a.run('p.equipmentEligible'),true);
- assert.ok(a.run('p.recoveryMinutes')>30);assert.equal(a.run('p.trace.at(-1).elapsedMin'),180);
+ assert.ok(a.run('p.recoveryMinutes')>30);assert.equal(a.run('p.trace.at(-1).elapsedMin'),360);
  assert.equal(a.run('p.recoveryInfo.complete'),true);
  }
 });
@@ -29,7 +31,9 @@ test('recovery state survives a checkpoint and a departure boundary',()=>{
  assert.equal(a.run('resumed.suitable'),true);
 });
 test('recovery does not forgive a subsequent drop below the comfort floor',()=>{
- const a=setup(53,20);a.run(`ph=[{time:+r.start,setup:heating},{time:+r.start+15*60000,setup:planSetup('passive',false)}];p=simulatePlan(ph,e,r,AIR_SCENARIOS[0],rows)`);
+ // 80 min of furnace completes recovery before the drop. v6.6.15: the 11/17/2026 garage
+ // furnace fit (11,550 BTU/h, 49% to stored mass) slows this 53F/20F recovery to ~70 min (was 25).
+ const a=setup(53,20);a.run(`ph=[{time:+r.start,setup:heating},{time:+r.start+80*60000,setup:planSetup('passive',false)}];p=simulatePlan(ph,e,r,AIR_SCENARIOS[0],rows)`);
  assert.equal(a.run('p.suitable'),false);assert.ok(a.run('p.recoveryMinutes')!==null);
  assert.match(a.run('p.comfortReason'),/below/);
 });
@@ -61,7 +65,7 @@ test('slow but effective heating is not subject to a 30-minute deadline',()=>{
  assert.doesNotMatch(a.run('p.comfortReason'),/within 30 minutes|falls below 65/);
 });
 test('an actual departure during cooldown preserves the recovery clock and occupancy change',()=>{
- const a=setup(110,95);a.run(`r.occupancy='leaving';r.departure=new Date(+r.start+12*60000);r.returnTime=new Date(+r.start+180*60000);
+ const a=setup(110,95,360);a.run(`r.occupancy='leaving';r.departure=new Date(+r.start+12*60000);r.returnTime=new Date(+r.start+360*60000);
  rows=planRows(e,r,.5,[+r.departure]).filter(x=>x.to<=+r.returnTime);
  prefix=[{time:+r.start,setup:cooling}];before=simulatePlan(prefix,e,r,AIR_SCENARIOS[0],rows.filter(x=>x.to<=+r.departure));
  after=simulatePlan([...prefix,{time:+r.departure,setup:cooling}],e,r,AIR_SCENARIOS[0],rows);

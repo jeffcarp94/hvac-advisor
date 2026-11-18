@@ -79,7 +79,9 @@ test('timing screening never promotes a nominal-only pass to an all-case qualifi
  e={windowStart:r.start,windowEnd:new Date(+r.start+60*60000),wind:0,cloud:0,points:[{time:r.start,tOut:67,rh:30,wind:0,cloud:0}]};
  rows=planRows(e,r).filter(row=>row.to<=+e.windowEnd);ph=[{time:+r.start,setup:withSetting(planSetup('ac',true,null,'Low'),67)}];p=screenPlan(ph,e,r,rows);`);
  assert.equal(a.run('p.suitable&&p.ready'),true);assert.equal(a.run('p.trials.length'),9);
- a.run('AIR_SCENARIOS[1].tempOffset=80;p=screenPlan(ph,e,r,rows)');
+ // Break one non-nominal case decisively: 7F outside with only the AC setup (v6.6.15
+ // storage rides through the former +80F perturbation for this one-hour window).
+ a.run('AIR_SCENARIOS[1].tempOffset=-60;p=screenPlan(ph,e,r,rows)');
  assert.equal(a.run('p.suitable'),false);assert.equal(a.run('p.trials.length'),9);
  a.run('r.initial.temperature=[64,64];p=screenPlan(ph,e,r,rows)');
  assert.equal(a.run('p.suitable'),false);assert.equal(a.run('p.trials.length'),1);
