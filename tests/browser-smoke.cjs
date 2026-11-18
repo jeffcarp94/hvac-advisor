@@ -86,6 +86,18 @@ function weather(url){
   assert.match(await page.locator('#weatherContext').innerText(),/America\/Chicago/);
   assert.notEqual(await page.locator('#readingTime').inputValue(),before,'measurement timestamp preserves its instant across location zones');
   assert.equal(requests,4);
+  // v6.6.18 (WP8, owner decision B): a plan window with daylight needs a confirmed heading. The earlier
+  // "New parking position" step left it unconfirmed, so a midday build must stop and ask for it.
+  // (The 06:45 plan below ends before sunrise, so it does not need a heading.)
+  await page.locator('#planningOptions').evaluate(e=>e.open=true);
+  await page.locator('#planningMode').selectOption('future');await page.locator('#futureStart').fill('2026-10-22T13:00');
+  await page.locator('#analyzeBtn').click();
+  await page.waitForFunction(()=>/confirm the coach heading/.test(document.getElementById('resultStatus').textContent),null,{timeout:60000});
+  assert.equal(await page.locator('#results.visible').count(),0);
+  await page.locator('#parkingObservations').evaluate(e=>e.open=true);
+  await page.locator('#parkingHeading').selectOption('NW');await page.getByRole('button',{name:'Confirm parking details'}).click();
+  assert.match(await page.locator('#parkingStatus').innerText(),/Parking details confirmed/);
+  await page.locator('#parkingObservations').evaluate(e=>e.open=false);
   // Choose an explicit future start near dawn to exercise the forecast plan without assuming future measurements.
   await page.locator('#planningOptions').evaluate(e=>e.open=true);
   await page.locator('#planningMode').selectOption('future');await page.locator('#futureStart').fill('2026-10-22T06:45');
@@ -218,7 +230,9 @@ function weather(url){
    const start=new Date(job.start),end=new Date(job.end);
    const request={start,reading:start,initial:job.initial,occupancy:'staying',remote:false};
    const points=job.points.map(p=>({...p,time:new Date(p.time)}));
-   const envelope={windowStart:start,windowEnd:end,timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
+   // v6.6.18: this window includes daylight, so it needs a confirmed heading (decision B). Labeled assumption:
+   // front faces south; the WP8 fixture comparison gave the same result at N, E, S and W.
+   const envelope={windowStart:start,windowEnd:end,timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,site:{heading:'S',confirmed:true,cover:{}},singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
    const result=await calculateInWorker(request,envelope),p=result.winner;
    const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
    return {suitable:p.suitable,ready:p.ready,phases:p.phases.length,night:p.nightType,full:p.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+end),targetRank:p.targetRank,actions:p.phases.filter((phase,i)=>i===0||!sameSetup(p.phases[i-1].setup,phase.setup)).length};
@@ -239,12 +253,12 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.6.17'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.6.18'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
   await oldContext.close();}
-  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.6.17','6.0.0 → 6.6.17'],errors},null,2));
+  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.6.18','6.0.0 → 6.6.18'],errors},null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
 

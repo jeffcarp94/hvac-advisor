@@ -82,13 +82,14 @@ test('zone ledger: gains equal Σ coefficient × facade irradiance; nothing is c
  assert.equal(a.run('solarZoneGains({date:new Date(),sunC:null},90,{},co)'),null,'no location → legacy aggregate path');
 });
 
-test('Unknown heading with a known location qualifies the four cardinal headings; a confirmed heading uses one',()=>{
+test('daylight plans require a confirmed heading (owner decision B); analysis runs can still expand Unknown to four headings',()=>{
  const a=app();
- assert.equal(a.run('configureSolarScenarios({lat:41,lon:-94,windowStart:new Date("2026-07-15T15:00Z"),windowEnd:new Date("2026-07-16T12:00Z"),site:{heading:"Unknown",confirmed:false}})'),37);
+ assert.throws(()=>a.run('configureSolarScenarios({lat:41,lon:-94,windowStart:new Date("2026-07-15T15:00Z"),windowEnd:new Date("2026-07-16T12:00Z"),site:{heading:"Unknown"}})'),/Set and confirm the coach heading/);
+ assert.throws(()=>a.run('configureSolarScenarios({lat:41,lon:-94,windowStart:new Date("2026-07-15T15:00Z"),windowEnd:new Date("2026-07-16T12:00Z"),site:{heading:"SW",confirmed:false}})'),/confirm the coach heading/,'an unconfirmed heading is not used');
+ assert.equal(a.run('configureSolarScenarios({lat:41,lon:-94,allowUnknownHeading:true,windowStart:new Date("2026-07-15T15:00Z"),windowEnd:new Date("2026-07-16T12:00Z"),site:{heading:"Unknown",confirmed:false}})'),37);
  assert.equal(a.run('AIR_SCENARIOS[0].heading'),'avg');
  assert.deepEqual(JSON.parse(a.run('JSON.stringify([...new Set(AIR_SCENARIOS.slice(1).map(s=>s.heading))])')),[0,90,180,270]);
  assert.equal(a.run('configureSolarScenarios({lat:41,lon:-94,site:{heading:"SW",confirmed:true}})'),9);
- assert.equal(a.run('configureSolarScenarios({lat:41,lon:-94,windowStart:new Date("2026-07-15T15:00Z"),windowEnd:new Date("2026-07-16T12:00Z"),site:{heading:"SW",confirmed:false}})'),37,'unconfirmed heading is not used');
  assert.equal(a.run(`configureSolarScenarios({lat:41,lon:-94,windowStart:new Date("2026-07-16T04:00Z"),windowEnd:new Date("2026-07-16T10:00Z"),site:{heading:"Unknown"}})`),9,'a window with no sun needs no heading cases');
  assert.equal(a.run('configureSolarScenarios({lat:null,lon:null})'),9,'no location → legacy solar, no heading cases');
 });

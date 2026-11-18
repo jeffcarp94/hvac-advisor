@@ -2,7 +2,9 @@ const test=require('node:test'),assert=require('node:assert/strict'),{app}=requi
 function load(a,job){a.setNow(job.start);a.ctx.job=job;a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;
  r={start:new Date(job.start),reading:new Date(job.start),initial:job.initial??{temperature:[72,72],rh:[54,52]},occupancy:'staying',remote:false};
  pts=job.points.map(p=>({...p,time:new Date(p.time),tOut:Math.round(p.tOut),rh:Math.round(p.rh)}));
- e={windowStart:r.start,windowEnd:new Date(job.end),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points:pts,cloud:pts[0].cloud,wind:pts[0].wind,precip:pts[0].precip};`);}
+ e={windowStart:r.start,windowEnd:new Date(job.end),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points:pts,cloud:pts[0].cloud,wind:pts[0].wind,precip:pts[0].precip};
+ // v6.6.18 (WP8, owner decision B): daylight plans need a confirmed heading. Labeled assumption: front faces S, no trees.
+ e.site={heading:'S',confirmed:true,cover:{}};`);}
 test('heat pump includes full defrost interruptions and never substitutes furnace',()=>{
  const a=app();a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=false;C.heatPumpMinTemp=30;C.hpCapacityCold=1000;C.hpCapacityWarm=1000;
  e={windowStart:new Date('2026-05-10T03:00Z'),windowEnd:new Date('2026-05-10T04:30Z'),wind:0,cloud:0,points:[{time:new Date('2026-05-10T03:00Z'),tOut:40,rh:70,wind:0,cloud:0}]};

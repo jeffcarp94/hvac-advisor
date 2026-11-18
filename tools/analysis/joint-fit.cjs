@@ -11,7 +11,7 @@ const tests=[
  {name:'hp',d:hp,base:Date.parse('2026-11-16T18:00:00Z'),on:20,off:44,end:106,mode:'hp'},
  {name:'furnace',d:fu,base:Date.parse('2026-11-18T01:30:00Z'),on:10,off:+(process.argv[4]||53),end:106,mode:'furnace'}];
 const a=app();a.ctx.structuredClone=structuredClone;
-a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=false;solarLoad=()=>0;__hp=heatPumpCapacity;__shp=1;heatPumpCapacity=t=>__shp*__hp(t);
+a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=false;solarLoad=()=>0;solarZoneGains=()=>[0,0];__hp=heatPumpCapacity;__shp=1;heatPumpCapacity=t=>__shp*__hp(t);
  __ea=envelopeAllocation;__u=1;envelopeAllocation=(...x)=>{const v=__ea(...x);return{...v,rear:v.rear*__u,front:v.front*__u};};
  __furn0=15000; // sf scales the pre-v6.6.15 estimate (19,000 input x 80%); adopted sf .77 -> 11,550`);
 for(const t of tests){t.obs=t.d.minutes.map((m,i)=>({m,front:t.d.front[i],rear:t.d.rear[i]})).filter(o=>o.m>=t.on&&o.m<=t.end);t.i0=t.d.minutes.indexOf(t.on);

@@ -27,7 +27,13 @@ const jobs=[
     }])
 ];
 
-for(const [name,job] of jobs){
+// v6.6.18 (WP8, owner decision B): a plan window with daylight needs a confirmed heading. Archived and
+// synthetic fixtures have none, so a sunlit fixture is run at each cardinal heading (labeled assumption).
+const runs=[];
+for(const [name,job] of jobs)runs.push([name,job,null]);
+const HEADINGS=['N','E','S','W'];
+for(let i=0;i<runs.length;i++){
+ const [name,job,heading]=runs[i];
  if(only&&name!==only)continue;
  const a=app();a.ctx.job=job;a.ctx.structuredClone=structuredClone;const t0=performance.now();
  try{a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;
@@ -36,6 +42,7 @@ for(const [name,job] of jobs){
   if(job.actual)r.actual=withSetting(planSetup(job.actual.mode,false,null,job.actual.fan),job.actual.heat);
   points=job.points.map(p=>({...p,time:new Date(p.time)}));
   e={windowStart:r.start,windowEnd:new Date(job.end),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
+  ${heading?`e.site={heading:'${heading}',confirmed:true,cover:{}};`:''}
   res=runUnifiedPlan(r,e);w=res.winner;`);
   const out=JSON.parse(a.run(`JSON.stringify({q:!!(w.suitable&&w.ready&&w.trials.every(t=>+t.trace.at(-1).time>=+e.windowEnd)),
    phases:w.phases.map(p=>new Date(p.time).toISOString().slice(11,16)+' '+p.setup.type+(p.setup.type==='passive'?'':' '+(['auto','auto_furnace'].includes(p.setup.type)?p.setup.setpoints.heat+'/'+p.setup.setpoints.cool:p.setup.type==='ac'?p.setup.setpoints.cool:p.setup.type==='maxxfan'?p.setup.setpoints.fan:p.setup.setpoints.heat))+' '+p.setup.fan),
@@ -43,6 +50,8 @@ for(const [name,job] of jobs){
    reason:(w.reason||'').slice(0,70),remote:res.stages?.remoteAction?new Date(res.stages.remoteAction.time).toISOString().slice(11,16)+' '+res.stages.remoteAction.setup.type:null,bounded:!!res.stages?.boundedSearch,
    failing:Object.fromEntries(['equipment','moisture','comfort'].map(k=>[k,w.trials.filter(t=>t[k+'Reason']).length])),
    coil:typeof res.coilAdvisory==='undefined'?'n/a':res.coilAdvisory?{flagged:res.coilAdvisory.check.flagged,cases:res.coilAdvisory.check.cases,staged:res.coilAdvisory.check.stagedFlagged,alternative:!!res.coilAdvisory.alternative}:null})`));
-  console.log(JSON.stringify({fixture:name,s:+((performance.now()-t0)/1000).toFixed(0),...out}));
- }catch(err){console.log(JSON.stringify({fixture:name,error:err.message.slice(0,120)}));}
+  console.log(JSON.stringify({fixture:name,...(heading?{heading}:{}),s:+((performance.now()-t0)/1000).toFixed(0),...out}));
+ }catch(err){
+  if(!heading&&/confirm the coach heading/.test(err.message)){for(const h of HEADINGS)runs.splice(i+1+HEADINGS.indexOf(h),0,[name,job,h]);continue;}
+  console.log(JSON.stringify({fixture:name,...(heading?{heading}:{}),error:err.message.slice(0,120)}));}
 }

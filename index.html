@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.17 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.18 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.17</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.18</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -213,7 +213,7 @@
     <button class="analyze-btn" id="analyzeBtn" onclick="analyze()">Build my HVAC plan</button>
 
     <details class="input-section" id="parkingObservations"><summary>Parking observations</summary>
-        <p class="hint">Heading and tree cover set the solar gain on each side of the coach. With an Unknown or unconfirmed heading, plans must pass with the front facing each of N, E, S and W, which takes about four times longer.</p>
+        <p class="hint">Heading and tree cover set the solar gain on each side of the coach. A plan that includes daylight needs a confirmed heading; overnight-only plans do not.</p>
         <label class="field">Direction the front faces<select id="parkingHeading" onchange="editParkingLog()"></select></label>
         <button type="button" class="minor-btn" id="compassBtn" onclick="readPhoneCompass()" hidden>Use phone compass</button>
         <p class="hint" id="compassStatus" role="status"></p>
@@ -1474,6 +1474,9 @@ const AIR_WEATHER_CASES=[
 // The first remains the nominal case for fast screening, then all nine verify.
 const BASE_AIR_SCENARIOS=Object.freeze(BODY_CASES.flatMap(bodyCase=>AIR_WEATHER_CASES.map(s=>({...s,bodyCase,name:s.name+' / '+bodyCase.name}))));
 const AIR_SCENARIOS=[...BASE_AIR_SCENARIOS];
+const HEADING_REQUIRED_MESSAGE='This plan includes daylight. Set and confirm the coach heading (or use the phone compass) under Parking observations, then build the plan.';
+// Owner decision B (11/18/2026): with daylight in the window, planning requires a confirmed heading. The
+// four-heading expansion below remains for analysis runs that explicitly allow an Unknown heading.
 // WP8: with a known location and an Unknown (or unconfirmed) heading, qualification runs every case at the
 // four cardinal headings as fixed cases (scope WP8 item 11, before WP13). Member 0 is the working case at the
 // 16-point heading average, used only as the displayed central estimate and nominal screen.
@@ -1482,6 +1485,11 @@ function configureSolarScenarios(envelope){
     // Exact reduction: with no sun above the horizon anywhere in the window, every heading gives the same result.
     const sunlit=located&&envelope.windowStart&&envelope.windowEnd&&(()=>{for(let t=+envelope.windowStart;t<=+envelope.windowEnd;t+=600000)
         if(solarPosition(new Date(t),envelope.lat,envelope.lon).altitude>0)return true;return false;})();
+    // Owner decision B (11/18/2026): a plan window with daylight requires a confirmed heading.
+    if(located&&sunlit&&!known&&!envelope.allowUnknownHeading)throw new Error(HEADING_REQUIRED_MESSAGE);
+    // A single-heading run keeps the active case set (tests may narrow it); only a prior four-heading
+    // expansion is undone.
+    if(known||!located||!sunlit){if(AIR_SCENARIOS.some(s=>s.heading!==undefined)){AIR_SCENARIOS.length=0;AIR_SCENARIOS.push(...BASE_AIR_SCENARIOS.map(s=>({...s})));}return AIR_SCENARIOS.length;}
     const next=known||!located||!sunlit?BASE_AIR_SCENARIOS.map(s=>({...s})):[{...BASE_AIR_SCENARIOS[0],heading:'avg',name:BASE_AIR_SCENARIOS[0].name+' / heading averaged (central estimate)'},
         ...BASE_AIR_SCENARIOS.flatMap(s=>[0,90,180,270].map(h=>({...s,heading:h,name:s.name+' / front faces '+'NESW'[h/90]})))];
     AIR_SCENARIOS.length=0;AIR_SCENARIOS.push(...next);
@@ -3450,7 +3458,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.17';
+const LOG_APP_VERSION='6.6.18';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
@@ -3949,7 +3957,7 @@ async function analyze(){
     try{
         await new Promise(resolve=>setTimeout(resolve,0));
         const bounds=planBounds(request.start,request),envelope=makeEnvelope(request.start,bounds.end,'HVAC Plan',THERMAL_STEP_MIN*60000);
-        envelope.site=siteSolarInputs();
+        envelope.site=siteSolarInputs();configureSolarScenarios(envelope); // fails fast if daylight needs a confirmed heading
         logEvent=prepareRunLog(request,envelope);
         let result;
         if(typeof Worker!=='undefined')result=await calculateInWorker(request,envelope);

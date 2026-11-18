@@ -36,6 +36,8 @@ for(const day of ['2025-03-03','2025-03-04','2025-03-05']){
          pts=pts.map(p=>({...p,time:new Date(p.time)}));
          e={windowStart:new Date(${start}),windowEnd:new Date(${ret+3600000}),timeZone:'America/Chicago',lat:30.2905,lon:-87.6718,elevationM:5,singlePoint:false,
             points:pts,cloud:pts[0].cloud,wind:pts[0].wind,precip:'none'};
+         // v6.6.18 (WP8): heading is now used; Unknown in the event, so a labeled assumed heading (HEADING env, default S).
+         e.site={heading:'${process.env.HEADING||'S'}',confirmed:true,cover:{}};
          base={start:new Date(${start}),reading:new Date(${start}),initial:{temperature:[72,72],rh:[55,55]},remote:false};
          away={...base,occupancy:'leaving',departure:new Date(${start}),returnTime:new Date(${ret})};
          occupied={...base,occupancy:'staying'};

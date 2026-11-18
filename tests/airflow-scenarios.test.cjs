@@ -56,7 +56,7 @@ function garageRMSE(fixture,mode,on,off,airflow){
  a.ctx.points=g.minutes.map((m,i)=>({time:new Date(base+m*60000),tOut:g.garage[i],rh:42,wind:0,cloud:0,precip:'none'}))
   .filter(p=>+p.time>=base+(on-1)*60000&&+p.time<=base+(end+1)*60000);
  const i0=g.minutes.indexOf(on);
- a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=false;solarLoad=()=>0;
+ a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=false;solarLoad=()=>0;solarZoneGains=()=>[0,0];
   start=new Date(${base+on*60000});
   r={start,reading:start,initial:{temperature:[${g.rear[i0]},${g.front[i0]}],rh:[40,40]},occupancy:'away',remote:false,departure:start,returnTime:new Date(${base+(end+60)*60000}),actualConfirmed:true};
   e={windowStart:start,windowEnd:new Date(${base+end*60000}),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points,cloud:0,wind:0,precip:'none',elevationM:300};
