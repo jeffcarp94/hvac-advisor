@@ -10,6 +10,8 @@
 // solar model before WP8); sky cover from the highest reported cloud layer (CLR 0, FEW 19, SCT 44,
 // BKN 75, OVC 100%); wind kt → mph; routine :5x observations rounded to the hour; missing
 // observations hold the previous hour.
+// v6.6.19 (WP9): rerun with both dehumidifier states (scope WP9 item 6); also reports max room RH, the
+// longest >65% RH run, and the air/buffer/coil water split.
 const repo=process.argv[2],json=process.argv.includes('--json');
 const fs=require('fs'),path=require('path');const {app}=require(repo+'/tests/helpers.cjs');
 const csv=fs.readFileSync(path.join(repo,'tests/fixtures/kjka-asos-2025-03-03-05.csv'),'utf8').trim().split('\n');
@@ -53,7 +55,11 @@ for(const day of ['2025-03-03','2025-03-04','2025-03-05']){
                     physicsFlaggedCases:trials.filter(t=>t.coil?.flagMinutes>0).length,stagedFlaggedCases:trials.filter(t=>t.coil?.stagedFlagMinutes>0).length,
                     nominal:{compressorMin:+n.coolMinutes.toFixed(0),flagMin:+(n.coil?.flagMinutes??0).toFixed(0),minColdestF:n.coil?.minColdestF==null?null:+n.coil.minColdestF.toFixed(1),
                       firstFlag:n.coil?.first?{local:new Date(n.coil.first.time-6*3600000).toISOString().slice(11,16),coldestF:+n.coil.first.coldestF.toFixed(1),returnF:+n.coil.first.returnF.toFixed(1),dewF:+n.coil.first.indoorDewPointF.toFixed(1)}:null,
-                      moistureLb:{...Object.fromEntries(Object.entries(n.moisture?.totals||{}).map(([k,v])=>[k,+v.toFixed(2)])),airStart:+(n.moisture?.initialWaterLb??0).toFixed(3),airEnd:+(n.moisture?.finalWaterLb??0).toFixed(3)},dehumMin:+(n.dehumRuntimeMinutes??0).toFixed(0),hourly}};})())`));
+                      moistureLb:{...Object.fromEntries(Object.entries(n.moisture?.totals||{}).map(([k,v])=>[k,+v.toFixed(2)])),
+                        // v6.6.19 (WP9): room water = air + moisture buffer; the AC coil is reported separately.
+                        roomStart:+(n.moisture?.initialWaterLb??0).toFixed(3),roomEnd:+(n.moisture?.finalWaterLb??0).toFixed(3),
+                        ...(n.moisture?.buffer?{airEnd:+n.moisture.airWaterLb.toFixed(3),bufferEnd:+n.moisture.bufferLb.toFixed(3),coilEnd:+n.moisture.coilWaterLb.toFixed(3),residualG:+(n.moisture.residualLb*453.59237).toExponential(1)}:{})},
+                      maxRH:+(n.moisture?.maxRH??0).toFixed(0),humidMax:+(n.moisture?.humidMax??0).toFixed(0),dehumMin:+(n.dehumRuntimeMinutes??0).toFixed(0),hourly}};})())`));
                 out.push({day,dehum,fan,occupancy:label,...r});
             }
         }
@@ -76,5 +82,5 @@ for(const x of out){
     console.log(`${x.day} dehum ${x.dehum?'on ':'off'} ${x.fan.padEnd(6)} ${x.occupancy.padEnd(34)} current check: ${x.currentCheck} (${x.currentCheckCases}/9 accept) | physics flags ${x.physicsFlaggedCases}/9`+
         (x.fan==='Auto'?` (CCC2 staging ${x.stagedFlaggedCases}/9)`:'')+` | nominal compressor ${n.compressorMin} min, flagged ${n.flagMin} min, min Tcs ${n.minColdestF}°F`+
         (n.firstFlag?`, first ${n.firstFlag.local} Tcs ${n.firstFlag.coldestF} return ${n.firstFlag.returnF} dp ${n.firstFlag.dewF}`:'')+
-        ` | 17:00 bed ${n.hourly.at(-1)?.bed} front ${n.hourly.at(-1)?.front} RH ${n.hourly.at(-1)?.bedRH}% | water lb ${JSON.stringify(n.moistureLb)}`);
+        ` | 17:00 bed ${n.hourly.at(-1)?.bed} front ${n.hourly.at(-1)?.front} RH ${n.hourly.at(-1)?.bedRH}% | max RH ${n.maxRH}%, >65% run ${n.humidMax} min | water lb ${JSON.stringify(n.moistureLb)}`);
 }

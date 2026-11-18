@@ -89,14 +89,16 @@ test('Gulf Shores (KJKA, March 4, 2025, away, COOL 72): current check permits Au
  }
 });
 
-test('advisory wording: non-blocking, no damage wording, WP9 gap and icing response stated',()=>{
+test('advisory wording: non-blocking, no damage wording, no WP9 gap statement, icing response stated',()=>{
  const a=app();
  const base=`{flagged:true,alternativesChecked:2,alternative:null,check:{cases:9,cooling:9,flagged:9,stagedFlagged:7,autoAssumed:true,flagMinutes:40,minColdestF:20.1,clamped:false,
    first:{time:Date.parse('2026-07-18T20:00Z'),fan:'Auto',assessedFan:'Low',coldestF:23.1,returnF:74,outdoorF:73,indoorDewPointF:54}}}`;
  const html=a.run(`wp7CoilAdvisoryHTML(${base},{})`);
  assert.match(html,/The experimental coil model flags possible icing at this fan setting\. The current cooling check permits this setup\./);
  assert.doesNotMatch(html,/unsafe|danger|damage/i);
- assert.match(html,/Not yet modeled: moisture returning from a wet coil while the fan keeps running \(WP9\)/);
+ // v6.6.19 (WP9): wet-coil re-evaporation is now modeled, so the scope's interim "not yet modeled"
+ // statement is removed (scope v3 §2 interim table; handoff WP9 notes). Its absence is asserted.
+ assert.doesNotMatch(html,/Not yet modeled|re-evaporation penalty|\(WP9\)/);
  assert.match(html,/stop cooling, check the filter and vents, run FAN ONLY until the ice clears, then resume at a warmer setting/);
  assert.match(html,/No evaluated alternative passes both checks \(checked 2\)/);
  assert.match(html,/flags in 7 of 9/);
