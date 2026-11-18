@@ -13,6 +13,8 @@ const tests=[
 const a=app();a.ctx.structuredClone=structuredClone;
 a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=false;solarLoad=()=>0;solarZoneGains=()=>[0,0];__hp=heatPumpCapacity;__shp=1;heatPumpCapacity=t=>__shp*__hp(t);
  __ea=envelopeAllocation;__u=1;envelopeAllocation=(...x)=>{const v=__ea(...x);return{...v,rear:v.rear*__u,front:v.front*__u};};
+ // v6.6.20 (WP10): the live path builds conduction from envelopeAssemblies/conductionUA, so u scales that too.
+ if(typeof conductionUA==='function'){__cu=conductionUA;conductionUA=(...x)=>__cu(...x).map(v=>v*__u);}
  __furn0=15000; // sf scales the pre-v6.6.15 estimate (19,000 input x 80%); adopted sf .77 -> 11,550`);
 for(const t of tests){t.obs=t.d.minutes.map((m,i)=>({m,front:t.d.front[i],rear:t.d.rear[i]})).filter(o=>o.m>=t.on&&o.m<=t.end);t.i0=t.d.minutes.indexOf(t.on);
  t.points=t.d.minutes.map((m,i)=>({time:new Date(t.base+m*60000),tOut:t.d.garage[i],rh:42,wind:0,cloud:0,precip:'none'})).filter(p=>+p.time>=t.base+(t.on-1)*60000&&+p.time<=t.base+(t.end+1)*60000);}

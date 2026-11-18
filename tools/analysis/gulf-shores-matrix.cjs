@@ -32,7 +32,9 @@ for(const day of ['2025-03-03','2025-03-04','2025-03-05']){
     const start=Date.parse(day+'T09:00:00-06:00'),ret=Date.parse(day+'T17:00:00-06:00');
     const points=obs.filter(o=>o.utc>=start-2*3600000&&o.utc<=ret+3600000)
         .map(o=>({time:new Date(Math.round(o.utc/3600000)*3600000),tOut:o.tOut,rh:o.rh,wind:o.wind,cloud:1-o.sky/100,sky:o.sky,precip:'none'}));
-    for(const dehum of [true,false]){
+    // Owner decision (November 18, 2026): the dehumidifier always runs at 50%, so reviews run with it on.
+    // DEHUM=both adds the dehumidifier-off states.
+    for(const dehum of process.env.DEHUM==='both'?[true,false]:[true]){
         const a=app();a.ctx.structuredClone=structuredClone;a.setNow(new Date(start).toISOString());a.ctx.pts=points;
         a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=${dehum};
          pts=pts.map(p=>({...p,time:new Date(p.time)}));
