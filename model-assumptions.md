@@ -60,7 +60,7 @@ Synthetic humid night (80°F, 80% RH outdoors; COOL 70, start 72°F / 60% RH; de
 
 ## Fixtures, dehumidifier on (v6.6.18 → v6.6.19; `tools/analysis/fixtures-beforeafter.cjs`)
 
-Qualification is unchanged: 1 of 10 runnable fixtures (surface-advisory synthetic, identical plan). Every other fixture already failed comfort before WP9 (tabled per owner decision 2); what changed is the best available plan displayed when nothing qualifies, and its margins. Sunlit fixtures run at N/E/S/W (labeled assumption).
+Qualification is unchanged: 1 of 10 runnable fixtures (surface-advisory synthetic, identical plan). **Phase times in the fixture tables are UTC, as the tool prints them** (CDT = UTC − 5); setup changes fall at the start, before or at bedtime, never during sleep. Every other fixture already failed comfort before WP9 (tabled per owner decision 2); what changed is the best available plan displayed when nothing qualifies, and its margins. Sunlit fixtures run at N/E/S/W (labeled assumption).
 
 | Fixture | v6.6.18 displayed | v6.6.19 displayed | Failing cases (equip/moisture/comfort) |
 | --- | --- | --- | --- |
@@ -76,11 +76,11 @@ Qualification is unchanged: 1 of 10 runnable fixtures (surface-advisory syntheti
 
 ### Owner decision: non-qualifying fallback ordering (November 18, 2026)
 
-When no plan qualifies, `comparePlans` prefers the plan that "remains acceptable longer", measured by each trial's in-run stop (`failureTime`). A trial that never recovers into the comfort band never sets that stop (the warm-run counters start only after recovery, and "Available HVAC does not restore comfort" is decided at the end), so it counted as lasting the whole horizon. WP9 exposed this. The hot passive coach now stays at or below 65% RH, so the AC-then-passive sequence no longer tripped any stop. It outranked AUTO 68/72 High, which stops on comfort at about 22:15, and became the internal fallback at N/S/W ("AC 72 High 15 min, then passive", bedroom to 100–103°F).
+When no plan qualifies, `comparePlans` prefers the plan that "remains acceptable longer", measured by each trial's in-run stop (`failureTime`). A trial that never recovers into the comfort band never sets that stop (the warm-run counters start only after recovery, and "Available HVAC does not restore comfort" is decided at the end), so it counted as lasting the whole horizon. WP9 exposed this. The hot passive coach now stays at or below 65% RH, so the AC-then-passive sequence no longer tripped any stop. It outranked AUTO 68/72 High, which stops on comfort at about 10:15 PM CDT, and became the internal fallback at N/S/W ("AC 72 High 15 min, then passive", bedroom to 100–103°F).
 
 **Change (owner-directed, folded into this release):** a trial with no in-run stop, no recovery (`recoveryMinutes` null) and a comfort reason counts as failing at start + 30 minutes (`M.recoveryMinutes`). Trials that recover keep their full duration. This affects only the ordering of plans that do not qualify; qualifying plans, eligibility and the WP13 admission rule are untouched. Tests: `tests/fallback-ordering.test.cjs`.
 
-**Effect (rerun with the change, dehumidifier on):** only the hot synthetic changes. All four headings now fall back to AUTO 68/72 High → AC 68 Low (23:50–01:30) → HP 66 Auto, bedroom 65–78°F, comfort-only failures in 9/9 cases, the same family as v6.6.18. Every other fixture keeps its WP9 result, and qualification stays 1 of 10.
+**Effect (rerun with the change, dehumidifier on):** only the hot synthetic changes. All four headings now fall back to AUTO 68/72 High from 1 PM CDT → AC 68 Low from 6:50–8:30 PM CDT (heading-dependent) → HP 66 Auto at 10 PM CDT (bedtime), bedroom 65–78°F, comfort-only failures in 9/9 cases, the same family as v6.6.18. Every other fixture keeps its WP9 result, and qualification stays 1 of 10.
 
 ## Fixtures, dehumidifier off (scope WP9 item 6: both states stay in all reviews)
 
