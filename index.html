@@ -2606,7 +2606,11 @@ function comparePlans(a,b){
     const rank=c=>!c.suitable?2:!c.ready?1:0;
     // Truncated failures have incomparable total scores. Prefer the sequence
     // that remains acceptable longer, not the one that stopped accumulating first.
-    const until=p=>Math.min(...p.trials.map(t=>t.failureTime??+t.trace.at(-1).time));
+    // v6.6.19 (owner decision, November 18, 2026): a trial that never reaches the comfort band trips no
+    // in-run stop, so it counts as failing at its 30-minute recovery deadline. Otherwise a sequence that
+    // never cools (or heats) the coach would look acceptable through the whole horizon.
+    const until=p=>Math.min(...p.trials.map(t=>t.failureTime??(t.recoveryMinutes==null&&t.comfortReason?
+        +t.start+M.recoveryMinutes*60000:+t.trace.at(-1).time)));
     const duration=!a.suitable&&!b.suitable&&a.trials&&b.trials?until(b)-until(a):0;
     return rank(a)-rank(b)||duration||compareRecovery(a,b)||compareFront(a,b)||compareTarget(a,b)||Number(!!b.natural)-Number(!!a.natural)||a.score-b.score||modePreference(a)-modePreference(b);
 }
