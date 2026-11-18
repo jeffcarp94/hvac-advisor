@@ -1,3 +1,5 @@
+// mx (optional, default 1) scales the forced interzone term as AIR_WEATHER_CASES.mix does;
+// cab (optional, default 3) is AIR_WEATHER_CASES.cabFactor (cab conductance × cab/3).
 // Usage: node tools/analysis/joint-fit.cjs <repo> ['{"u":1,"shp":1}' fixed params] [furnace off minute] [iterations]
 // Owner garage runs (YoLink, digitized; see fixtures). v6.6.15 adopted: shp=1,u=1 fixed; ca 297, cm 574, tau .98,
 // f .38, w .58, ff .57, sf .77, fm .49.
@@ -21,7 +23,7 @@ function simulate(p,t){
   r={start,reading:start,initial:{temperature:[${t.d.rear[t.i0]},${t.d.front[t.i0]}],rh:[40,40]},occupancy:'away',remote:false,departure:start,returnTime:new Date(${t.base+(t.end+60)*60000}),actualConfirmed:true};
   e={windowStart:start,windowEnd:new Date(${t.base+t.end*60000}),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points,cloud:0,wind:0,precip:'none',elevationM:300};
   heat=withSetting(planSetup('${t.mode}',false,null,'High'),90);r.actual=heat;
-  sim=simulatePlan([{time:+start,setup:heat},{time:${t.base+t.off*60000},setup:planSetup('passive',false)}],e,r,AIR_SCENARIOS[0],null,null,false,true);
+  sim=simulatePlan([{time:+start,setup:heat},{time:${t.base+t.off*60000},setup:planSetup('passive',false)}],e,r,{...AIR_SCENARIOS[0],mix:${p.mx??1},cabFactor:${p.cab??3}},null,null,false,true);
   out=sim.trace.map(x=>[(+x.time-${t.base})/60000,x.bedroom,x.midCoach]);`);
  return a.run('out');
 }
