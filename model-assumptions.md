@@ -1,3 +1,55 @@
+# v6.6.24 — comfort run edge tolerance (option C)
+
+**Decision change (owner approval, November 19, 2026: reassessment option C).** `M.comfortRunEdgeF` = 0.5°F. In `zoneProfileCore` the warm run counts bedroom air above `band.high + 0.5`, the cold run below `band.low − 0.5`, and the severe-warm run above `band.high + 1.5` (each after the existing 30-minute grace, or after recovery when recovering). Durations are unchanged (warm and cold more than 30 minutes, severe-warm at least 15). Unchanged and still on the exact band: the 65°F floor (hard, every member), first entry into the band (recovery), bedtime readiness at 10 PM, return comfort, the D3 severity (`tempMissDegMin`), target scoring and the longest-acceptable ordering. Failure text gives the threshold used; `comfortPolicyText` states the tolerance and the floor.
+
+Basis: the WP11 joint fit's RMSE against the owner's garage runs is 0.24–0.37°F per sensor, so a run that starts at the exact band edge can turn on differences the model cannot resolve (October: the nominal member failed "above 69°F for more than 30 minutes" at 69.00–69.02°F). The 0.5°F is an owner-chosen round value above that error, not a fitted quantity. It applies to air temperature, as the bands do; operative temperature at Jeff's bed runs about 0.25–1°F below air in the cases traced (WP12 Phase A), so the tolerance is not on the uncomfortable side there.
+
+## Before and after (MODE=auto, dehumidifier on, Node 24)
+
+Inputs: the archived and labeled synthetic fixtures of `tools/analysis/wp13-search-gate.cjs`; sunlit fixtures at N/E/S/W (labeled assumption); away without Wi-Fi is not runnable by design. "v6.6.23" is the stored v6.6.22 run (`reports/wp12-decision-identity.jsonl`; v6.6.23 changed logging only, and the inert counterfactual rewrite reproduced it). "C" is the counterfactual tool on main with C on (branch `criteria-counterfactuals`, `tools/analysis/criteria-counterfactuals.cjs`, applied to main `56df77a`; results in `reports/v6624-option-c-fixtures.jsonl`); the implemented v6.6.24 gave the identical decision, phases, current guidance, ensemble summary and bedroom range on surface, rising, falling, away-wifi and Winterset 2025-10-01. "B + C + E" adds the 30-minute readiness window (B) and the absence rule (E: protection checks plus return comfort only); neither is approved, and they were run where C alone left a failure, on the fast fixtures and on Winterset 2025-10-01 and preparation E. Pass counts are the winner's joint passes of 32.
+
+| Fixture | v6.6.23 | C (v6.6.24) | Plan changed | B + C + E | Main remaining failure with C |
+| --- | --- | --- | --- | --- | --- |
+| Surface (synthetic) | 32/32 **qualifies** | 32/32 **qualifies** | no | 32/32 **qualifies** |  |
+| March (historical) | 31/32 **qualifies** | 31/32 **qualifies** | yes | not run |  |
+| Preparation (synthetic) N | 30/32 **qualifies** | 29/32 **qualifies** | yes | not run |  |
+| Preparation (synthetic) E | 28/32 no | 30/32 **qualifies** | yes | 32/32 **qualifies** |  |
+| Preparation (synthetic) S | 30/32 **qualifies** | 30/32 **qualifies** | yes | not run |  |
+| Preparation (synthetic) W | 30/32 **qualifies** | 30/32 **qualifies** | yes | not run |  |
+| Winterset 2025-10-01 | 0/32 no | 31/32 **qualifies** | yes | 31/32 **qualifies** |  |
+| October (saved forecast) | 0/32 no | 1/32 no | yes | 27/32 no | Not in 65–69°F at 10 PM. |
+| Hot (synthetic) N | 0/32 no | 0/32 no | yes | 0/32 no | Remains above 69.5°F for more than 30 minutes. |
+| Hot (synthetic) E | 0/32 no | 0/32 no | yes | 0/32 no | Remains above 69.5°F for more than 30 minutes. |
+| Hot (synthetic) S | 0/32 no | 0/32 no | yes | 0/32 no | Remains above 69.5°F for more than 30 minutes. |
+| Hot (synthetic) W | 0/32 no | 0/32 no | yes | 0/32 no | Remains above 69.5°F for more than 30 minutes. |
+| May 8 N | 0/32 no | 0/32 no | yes | 29/32 **qualifies** | Predicted temperature falls below 65°F. |
+| May 8 E | 0/32 no | 0/32 no | yes | 0/32 no | Predicted temperature falls below 65°F. |
+| May 8 S | 0/32 no | 30/32 **qualifies** | yes | 31/32 **qualifies** |  |
+| May 8 W | 0/32 no | 0/32 no | yes | 29/32 **qualifies** | Predicted temperature falls below 65°F. |
+| Rising (synthetic) | 0/32 no | 0/32 no | no | 0/32 no | Remains above 70.5°F for at least 15 minutes. |
+| Falling (synthetic) | 0/32 no | 0/32 no | no | 0/32 no | Remains above 70.5°F for at least 15 minutes. |
+| Away, Wi-Fi (synthetic) | 22/32 no | 22/32 no | no | 30/32 **qualifies** | Does not reach acceptable temperature within 30 minutes. |
+
+Qualifying runs: 5 → 8 of 19. "Plan changed" compares the winner's phases and current guidance: with more plans admitted, the least-severe admitted plan wins, so plans change even where qualification does not (March: overnight HEAT PUMP 67 on High instead of Low).
+
+**Runtime** (two fixtures at a time on a 2-core server, so seconds are inflated and noisy): total 116 min before, 108 min with C. Individual runs moved both ways (Winterset 2025-10-01 374 → 159 s, March 617 → 244 s; October 484 → 873 s, May 8 S 152 → 313 s). C is not a speed change.
+
+## What B and E would add on top of C (not approved; analysis only)
+
+- **October:** C alone 1/32; with B and E 27/32 (still short of 29). E has no effect there (no absence), so the gain is B's.
+- **Away with Wi-Fi:** C alone 22/32; with B and E it qualifies (30/32), but only with a remote adjustment at 1:55 AM (COOL 72 High for 5 minutes, then AUTO 67/71 High), and its severity is higher than the held setup's (mean 216 vs 90 degree-minutes). E alone reaches 25/32 (7 members' mid-absence cold run no longer counts; 3 still miss 65–69°F at the 2 AM return and 4 at the readiness check).
+- **May 8 N and W:** with B they qualify (29/32); C alone leaves the best plan breaching the 65°F floor. E has no effect (no absence). May 8 E still fails the floor; May 8 S goes from 30 to 31.
+- **Hot ×4, rising, falling:** unchanged by B and E. Rising and falling are furnace overshoot (option F); hot is the evening pulldown plus sleep-phase cycling.
+
+## Tests
+
+`tests/comfort-edge.test.cjs` (4): the constant; warm and cold drifting trials fail exactly where the run rule applied to the recorded trace says, later than at the exact edge, with the tolerance threshold in the text; a trial reaching 65°F breaches the floor at the same time with and without the tolerance; the policy text. Two existing assertions on failure text were updated to the new thresholds (`tests/plan.test.cjs`, `tests/current-guidance.test.cjs`). Phone layout of the policy text checked at 390/448/480 px, light and dark.
+
+## Remaining uncertainty
+
+- Fixture coverage is 19 runs, mostly synthetic or reconstructed; the effect on real nights will show in the run log.
+- The tolerance is uniform; it does not distinguish the bedroom air from Jeff's-bed operative temperature.
+
 # v6.6.23 — `ensemble_pass_count` logging (logging only)
 
 **Logging only:** no model, eligibility, ranking, recommendation or timing change. `recordRunLog` sets `ensemble_pass_count` to `plan.ensemble.passes` for the plan the row records (`recommended_setup_json`), but only when (a) that summary covers every member (`evaluated === ENSEMBLE.members`) and (b) the page renders that same summary in an ensemble box (`ensembleDisplayedPlans`, which mirrors the `ensembleResultHTML` calls in `renderPlan` and `renderDeparturePlan`). Otherwise it is null, which the receiver writes as "missing". The overnight box of a departure plan renders the winner's own summary object, so the match is on the summary, not the plan wrapper.
