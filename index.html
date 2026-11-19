@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.22 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.23 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -108,7 +108,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.22</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.23</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -4453,7 +4453,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.22';
+const LOG_APP_VERSION='6.6.23';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
@@ -4802,6 +4802,26 @@ function finishRunLog(event,result,nextAction){
     try{recordRunLog(event,result,nextAction);}
     catch{logStatus('Could not prepare the completed run for logging.');}
 }
+// v6.6.23 (logging only): the joint pass count the plan card shows ("Works in X of 32 tested conditions",
+// ensembleResultHTML), for the plan this row logs. Null (logged as "missing") when the page shows no ensemble box
+// for that plan (owner decision, November 19, 2026: partial-run current guidance is logged but its count is not
+// displayed), without an ensemble summary (nine-case policy), or when the summary does not cover every member, so
+// a partial count is never logged as out of 32. Keep ensembleDisplayedPlans in step with the ensembleResultHTML
+// calls in renderPlan and renderDeparturePlan.
+// A departure plan's overnight box renders the winner's own summary object, so displayed summaries are compared,
+// not plan objects (shared references survive the Worker's structured clone).
+function ensembleDisplayedPlans(result){
+    if(!result)return[];
+    if(result.stages)return[result.stages.current,result.stages.departure,result.stages.night].map(s=>s&&(s.recommendation||s.recommended)).filter(p=>p?.setup);
+    if(result.bedtimeRecovery&&!result.bedtimeRecovery.overnight)return[];
+    return result.winner?[result.winner]:[];
+}
+function logEnsemblePassCount(plan,result){
+    const x=plan?.ensemble;
+    if(!x||x.evaluated!==ENSEMBLE.members||x.members!==ENSEMBLE.members||!Number.isInteger(x.passes))return null;
+    if(result&&!ensembleDisplayedPlans(result).some(p=>p.ensemble===x))return null;
+    return x.passes;
+}
 function recordRunLog(event,result,nextAction){
     if(!event)return;
     if(result){
@@ -4812,6 +4832,7 @@ function recordRunLog(event,result,nextAction){
         const plan=complete?result.winner:result.current||current||result.stages?.departure?.recommended;
         if(plan){
             event.recommended_setup_json=JSON.stringify(complete?plan.phases:plan.setup||null);
+            event.ensemble_pass_count=logEnsemblePassCount(plan,result); // v6.6.23: logging only
             const trace=plan.trials?.[0]?.trace||[];
             const sample=time=>{
                 if(!trace.length||!Number.isFinite(time)||time<+trace[0].time||time>+trace.at(-1).time)return null;
