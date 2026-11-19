@@ -1,7 +1,8 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
-function app(){
+// options.transform (analysis tools only): a function applied to the app script source before it runs.
+function app(options={}){
     let clock=Date.parse('2026-10-21T17:00:00Z');
     const RealDate=Date;
     class Clock extends RealDate{constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}}
@@ -21,7 +22,8 @@ function app(){
         window:{location:{protocol:'https:',reload(){}},addEventListener:(type,fn)=>listeners.set(type,fn)},
         fetch:async()=>{throw new Error('Unexpected network request');}});
     const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
-    vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],ctx);
+    const source=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+    vm.runInContext(options.transform?options.transform(source):source,ctx);
     for(const [id,value] of Object.entries({occupancyMode:'staying',planningMode:'now',dehumidifierMode:'enabled',actualMode:'passive',actualFan:'Auto',actualVent:'1',actualSetpoint:'72',actualHeatSetpoint:'68',actualCoolSetpoint:'72'}))getElement(id).value=value;
     return{ctx,run:source=>vm.runInContext(source,ctx),element:getElement,setNow:date=>clock=Date.parse(date),listeners};
 }

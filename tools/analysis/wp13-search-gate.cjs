@@ -5,6 +5,8 @@
 // and reports the peak live heap (run with --expose-gc). HTMLDIR=dir saves the rendered plan.
 // Prints one JSON line: decision, D3 summary, simulated hours, the rendered plan's hash before and after the
 // Worker trimming (htmlTrimmedSame), and the posted result size (structured clone, MB). Phase times are UTC.
+// CF=B,C,E|none (analysis only): run with the comfort-criteria counterfactuals of criteria-counterfactuals.cjs
+// applied to the app source in memory; adds cf and the winner's failing-condition reasons (fails) to the line.
 const repo=process.argv[2],only=process.argv[3],heading=process.argv[4]||null;
 const path=require('path'),v8=require('v8'),crypto=require('crypto');
 const {app}=require(repo+'/tests/helpers.cjs');const {performance}=require('perf_hooks');
@@ -25,7 +27,8 @@ const jobs=Object.fromEntries([
    request:{occupancy:'away',remote,departure:'2026-11-12T06:00:00Z',returnTime:'2026-11-12T08:00:00Z',actualConfirmed:true},actual:{mode:'hp',heat:67,fan:'Low'}}])]);
 const job=jobs[only];if(!job)throw new Error('unknown fixture '+only);
 const mode=process.env.MODE||'auto';
-const a=app();a.ctx.job=job;
+const cfSpec=process.env.CF||null;
+const a=app(cfSpec?{transform:require('./criteria-counterfactuals.cjs').transform(cfSpec)}:{});a.ctx.job=job;
 let peakLive=0;const gcEvery=+process.env.GCSAMPLE||0;let n=0;
 if(gcEvery)a.ctx.__tick=()=>{if(++n%gcEvery===0){global.gc();peakLive=Math.max(peakLive,process.memoryUsage().heapUsed);}};
 if(gcEvery)a.run(`(()=>{const orig=simulatePlan;simulatePlan=function(...x){const r=orig.apply(this,x);__tick();return r;};})()`);
@@ -46,6 +49,7 @@ const summary=JSON.parse(a.run(`JSON.stringify({q:!!(w.suitable&&w.ready),phases
  bed:Math.min(...w.trials.flatMap(t=>t.trace.map(p=>p.bedroom))).toFixed(1)+'-'+Math.max(...w.trials.flatMap(t=>t.trace.map(p=>p.bedroom))).toFixed(1),reason:(w.reason||'').slice(0,70),
  current:res.current?setupName(res.current.setup)+' '+JSON.stringify(res.current.setup.setpoints)+' '+res.current.setup.fan:null,
  ensemble:w.ensemble?{passes:w.ensemble.passes,evaluated:w.ensemble.evaluated,admitted:w.ensemble.admitted,mean:+w.ensemble.severity.mean.toFixed(2),worst3:+w.ensemble.severity.worst3.toFixed(2)}:null,
+ fails:w.ensemble?Object.entries(w.ensemble.failing.reduce((m,f)=>{const k=f.reason.replace(/[0-9.]+°F at [^;]+;/,'X°F at bedtime;');m[k]=(m[k]||0)+1;return m;},{})).map(([k,v])=>v+'x '+k):null,
  winnerPhases:w.phases.map(p=>({time:p.time,setup:p.setup})),counters:typeof ENSEMBLE_SEARCH!=='undefined'?{pruned:ENSEMBLE_SEARCH.pruned,completions:ENSEMBLE_SEARCH.completions,shortlists:ENSEMBLE_SEARCH.shortlists,cut:ENSEMBLE_SEARCH.cut}:null,work:Math.round(work)})`));
 // Render before and after the Worker trimming; both must match.
 const html1=a.run(`renderPlan(res)`);
@@ -55,7 +59,7 @@ a.ctx.res=v8.deserialize(v8.serialize(a.ctx.res));
 const html2=a.run(`renderPlan(res)`);
 const h=x=>crypto.createHash('sha1').update(x).digest('hex').slice(0,12);
 const core=x=>x.replace(/<p class="hint" data-search="[a-z]+">[^<]*<\/p>/,'');
-out={fixture:only,...(heading?{heading}:{}),mode,exact:process.env.EXACT||null,s:+seconds.toFixed(1),...summary,html:h(html1),htmlCore:h(core(html1)),htmlTrimmedSame:html1===html2,postedMB:+(posted/1e6).toFixed(2),peakLiveMB:gcEvery?Math.round(peakLive/1e6):null};
+out={fixture:only,...(heading?{heading}:{}),...(cfSpec?{cf:cfSpec}:{}),mode,exact:process.env.EXACT||null,s:+seconds.toFixed(1),...summary,html:h(html1),htmlCore:h(core(html1)),htmlTrimmedSame:html1===html2,postedMB:+(posted/1e6).toFixed(2),peakLiveMB:gcEvery?Math.round(peakLive/1e6):null};
 }catch(err){
  if(!heading&&/confirm the coach heading/.test(err.message)){out={fixture:only,needsHeading:true};}
  else out={fixture:only,...(heading?{heading}:{}),mode,error:err.message.slice(0,140)};
