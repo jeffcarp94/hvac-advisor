@@ -1,6 +1,6 @@
 # v6.6.22 — WP12 Phase A comfort metric (observation only)
 
-Scope v3 WP12 Phase A. **Observation only:** the page computes the metric after the plan is fixed, from the nominal member (member 0) of the plan it displays and logs (the same plan `recordRunLog` samples). No planner function reads it, so eligibility, ranking, recommendations and timing, including remote and sleep cases, are unchanged (acceptance item 3, verified on every fixture below). The only change on the planner path is that each trace point also carries the two WP11 slow-storage temperatures (`bedMass`, `midMass`).
+Scope v3 WP12 Phase A. **Observation only:** the page computes the metric after the plan is fixed, from the nominal member (member 0) of the plan it displays and logs (the same plan `recordRunLog` samples). No planner function reads it, so eligibility, ranking, recommendations and timing, including remote and sleep cases, are unchanged (acceptance item 3, verified on every fixture below). The only change on the planner path is that trace points of the nominal condition (member 0) also carry the two WP11 slow-storage temperatures (`bedMass`, `midMass`); the other 31 members' traces are unchanged, so peak memory is unchanged within measurement.
 
 ## Owner decisions, November 19, 2026
 

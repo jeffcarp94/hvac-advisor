@@ -2365,7 +2365,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
 function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,options={}){
     const {start,end}=simulationBounds(envelope),rows=options.rows||scheduleWeather(envelope,start,end,options.maxStepMin||.5);
     if(!rows.length||rows.some(row=>!Number.isFinite(row.dt)||row.dt<=0))throw new Error('The calculation needs positive-duration intervals. Rebuild the plan with valid times.');
-    const scenario=options.scenario||AIR_SCENARIOS[0],pressure=sitePressurePa(envelope.elevationM);
+    const scenario=options.scenario||AIR_SCENARIOS[0],pressure=sitePressurePa(envelope.elevationM),nominalTrace=scenario===AIR_SCENARIOS[0];
     const fallbackChargeEnd=rows[0].phoneCharging===undefined?sleepChargingStart(start)+2*3600000:0;
     const assemblies=envelopeAssemblies(scenario.cabFactor??3,scenario.bodyCase),solarWeights=solarAllocation(1,scenario.cabFactor??3,scenario.bodyCase);
     const delivery={ductRear:scenario.ductRear??null,furnaceRear:scenario.furnaceRear??null};
@@ -2407,8 +2407,10 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
     const record=(time,elapsed)=>{
         if([...t,...w].some(v=>!Number.isFinite(v)))throw new Error('Indoor prediction is not finite. Check the inputs and rebuild the plan.');
         const comfortT=t[0],rh=t.map((v,z)=>rhFromRatio(v,w[z],pressure));
-        trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],dewPoint:dpFromRatio(w[0],pressure),midDewPoint:dpFromRatio(w[1],pressure),water:w.slice(),sleep:options.sleepAt?options.sleepAt(time):isOvernight,
-            bedMass:tm[0],midMass:tm[1]}); // WP12: slow-storage temperatures, read by the comfort metric only
+        trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],dewPoint:dpFromRatio(w[0],pressure),midDewPoint:dpFromRatio(w[1],pressure),water:w.slice(),sleep:options.sleepAt?options.sleepAt(time):isOvernight});
+        // WP12: the comfort metric reads the slow-storage temperatures of the nominal condition only, so only it keeps
+        // them (memory: the other 31 members' traces stay as in v6.6.21).
+        if(nominalTrace){const point=trace.at(-1);point.bedMass=tm[0];point.midMass=tm[1];}
         return{comfortT,rh};
     };
     const checkpoints=[],carry=options.carry,sensor=options.comparisonSensor;

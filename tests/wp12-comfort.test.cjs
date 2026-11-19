@@ -108,3 +108,11 @@ test('trace points carry the slow-storage temperatures the metric reads',()=>{
         const sim=simulatePlan([{time:+r.start,setup:planSetup('passive',true,null,'Auto')}],e,r);return JSON.stringify([Object.keys(sim.trace[0]),sim.trace[0].bedMass,sim.trace.at(-1).bedMass<67]);})()`));
     assert.ok(keys[0].includes('bedMass')&&keys[0].includes('midMass'));assert.equal(keys[1],67);assert.equal(keys[2],true);
 });
+test('only the nominal condition keeps the slow-storage temperatures (memory)',()=>{
+    const b=app();b.run("forecast.timeZone='America/Chicago'");
+    const r=JSON.parse(b.run(`(()=>{const r={occupancy:'staying',start:new Date('2026-11-12T04:00:00Z'),reading:new Date('2026-11-12T04:00:00Z'),initial:{temperature:[67,66],rh:[45,45]}};
+        const e={windowStart:r.start,windowEnd:new Date('2026-11-12T05:00:00Z'),timeZone:'America/Chicago',lat:null,lon:null,points:[{time:r.start,tOut:40,rh:45,cloud:1,wind:4,precip:'none'}],cloud:1,wind:4,precip:'none',singlePoint:true};
+        const phases=[{time:+r.start,setup:planSetup('passive',true,null,'Auto')}];
+        return JSON.stringify(AIR_SCENARIOS.slice(0,3).map(s=>'bedMass' in simulatePlan(phases,e,r,s).trace[1]));})()`));
+    assert.deepEqual(r,[true,false,false]);
+});
