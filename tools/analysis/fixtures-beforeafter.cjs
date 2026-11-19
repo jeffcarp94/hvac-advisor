@@ -1,6 +1,8 @@
 // Before/after fixture runner (live model only). Usage: node fixtures-beforeafter.cjs <repo> [fixture]
 // v6.6.19 (WP9): DEHUM=off runs every fixture with the dehumidifier disabled (default: enabled), so both
 // dehumidifier states can be reviewed. Output also reports the plan's maximum room RH and longest >65% run.
+// v6.6.21 (WP13): ENSEMBLE=on enables the 32-member ensemble and D3 ranking (default off, the live policy);
+// the output then adds the joint pass count, admission and severity of the winner.
 const repo=process.argv[2],only=process.argv[3];const path=require('path');
 const {app}=require(repo+'/tests/helpers.cjs');const {performance}=require('perf_hooks');
 const archived=require(path.resolve(repo,'tests/fixtures/winterset-2026-10-23.json'));
@@ -33,7 +35,7 @@ const jobs=[
 // synthetic fixtures have none, so a sunlit fixture is run at each cardinal heading (labeled assumption).
 const runs=[];
 for(const [name,job] of jobs)runs.push([name,job,null]);
-const HEADINGS=['N','E','S','W'];
+const HEADINGS=(process.env.HEADINGS||'N,E,S,W').split(','); // v6.6.21: HEADINGS env limits the reruns
 for(let i=0;i<runs.length;i++){
  const [name,job,heading]=runs[i];
  if(only&&name!==only)continue;
@@ -45,6 +47,7 @@ for(let i=0;i<runs.length;i++){
   points=job.points.map(p=>({...p,time:new Date(p.time)}));
   e={windowStart:r.start,windowEnd:new Date(job.end),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
   ${heading?`e.site={heading:'${heading}',confirmed:true,cover:{}};`:''}
+  if(typeof ENSEMBLE!=='undefined')ENSEMBLE.enabled=${process.env.ENSEMBLE==='on'};
   res=runUnifiedPlan(r,e);w=res.winner;`);
   const out=JSON.parse(a.run(`JSON.stringify({q:!!(w.suitable&&w.ready&&w.trials.every(t=>+t.trace.at(-1).time>=+e.windowEnd)),
    phases:w.phases.map(p=>new Date(p.time).toISOString().slice(11,16)+' '+p.setup.type+(p.setup.type==='passive'?'':' '+(['auto','auto_furnace'].includes(p.setup.type)?p.setup.setpoints.heat+'/'+p.setup.setpoints.cool:p.setup.type==='ac'?p.setup.setpoints.cool:p.setup.type==='maxxfan'?p.setup.setpoints.fan:p.setup.setpoints.heat))+' '+p.setup.fan),
@@ -52,6 +55,7 @@ for(let i=0;i<runs.length;i++){
    reason:(w.reason||'').slice(0,70),remote:res.stages?.remoteAction?new Date(res.stages.remoteAction.time).toISOString().slice(11,16)+' '+res.stages.remoteAction.setup.type:null,bounded:!!res.stages?.boundedSearch,
    rh:Math.round(Math.max(...w.trials.map(t=>t.moisture?.maxRH??0)))+'% max, '+Math.round(Math.max(...w.trials.map(t=>t.moisture?.humidMax??0)))+' min >65%',
    failing:Object.fromEntries(['equipment','moisture','comfort'].map(k=>[k,w.trials.filter(t=>t[k+'Reason']).length])),
+   ensemble:w.ensemble?{passes:w.ensemble.passes,evaluated:w.ensemble.evaluated,admitted:w.ensemble.admitted,meanDegMin:+w.ensemble.severity.mean.toFixed(1),worst3DegMin:+w.ensemble.severity.worst3.toFixed(1),rhMin:+w.ensemble.severity.rhMean.toFixed(1),failing:w.ensemble.failing.slice(0,4).map(f=>f.index+': '+f.reason.slice(0,50))}:null,
    coil:typeof res.coilAdvisory==='undefined'?'n/a':res.coilAdvisory?{flagged:res.coilAdvisory.check.flagged,cases:res.coilAdvisory.check.cases,staged:res.coilAdvisory.check.stagedFlagged,alternative:!!res.coilAdvisory.alternative}:null})`));
   console.log(JSON.stringify({fixture:name,...(heading?{heading}:{}),dehum:process.env.DEHUM!=='off',s:+((performance.now()-t0)/1000).toFixed(0),...out}));
  }catch(err){

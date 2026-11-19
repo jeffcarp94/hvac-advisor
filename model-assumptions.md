@@ -1,3 +1,154 @@
+# v6.6.21 — WP13 sampled ensemble and D3 severity ranking
+
+Scope v3 WP13 and owner decision D3. **Enabled (`ENSEMBLE.enabled`, owner decision November 19, 2026, after reviewing the before/after table below), with the bounded shortlist off (`ENSEMBLE.budgetHours` unlimited).** Turning the flag off restores the nine v6.6.16 cases and v6.6.20 decisions exactly (verified on every fixture run). Nothing here is fitted to any fixture.
+
+## Method
+
+| Item | Implementation |
+| --- | --- |
+| Members | N = 32. Member 0 is the nominal working case (unchanged code path; its trial equals the v6.6.16 working case exactly). Members 1–31: Latin hypercube, one stratum per member in each of 24 dimensions; categories take whole strata (body case 11/10/10). PRNG mulberry32; algorithm id `lhs-mulberry32-v1` (`ENSEMBLE.algorithm`) |
+| Seed | FNV-1a hash of the decision-relevant inputs (start, readings, occupancy and times, actual setup, window, location, elevation, site, forecast points, dehumidifier, entered RH). Same inputs give the same members |
+| Common random numbers | One member set per plan search (`configureEnsemble` after `configureSolarScenarios`); every candidate, phase, alternative and check uses the same members and weather histories |
+| Weather | Temperature and dew-point errors: AR(1) at hourly knots (6 h correlation), σ 2°F to 12 h, linear to 3°F at 36 h, 3.5°F beyond, lead from the plan start; linear between knots, applied at each row start. RH derived from the perturbed temperature and dew point (dew point capped at air temperature). Sky cover ±20 points with irradiance recomputed; wind × 0.7–1.3. The no-location aggregate solar fallback and the rain RH floor are not re-applied (labeled) |
+| Installation draws | Active only inside a member's simulation (`MEMBER_PARAMS`, restored afterwards): storage, internal gains, infiltration (scales A_L), moisture buffer capacity and time constant, dehumidifier returned moisture, tree blocked fraction, albedo, absorptance, coil ΔT_cold (advisory). Airflow and body/cab/window fields go through the scenario object as before |
+| Airflow and storage | Garage-supported families drawn jointly on the unit disk (`reports/wp13-priors.md`) |
+| Not sampled | D2-gated capacities, WP6 airflow and changeover δ/h; calibrated furnace output and furnace-to-mass share; heading for daylight plans (decision B). Analysis runs that allow an Unknown heading give member 0 the 16-point average and each other member one cardinal heading |
+
+Priors and labels: `reports/wp13-priors.md`. Jeff approved all five prior questions as recommended on November 18, 2026 (§4 there).
+
+## Qualification and ranking (D3)
+
+- **Hard constraints in every member:** equipment limits and the existing coil policy (`equipmentEligible`), executability (unavailable actions are equipment failures), and the 65°F floor with the current recovery semantics (`floorBreach`).
+- **Joint pass per member:** bedroom comfort, sustained room-air RH, bedtime readiness (only when the interval ends at bedtime) and return comfort (remote planning) together.
+- **Admission:** all 32 evaluated, hard constraints pass in all, the nominal member passes jointly, and at least 29 of the same 32 pass jointly.
+- **Ranking of admitted plans** (`compareEnsemble`): mean bedroom degree-minutes outside the applicable band over all 32 (warm × 2), then mean of the three worst, then mean minutes inside sustained RH runs (> 65% beyond 30 min, counted in full; kept separate), then the existing comparators on the nominal member (recovery, front fit, target fit with the cooler preference, natural recovery, score, mode preference), then pass count, then a stable candidate ID.
+- **Full-horizon severity:** if a plan can still be admitted, every member that stopped at a comfort or RH failure is rerun to the end without stopping (`completeEnsembleTrials`), so later misses count and every hard constraint is checked to the end. Plans that cannot be admitted keep early stopping.
+- **Plans not admitted** keep the longest-acceptable ordering, generalized: a plan stays admissible until the nominal fails, any hard constraint fails, or the fourth member fails (the failure that leaves fewer than 29). Members that were not evaluated count as lasting the horizon. Owner decision, November 18, 2026 (the v6.6.16 rule used the earliest failure of any case).
+- **"Every case passes" checks elsewhere** (protection fallback, partial departure, bedtime recovery): hard constraints in every member, the other condition in the nominal member and at least 29 (`casesPass`).
+- **UI:** "Works in X of 32 tested conditions", the rule, up to three failing conditions named with their main departures and reasons, and "tested conditions, not probabilities". Checked at 390 and 480 px in both themes (synthetic summaries; no horizontal overflow). The envelope note names the sampled conditions when enabled.
+
+## Tests (`tests/wp13-ensemble.test.cjs`, 13)
+
+Default off and restore; determinism and seed sensitivity; nominal member identical to the working case; member context restored (also after an exception); Latin-hypercube strata in every dimension, bounds, disk draw and area preservation; family endpoints; σ schedule and AR(1) correlation (20 seeds × 31 members: lag-6 h ≈ e⁻¹); RH consistency with the dew point; admission boundaries 28/29/30, nominal failure, a single hard failure, joint pass; one severe hot miss loses to two slight cool misses; worst-three tie-break; RH tie-break before the nominal comparators; full-horizon severity and the rerun rule; non-admitted ordering; unknown-heading members; an end-to-end deterministic run. Enabling (v6.6.21) updated the tests that assumed nine cases or the flag off: trial counts are 32 (`condensation-advisory`, `current-guidance`), the period-comparison payload check uses `trimPlanResult`, the three-case timing-island test and the flag-off result test turn the ensemble off explicitly, and the default test now expects the policy on. The full-night test (synthetic 60°F night) still qualifies, with 29 of 32 passing (COOL 67 Low from 9:30 PM CDT, then HEAT PUMP 68 Low at 10 PM); it now checks the nominal and the 29-of-32 rule instead of every case.
+
+Search tests (`tests/wp13-search.test.cjs`, 11): defaults; pruning boundaries (3 vs 4 failures, nominal, equipment, 65°F floor); a pruned plan completes to exactly the exhaustive evaluation and a qualifying plan is never pruned; every pairwise choice and the best-by-type selection with pruned plans match the exhaustive comparator; shortlist order and K = 6 → 12 → all expansion; screening survivors complete exactly; five-minute checkpoints and resumed-equals-direct; display-trace ranges and readings; end to end, automatic and exhaustive render the same plan and the trimmed Worker result renders identically; disclosure text; flag-off result unchanged. `tests/recovery.test.cjs` resumes at 10 instead of 12 minutes (checkpoints are kept at five-minute marks). The browser smoke test cancels a running ensemble plan in the Worker.
+
+## Fixtures, dehumidifier on (flag off → flag on; `reports/wp13-fixtures-beforeafter.jsonl`)
+
+Coach-local times (CDT for the March, May, July and October fixtures; CST for the November synthetics). Sunlit fixtures run at each cardinal heading N, E, S, W (labeled assumption; the fixtures have no recorded heading). Weather is archived or labeled synthetic. The ensemble column is the automatic search (exact pruning), which equals evaluating every member of every plan (release gate below). With the flag off, the rendered plan is byte-identical to the previous PR head (v6.6.20 decisions) on all 20 runs, including the expected error.
+
+| Fixture | Heading | Nine cases (live, v6.6.20) | Ensemble (WP13) | Qualifies | Ensemble pass count |
+| --- | --- | --- | --- | --- | --- |
+| March historical | — | 9:00 PM COOL 70 Low → 10:00 PM HEAT PUMP 67 Low | 9:00 PM OFF → 9:20 PM COOL 68 Low → 10:00 PM HEAT PUMP 67 Low | no → **yes** | 31/32 |
+| Preparation synthetic | N | 9:00 PM MaxxFan 71 Auto → 10:00 PM AUTO HEAT PUMP 61/65 Low | 9:00 PM COOL 67 Auto → 9:55 PM COOL 65 Low → 10:00 PM HEAT PUMP 67 Low | no → **yes** | 30/32 |
+| Preparation synthetic | E | 9:00 PM MaxxFan 71 Auto → 10:00 PM AUTO HEAT PUMP 61/65 Low | 9:00 PM MaxxFan 68 Auto → 9:10 PM COOL 66 Low → 10:00 PM HEAT PUMP 67 Low | no → no | 28/32 |
+| Preparation synthetic | S | 9:00 PM MaxxFan 71 Auto → 10:00 PM AUTO HEAT PUMP 61/65 Low | 9:00 PM COOL 67 Auto → 9:55 PM COOL 65 Low → 10:00 PM HEAT PUMP 67 Low | no → **yes** | 30/32 |
+| Preparation synthetic | W | 9:00 PM MaxxFan 71 Auto → 10:00 PM AUTO HEAT PUMP 61/65 Low | 9:00 PM COOL 67 Auto → 9:40 PM COOL 66 Low → 10:00 PM HEAT PUMP 67 Low | no → **yes** | 30/32 |
+| Surface synthetic | — | 5:30 AM AUTO HEAT PUMP 65/69 Low | 5:30 AM MaxxFan 66 Auto | yes → yes | 32/32 |
+| Winterset 2025-10-01 | — | 9:00 PM AUTO HEAT PUMP 67/71 Auto → 9:45 PM COOL 55 Low → 10:00 PM HEAT PUMP 66 Auto | 9:00 PM AUTO HEAT PUMP 66/70 Auto → 10:00 PM AUTO HEAT PUMP 63/67 Low | no → no | 0/32 |
+| October saved | — | 6:48 PM AUTO HEAT PUMP 66/71 Low → 10:00 PM AUTO HEAT PUMP 63/67 Low | 6:48 PM AUTO HEAT PUMP 66/70 Low → 10:00 PM AUTO HEAT PUMP 63/67 Low | no → no | 0/32 |
+| Winterset 2026-05-08 | N | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | no → no | 0/32 |
+| Winterset 2026-05-08 | E | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | no → no | 0/32 |
+| Winterset 2026-05-08 | S | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | no → no | 0/32 |
+| Winterset 2026-05-08 | W | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | no → no | 0/32 |
+| Hot synthetic | N | 1:00 PM AUTO HEAT PUMP 68/72 High → 8:30 PM COOL 68 Low → 10:00 PM HEAT PUMP 66 Auto | 1:00 PM AUTO HEAT PUMP 68/72 High → 9:45 PM AUTO HEAT PUMP 65/69 Low | no → no | 0/32 |
+| Hot synthetic | E | 1:00 PM AUTO HEAT PUMP 68/72 High → 9:25 PM AUTO HEAT PUMP 65/69 Low | 1:00 PM AUTO HEAT PUMP 68/72 High → 9:55 PM COOL 68 Low | no → no | 0/32 |
+| Hot synthetic | S | 1:00 PM AUTO HEAT PUMP 68/72 High → 8:35 PM COOL 68 Low → 10:00 PM HEAT PUMP 66 Auto | 1:00 PM COOL 72 High → 9:05 PM OFF | no → no | 0/32 |
+| Hot synthetic | W | 1:00 PM AUTO HEAT PUMP 68/72 High → 8:30 PM COOL 68 Low → 10:00 PM HEAT PUMP 66 Auto | 1:00 PM COOL 72 High → 8:30 PM COOL 68 Low → 10:00 PM HEAT PUMP 66 Auto | no → no | 0/32 |
+| Falling synthetic | — | 10:00 PM AUTO HEAT PUMP 67/71 Low | 10:00 PM AUTO HEAT PUMP 66/70 Auto | no → no | 0/32 |
+| Rising synthetic | — | 10:00 PM HEAT PUMP 67 Auto | 10:00 PM HEAT PUMP 68 Low | no → no | 0/32 |
+| Away-return, Wi-Fi | — | 12:00 AM HEAT PUMP 67 Low | 12:00 AM HEAT PUMP 67 Low | no → no | 22/32 |
+| Away-return, no Wi-Fi | — | expected error | expected error | — | — |
+
+Qualified runs (19 runnable): nine cases 1 (surface synthetic); ensemble 5 (March, surface, and the preparation synthetic at N, S and W; at E it passes 28 of 32, one short). Every gain is the intended D3 relaxation: plans that failed one of nine extreme cases pass in at least 29 of 32 sampled conditions. Other changes are best-available sequences under the new admissibility ordering; no run gains or loses an equipment or moisture failure. Hot synthetic decisions depend on the heading in both policies.
+
+## Search (WP13 Search stage, November 18, 2026)
+
+Scope v3 WP13 "Search". No thermodynamic value, eligibility rule, comfort criterion or comparator changed.
+
+| Item | Implementation |
+| --- | --- |
+| Exact pruning | `evaluatePlan` runs the members in order, nominal first, and stops as soon as the plan certainly cannot qualify: the nominal member fails, any member fails a hard constraint (equipment, executability or the 65°F floor), or a fourth member fails (then at most 28 of 32 can pass). The scope names the first two; the third follows from the same 29-of-32 rule. A plan that can still qualify is always evaluated in all 32 members. |
+| Lazy completion (`ENSEMBLE.exactFallback`, on) | A pruned plan is completed (all members) whenever the members it evaluated cannot settle a comparison. On every comparator key before the mean score (qualification rank, how long the plan stays acceptable, recovery, front fit, target fit, natural recovery), a pruned plan's evaluated members are never worse than its full evaluation, so a comparison they settle has the same outcome. The earliest-failure skip in the timing search and the fan-repair trigger also use every member. The search therefore makes the same choices as evaluating every member of every plan. |
+| Bounded shortlist | Built as specified: eight screening members (nominal and members 1–7), survivors ordered by mean, then worst-three, severity across the screening members over the full horizon, K = 6 → 12 → all survivors while none qualifies. It applies to the setpoint search once the search has simulated more than `ENSEMBLE.budgetHours`. **Default budget: unlimited (shortlist off)**, because it measured slower (below); owner decision pending. |
+| Disclosure | The ensemble box ends with "Search: every plan that could still qualify was checked in all 32 conditions. Plans were set aside early only after failing a check that rules them out." or, when the shortlist left survivors unchecked, "Bounded search: N plans that could still qualify were not checked in all 32 conditions because the search reached its computation limit. The best plan found is shown." Checked at 390 and 480 px, light and dark (no horizontal overflow). |
+| Search memory | Prefix checkpoints only at five-minute marks; cached first-phase prefixes for staying plans run to bedtime instead of through the night (later handoffs are simulated directly); plans kept only for ranking (timing-search results, learned stages, period-comparison candidates, final plans) keep each member's ranking fields and final point; a final plan that is displayed is rebuilt from its phases. Every one of these is result-identical: a resumed handoff equals a direct run (tested), and rebuilt plans are the same deterministic evaluation. |
+| Worker result | `trimPlanResult` (also used by the Worker): plans other than the winner keep no trajectories (as before). With the ensemble, each sampled member of the winner, current recommendation, its outlook and the recovery action keeps a display trace (exact values at every display boundary, and each interval's minimum and maximum) and no segments; the nominal member is kept whole for plan logging. The rendered plan is identical before and after trimming on every fixture run. |
+| Cancellation | The browser smoke test now starts an ensemble plan in the Worker and cancels it (inputs changed); the promise rejects and the Worker is terminated. |
+
+## Release gate (scope WP13 Search item 5)
+
+Reference: every plan that could still qualify evaluated in all 32 members (the automatic search; on falling, Winterset 2025-10-01 and March it was also checked against evaluating every member of every plan, with the same rendered plan, and the end-to-end test repeats that check). Bounded: the shortlist forced on from the start (budget 0).
+
+| Fixture | Heading | Reference: every plan that could qualify in all 32 | Bounded shortlist | Result |
+| --- | --- | --- | --- | --- |
+| March historical | — | 9:00 PM OFF → 9:20 PM COOL 68 Low → 10:00 PM HEAT PUMP 67 Low | 9:00 PM AUTO HEAT PUMP 66/71 Low → 9:20 PM COOL 68 Low → 10:00 PM HEAT PUMP 67 Low | different; bounded better (mean severity 94.38 vs 94.63 °F·min) |
+| Preparation synthetic | N | 9:00 PM COOL 67 Auto → 9:55 PM COOL 65 Low → 10:00 PM HEAT PUMP 67 Low | 9:00 PM COOL 67 Auto → 9:55 PM COOL 65 Low → 10:00 PM HEAT PUMP 67 Low | same plan |
+| Preparation synthetic | E | 9:00 PM MaxxFan 68 Auto → 9:10 PM COOL 66 Low → 10:00 PM HEAT PUMP 67 Low | 9:00 PM MaxxFan 68 Auto → 9:10 PM COOL 66 Low → 10:00 PM HEAT PUMP 67 Low | same plan |
+| Preparation synthetic | S | 9:00 PM COOL 67 Auto → 9:55 PM COOL 65 Low → 10:00 PM HEAT PUMP 67 Low | 9:00 PM COOL 67 Auto → 9:55 PM COOL 65 Low → 10:00 PM HEAT PUMP 67 Low | same plan |
+| Preparation synthetic | W | 9:00 PM COOL 67 Auto → 9:40 PM COOL 66 Low → 10:00 PM HEAT PUMP 67 Low | 9:00 PM COOL 67 Auto → 9:40 PM COOL 66 Low → 10:00 PM HEAT PUMP 67 Low | same plan |
+| Surface synthetic | — | 5:30 AM MaxxFan 66 Auto | 5:30 AM MaxxFan 66 Auto | same plan |
+| Winterset 2025-10-01 | — | 9:00 PM AUTO HEAT PUMP 66/70 Auto → 10:00 PM AUTO HEAT PUMP 63/67 Low | 9:00 PM AUTO HEAT PUMP 66/70 Auto → 10:00 PM AUTO HEAT PUMP 63/67 Low | same plan |
+| October saved | — | 6:48 PM AUTO HEAT PUMP 66/70 Low → 10:00 PM AUTO HEAT PUMP 63/67 Low | 6:48 PM AUTO HEAT PUMP 66/70 Low → 10:00 PM AUTO HEAT PUMP 63/67 Low | same plan |
+| Winterset 2026-05-08 | N | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | same plan |
+| Winterset 2026-05-08 | E | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | same plan |
+| Winterset 2026-05-08 | S | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | same plan |
+| Winterset 2026-05-08 | W | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | 9:00 PM OFF → 10:00 PM AUTO HEAT PUMP 62/66 Low | same plan |
+| Hot synthetic | N | 1:00 PM AUTO HEAT PUMP 68/72 High → 9:45 PM AUTO HEAT PUMP 65/69 Low | 1:00 PM AUTO HEAT PUMP 68/72 High → 9:45 PM AUTO HEAT PUMP 65/69 Low | same plan |
+| Hot synthetic | E | 1:00 PM AUTO HEAT PUMP 68/72 High → 9:55 PM COOL 68 Low | 1:00 PM AUTO HEAT PUMP 68/72 High → 9:55 PM COOL 68 Low | same plan |
+| Hot synthetic | S | 1:00 PM COOL 72 High → 9:05 PM OFF | 1:00 PM COOL 72 High → 9:05 PM OFF | same plan |
+| Hot synthetic | W | 1:00 PM COOL 72 High → 8:30 PM COOL 68 Low → 10:00 PM HEAT PUMP 66 Auto | 1:00 PM COOL 72 High → 8:30 PM COOL 68 Low → 10:00 PM HEAT PUMP 66 Auto | same plan |
+| Falling synthetic | — | 10:00 PM AUTO HEAT PUMP 66/70 Auto | 10:00 PM AUTO HEAT PUMP 66/70 Auto | same plan |
+| Rising synthetic | — | 10:00 PM HEAT PUMP 68 Low | 10:00 PM HEAT PUMP 68 Low | same plan |
+| Away-return, Wi-Fi | — | 12:00 AM HEAT PUMP 67 Low | 12:00 AM HEAT PUMP 67 Low | same plan |
+
+The bounded search never returned a worse plan. On March it found a slightly better qualifying plan (AUTO instead of OFF for the first 20 minutes), because the screening members rank more setpoints than the setpoint search's existing "verify the best three by the nominal member" rule.
+
+
+## Runtime and memory (Node 24, 2-core server; fixtures run two or three at a time, so absolute seconds are inflated)
+
+| Fixture | Heading | Nine cases (s) | Ensemble (s) | Time ratio | Simulated-hours ratio | Bounded shortlist (s) | Posted result, nine → ensemble (MB) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| March historical | — | 283.6 | 303.2 | 1.1 | 0.9 | 362.4 | 14.48 → 1.14 |
+| Preparation synthetic | N | 143.5 | 1132.9 | 7.9 | 6.3 | 1803.1 | 13.24 → 0.96 |
+| Preparation synthetic | E | 150.6 | 1065 | 7.1 | 3.8 | 1011.3 | 13.23 → 1.9 |
+| Preparation synthetic | S | 149.2 | 1592.2 | 10.7 | 5.4 | 1015.8 | 13.23 → 0.96 |
+| Preparation synthetic | W | 149.9 | 1693 | 11.3 | 5.7 | 1166.3 | 13.22 → 0.95 |
+| Surface synthetic | — | 3.4 | 9.8 | 2.9 | 2.7 | 18.6 | 1 → 0.25 |
+| Winterset 2025-10-01 | — | 61.4 | 264.5 | 4.3 | 3.3 | 271.4 | 9.27 → 2.08 |
+| October saved | — | 144.6 | 291.5 | 2.0 | 1.6 | 275.4 | 15.81 → 2.05 |
+| Winterset 2026-05-08 | N | 70.7 | 177.3 | 2.5 | 1.9 | 184.4 | 10.77 → 1.74 |
+| Winterset 2026-05-08 | E | 71.8 | 136.8 | 1.9 | 1.7 | 153.8 | 10.77 → 1.74 |
+| Winterset 2026-05-08 | S | 64.3 | 152.3 | 2.4 | 1.9 | 168.5 | 10.77 → 1.67 |
+| Winterset 2026-05-08 | W | 65.5 | 159.5 | 2.4 | 2.0 | 168.9 | 10.77 → 1.66 |
+| Hot synthetic | N | 200.5 | 299.5 | 1.5 | 1.2 | 382 | 21.78 → 3.15 |
+| Hot synthetic | E | 212 | 318.8 | 1.5 | 1.2 | 442.5 | 22.1 → 3.34 |
+| Hot synthetic | S | 198.7 | 289.6 | 1.5 | 1.2 | 419.1 | 21.59 → 3.01 |
+| Hot synthetic | W | 187.7 | 296.9 | 1.6 | 1.2 | 426.5 | 21.47 → 3.18 |
+| Falling synthetic | — | 6.9 | 21.7 | 3.1 | 2.5 | 25.7 | 11 → 1.52 |
+| Rising synthetic | — | 3.5 | 13.3 | 3.8 | 2.6 | 14.7 | 7.38 → 1.16 |
+| Away-return, Wi-Fi | — | 0.2 | 3.1 | 15.5 | 30.4 | 3.7 | 1.28 → 0.22 |
+
+Simulated hours (column 6) are a load-independent work measure.
+
+| Measure | Nine cases (live) | Ensemble before this stage | Ensemble now |
+| --- | --- | --- | --- |
+| Peak live heap, Winterset 2025-10-01 (forced GC every 400 simulations) | 244 MB | 1,138 MB | 139 MB |
+| Peak live heap, falling synthetic (every 200) | 100 MB | 287 MB | 78 MB |
+| Peak live heap, preparation synthetic N (every 1,000; largest search) | 324 MB | not measured | 183 MB |
+| Posted Worker result | 1–22 MB | up to 51 MB (structured clone; 103 MB as JSON) | 0.2–3.3 MB |
+
+**Phone estimate.** DevTools CPU throttling does not reach a dedicated Worker, so the planner was run on the page thread of a Playwright Pixel 7 profile at 4× throttling (scratch harness, not in the repo). Surface synthetic: nine cases 7.8 s, ensemble 23.5 s; rising: 10.0 s, 40.3 s; falling: 20.8 s, 69.6 s. That is about 2.4–3.2 × the Node time. **The 20 s p90 limit is not met**, by the nine-case planner either: the evening fixtures take 1–5 minutes in Node with nine cases and 2–28 minutes with the ensemble. **The 150 MB limit is met on two of the three fixtures measured, not on the preparation case (183 MB)**; on all three the ensemble now uses less memory than today's nine-case planner.
+
+**Why the shortlist does not help here.** The setpoint search already stops after verifying three candidates once one qualifies, and the timing search stops at the first qualifying handoff. The shortlist screens every listed candidate first, which costs more than it saves: it needed 0–29% more simulation than the reference on every fixture (2.2 times on the surface synthetic) and never less. Wall times in the table vary with machine load; compare simulated hours. Most of the remaining time is spent ranking plans that cannot qualify: keeping that ordering exact needs every member of the plans being compared. Ranking pruned plans on their evaluated members only was tried: falling synthetic ran in 6.6 s instead of 19.5 s, but the AUTO plan it chose stays acceptable until 10:26 PM instead of 1:23 AM, so it is off (`ENSEMBLE.exactFallback`).
+
+
+## Remaining uncertainty
+
+- The priors are owner-approved, but the storage and airflow ranges rest on two unoccupied garage runs.
+- Forecast lead is measured from the plan start, not the NWS issue time.
+- Severity counts the initial recovery interval like any other miss (the scope does not exclude it).
+
 # v6.6.20 — WP10 wind and infiltration
 
 Scope v3 WP10 (decision change; no further gate). Nothing below is fitted to any fixture. Calm-condition U values are unchanged (exactly, for every body case and cab factor).

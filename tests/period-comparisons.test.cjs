@@ -38,7 +38,7 @@ test('projected alternatives retain identical preparation and exact carried bedt
  assert.equal(a.run('comparisons.night.options.every(p=>typeof p.front===\"string\"&&!p.front.includes(\"undefined\"))'),true);
  assert.match(a.run('html'),/projected overnight options/);assert.match(a.run('html'),/same predicted sleep-start conditions/);
  // Comparison summaries survive the exact worker payload pruning.
- a.run(`delete result.envelope.planCache;for(const p of result.plans)for(const t of p.trials){delete t.checkpoints;if(p!==result.winner){t.trace=[];t.segments=[];}};serialized=structuredClone(result);workerHTML=renderPlan(serialized)`);
+ a.run(`trimPlanResult(result);serialized=structuredClone(result);workerHTML=renderPlan(serialized)`); // v6.6.21: the Worker's own trimming
  assert.match(a.run('workerHTML'),/projected overnight options/);
 });
 test('daytime alternatives cannot borrow an early AC switch; idle heaters are unnecessary',()=>{

@@ -16,7 +16,7 @@ test('closed-coach whole-plan selection, ranking, preparation and trajectories a
  function calculate(){return runUnifiedPlan(r,envelope());}
  base=calculate();`);
  assert.equal(a.run('base.winner.suitable&&base.winner.ready'),true);
- assert.equal(a.run('base.winner.trials.length'),9);
+ assert.equal(a.run('base.winner.trials.length'),a.run('AIR_SCENARIOS.length')); // 32 since v6.6.21 (WP13)
  const expected=decision(a.run('base'));
  assert.ok(a.run("base.winner.trials.some(t=>t.condensationConcern?.source==='surface')"));
  assert.ok(a.run('base.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===Date.parse(job.end))'));

@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.20 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.21 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -63,6 +63,7 @@
         .result-detail:last-child{border-bottom:none;}
         .result-detail-label{color:var(--text-muted);font-family:var(--font-mono);font-size:11px;font-weight:600;min-width:90px;text-transform:uppercase;letter-spacing:0.04em;}
         .result-detail-value{overflow-wrap:anywhere;color:var(--text-primary);font-weight:600;}
+        .ensemble-failing{margin:6px 0 0 18px;padding:0;}
         .mitigation-box{margin-top:12px;padding:12px 14px;border-radius:var(--radius-sm);border-left:3px solid var(--accent-amber);background:var(--tint-amber);font-size:13px;line-height:1.5;color:var(--text-secondary);}
         .mitigation-box strong{color:var(--severity-amber-text);font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:4px;}
         .mitigation-box.alert{border-left-color:var(--accent-red);background:var(--tint-red);}
@@ -106,7 +107,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.20</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.21</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -339,7 +340,7 @@ function envelopeAuditText(){
     const a=envelopeAudit(),cases=a.bodyCaseUA;
     return '<p class="hint">Construction-based envelope: closed-coach UA '+a.nominalUA.toFixed(1)+' BTU/(hr·°F), before wind. '+
         'The RV body is calculated separately from walls, roof, floor, entry door, roof openings and glass. The working shell case uses the reported R-18 claim; floor R-8 is an engineering assumption, not a verified specification. '+
-        'Body UA spans '+Math.min(...cases).toFixed(1)+'–'+Math.max(...cases).toFixed(1)+' with the cab held fixed. All nine weather/airflow and body-insulation combinations are tested. '+
+        'Body UA spans '+Math.min(...cases).toFixed(1)+'–'+Math.max(...cases).toFixed(1)+' with the cab held fixed. '+(ENSEMBLE.enabled?'Each of the '+ENSEMBLE.members+' sampled conditions uses one of the three body cases. ':'All nine weather/airflow and body-insulation combinations are tested. ')+
         'Assembly performance, floor layers and leakage remain uncertain; these are sensitivity cases, not calibrated accuracy bounds. Magneshades receive no insulation credit.</p>';
 }
 function solarPeakGains(cabFactor=3,bodyCase=BODY_CASES[0]){
@@ -369,10 +370,10 @@ const WATTS_TO_BTU_H=3.412;
 // fitted to the owner's 11/17/2026 garage furnace run. Owner outlet estimate was 0.70 rear.
 const FURNACE={rearFraction:.57,toMass:.49};
 function zoneInternalGains(occupantSensible,dehumidifier,sleeping,phoneCharging){
-    const rearOccupant=occupantSensible*(sleeping?1:M.fraction[0]);
-    const rearWatts=GAIN_WATTS.multiPlusStandby+GAIN_WATTS.multiPlusConversion+
-        (phoneCharging?GAIN_WATTS.sleepPhoneCharging:0);
-    const frontWatts=GAIN_WATTS.cerboAndDisplay+GAIN_WATTS.refrigerator;
+    const rearOccupant=occupantSensible*(sleeping?1:M.fraction[0]),g=MEMBER_PARAMS?.gains||GAIN_WATTS; // WP13 member draws
+    const rearWatts=g.multiPlusStandby+g.multiPlusConversion+
+        (phoneCharging?g.sleepPhoneCharging:0);
+    const frontWatts=g.cerboAndDisplay+g.refrigerator;
     return [rearOccupant+rearWatts*WATTS_TO_BTU_H,
         occupantSensible-rearOccupant+dehumidifier+frontWatts*WATTS_TO_BTU_H];
 }
@@ -448,7 +449,16 @@ function dateFormatter(options){
     }
     return dateFormatters.get(key);
 }
+// WP13 performance (no decision change): local calendar parts memoized by time zone and instant.
+const LOCAL_PARTS_CACHE=new Map();
 function localParts(date){
+    const ms=+date,tz=analysisTimeZone(),key=tz+'|'+ms;
+    if(Number.isFinite(ms)){const hit=LOCAL_PARTS_CACHE.get(key);if(hit)return{...hit};}
+    const value=localPartsUncached(date);
+    if(Number.isFinite(ms)){if(LOCAL_PARTS_CACHE.size>=50000)LOCAL_PARTS_CACHE.clear();LOCAL_PARTS_CACHE.set(key,value);}
+    return{...value};
+}
+function localPartsUncached(date){
     const parts=dateFormatter({timeZone:analysisTimeZone(),year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'}).formatToParts(date);
     return Object.fromEntries(parts.filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));
 }
@@ -858,7 +868,14 @@ const TREE_FACADE=Object.freeze({front:'tree_front',windshield:'tree_front',rear
 // Per-surface solar coefficients (BTU/h per BTU/(h·ft²) of incident irradiance) by zone and facade.
 // Glass: area × shade-and-glass SHGC (applied once). Opaque: sol-air excess α·I/h_o through the
 // surface's own conductance K = A/R, so no conduction is counted twice. The underside is unexposed.
+// Coefficients depend only on the cab factor and body case: build each set once (read-only).
+const SOLAR_COEFF_CACHE=new Map();
 function solarSurfaceCoefficients(cabFactor=3,bodyCase=BODY_CASES[0]){
+    const key=cabFactor+'|'+JSON.stringify(bodyCase);
+    if(!SOLAR_COEFF_CACHE.has(key))SOLAR_COEFF_CACHE.set(key,Object.freeze(solarSurfaceCoefficientsUncached(cabFactor,bodyCase).map(x=>Object.freeze(x))));
+    return SOLAR_COEFF_CACHE.get(key);
+}
+function solarSurfaceCoefficientsUncached(cabFactor=3,bodyCase=BODY_CASES[0]){
     const e=envelopeAllocation(cabFactor,bodyCase),g=GEOMETRY,fpp=g.ftPerPixel,h=g.coachHeight;
     const rearLen=(1484-960)*fpp,frontLen=(960-490)*fpp,W=(550-90)*fpp,cabW=(505-155)*fpp,cabLen=(490-220)*fpp;
     const area=id=>solarGlazing().find(x=>x.id===id).area,areas=bodySurfaces(),door=28*72/144;
@@ -881,14 +898,18 @@ function solarSurfaceCoefficients(cabFactor=3,bodyCase=BODY_CASES[0]){
     return list;
 }
 function headingDegrees(heading){const i=PARKING_HEADINGS.indexOf(heading);return i<0?null:i*22.5;}
-function solarCover(cover){return Object.fromEntries(Object.values(TREE_FACADE).map(k=>[k,TREE_TRANSMISSION[cover?.[k]]??1]));}
+function solarCover(cover){
+    // WP13: a member scales each facade's blocked fraction (1 − transmission), kept within [0, 1].
+    const k=MEMBER_PARAMS?.solar?.treeScale??1;
+    return Object.fromEntries(Object.values(TREE_FACADE).map(key=>{const t=TREE_TRANSMISSION[cover?.[key]]??1;return[key,k===1?t:Math.max(0,Math.min(1,1-(1-t)*k))];}));
+}
 // Effective irradiance per facade (BTU/h·ft²) for one heading: glass uses the beam angular ratio and the
 // hemispherical ratio for diffuse; opaque uses total incident irradiance. Tree cover reduces beam per
 // facade and diffuse by the mean of all five settings.
 function facadeIrradiance(c,headingDeg,cover){
     const tr=solarCover(cover),diffuseT=Object.values(tr).reduce((a,b)=>a+b,0)/5,out={};
     for(const [f,o] of Object.entries(SOLAR_FACADES)){
-        const az=(((headingDeg??0)+o.offset)%360+360)%360,p=planeIrradiance(c,o.tilt,az),beamT=tr[TREE_FACADE[f]];
+        const az=(((headingDeg??0)+o.offset)%360+360)%360,p=planeIrradiance(c,o.tilt,az,MEMBER_PARAMS?.solar?.albedo??SOLAR.albedo),beamT=tr[TREE_FACADE[f]];
         const beam=p.beam*beamT,diffuse=(p.sky+p.ground)*diffuseT;
         out[f]={glass:(beam*glassAngularRatio(p.incidenceDeg)+diffuse*SOLAR.hemisphericalGlass)*SOLAR.wToBtuFt2,opaque:(beam+diffuse)*SOLAR.wToBtuFt2};
     }
@@ -897,9 +918,22 @@ function facadeIrradiance(c,headingDeg,cover){
 // Facade irradiance depends only on time, sky cover, heading and tree cover: cache it across rows,
 // scenarios and candidate plans within a run (rows are rebuilt per simulation).
 const SOLAR_FACADE_CACHE=new Map();
+const SOLAR_SUN_MEMO=new WeakMap();
 function solarZoneGains(row,heading,cover,coeffs){
     if(!row.sunC)return null;
-    if(!row.facadeCache){const k=+row.date+'|'+row.sunC.ghi.toFixed(3)+'|'+JSON.stringify(cover||{});
+    const c=row.sunC;
+    // Sun below the horizon: every facade irradiance is exactly zero, so the result is [0, 0].
+    if(c.ghi===0&&c.dni===0&&c.dhi===0)return[0,0];
+    // Memo on the shared solar-position object (copied by reference into every split row), keyed by
+    // coefficient set, heading, cover, wind and row time: identical inputs give an identical result.
+    let memo=SOLAR_SUN_MEMO.get(c);if(!memo){memo=new Map();SOLAR_SUN_MEMO.set(c,memo);}
+    let byCoeffs=memo.get(coeffs);if(!byCoeffs){byCoeffs=new Map();memo.set(coeffs,byCoeffs);}
+    const memoKey=heading+'|'+(cover?JSON.stringify(cover):'')+'|'+(row.wind??0)+'|'+(+row.date)+(MEMBER_PARAMS?.solar?'|'+MEMBER_PARAMS.solar.key:'');
+    const hit=byCoeffs.get(memoKey);if(hit)return hit.slice();
+    const value=solarZoneGainsUncached(row,heading,cover,coeffs);byCoeffs.set(memoKey,value);return value.slice();
+}
+function solarZoneGainsUncached(row,heading,cover,coeffs){
+    if(!row.facadeCache){const k=+row.date+'|'+row.sunC.ghi.toFixed(3)+'|'+JSON.stringify(cover||{})+(MEMBER_PARAMS?.solar?'|'+MEMBER_PARAMS.solar.key:'');
         row.facadeCache=SOLAR_FACADE_CACHE.get(k);if(!row.facadeCache){if(SOLAR_FACADE_CACHE.size>20000)SOLAR_FACADE_CACHE.clear();row.facadeCache={};SOLAR_FACADE_CACHE.set(k,row.facadeCache);}}
     const key=heading==='avg'?'avg':String(heading);
     if(!row.facadeCache[key]){
@@ -912,7 +946,8 @@ function solarZoneGains(row,heading,cover,coeffs){
     }
     const fac=row.facadeCache[key],z=[0,0],film=exteriorFilmBtu(localWindMph(row.wind??0));
     // Opaque sol-air excess through the wind-dependent assembly: U(V)·A·α·I/h_o(V) (WP10; was h_o 4).
-    for(const s of coeffs)z[s.zone]+=(s.kind==='opaque'?s.aAlpha*windU(s.r,film)/film:s.coef)*fac[s.facade][s.kind];
+    const alphaScale=(MEMBER_PARAMS?.solar?.absorptance??SOLAR.absorptance)/SOLAR.absorptance;
+    for(const s of coeffs)z[s.zone]+=(s.kind==='opaque'?s.aAlpha*alphaScale*windU(s.r,film)/film:s.coef)*fac[s.facade][s.kind];
     return z;
 }
 function effectiveGlassSHGC(){return C.cabGlassFraction*C.cabGlassSHGC+(1-C.cabGlassFraction)*C.coachDayGlassSHGC;}
@@ -1498,6 +1533,258 @@ function configureSolarScenarios(envelope){
     AIR_SCENARIOS.length=0;AIR_SCENARIOS.push(...next);
     return AIR_SCENARIOS.length;
 }
+// WP13 (v6.6.21; scope v3 WP13, owner decision D3): sampled uncertainty ensemble and severity ranking.
+// Enabled in v6.6.21 after the owner reviewed the before/after table (November 19, 2026). With ENSEMBLE.enabled
+// off (analysis and legacy tests), AIR_SCENARIOS keeps the nine v6.6.16 cases and v6.6.20 behavior.
+// Member 0 is the nominal working case (unchanged path). Members 1–31 are a Latin hypercube (one stratum per
+// member in every dimension; mulberry32 PRNG; ENSEMBLE.algorithm versions the method) seeded from a hash of
+// the decision-relevant inputs, so identical inputs give identical members. Every candidate, phase and
+// alternative in a run sees the same member draws and weather histories (common random numbers).
+// These are tested conditions, not probabilities.
+const ENSEMBLE=Object.seal({enabled:true,members:32,admit:29,algorithm:'lhs-mulberry32-v1',
+    // WP13 Search: 'auto' prunes exactly and, over the work budget, completes a bounded shortlist of survivors
+    // ordered by severity across the screening members (nominal plus members 1–7); 'exhaustive' evaluates every
+    // member of every plan (release-gate reference).
+    search:'auto',screening:8,shortlist:Object.freeze([6,12]),budgetHours:Infinity,
+    // true: a pruned plan is completed whenever its evaluated members cannot settle a comparison, so plans that do
+    // not qualify rank exactly as with every member evaluated; false: they rank on the members evaluated.
+    exactFallback:true});
+let MEMBER_PARAMS=null;
+// Priors (scope §4 as adjusted by WP11 and the owner decisions of 11/18/2026). Uniform unless noted.
+// D2-gated items (WP6 capacities and airflow, changeover δ/h) are not sampled; heading is not sampled for
+// daylight plans (decision B).
+const ENSEMBLE_PRIORS=Object.freeze({
+    // Weather. Temperature error σ by forecast lead (h): 2°F to 12 h, linear to 3°F at 36 h, 3.5°F beyond
+    // (scope WP13 item 2); AR(1) in time, 6 h correlation time. Lead is measured from the plan start (the
+    // forecast issue time is earlier; labeled approximation). Dew-point error: same σ schedule and
+    // correlation, independent of the temperature error (engineering assumption; the scope gives no
+    // dew-point σ). RH is derived from the perturbed temperature and dew point.
+    tauHours:6,dewSigmaScale:1,skyPoints:20,windScale:[.7,1.3],
+    // Airflow and storage (Task A method, owner decisions 4 and 5; reports/wp13-priors.md). Each is one family
+    // position in [−1, 1], with every other parameter at the v6.6.15 fit:
+    // - airflow: restricted (−1) ↔ working (0) ↔ greater (+1) v6.6.16 sets, so mixing (log space), rooftop and
+    //   furnace rear shares (0.52–0.57–0.65) and buoyant width move together;
+    // - storage: low (−1) ↔ fitted (0) ↔ high (+1) data-supported sets of air node, mass node and coupling.
+    // Every family point reproduces both garage runs within the v6.6.15 residual ⊕ 0.3°F, but the square's
+    // corners do not, so the pair is drawn uniformly on the unit disk (Shirley–Chiu concentric map).
+    airflow:[-1,1],
+    storage:Object.freeze({low:Object.freeze({airTotal:295,massTotal:540,massTauHours:.85}),high:Object.freeze({airTotal:305,massTotal:630,massTauHours:1.2})}),
+    gains:Object.freeze({multiPlusStandby:[8,30],cerboAndDisplay:[4,7],sleepPhoneCharging:[20,60]}),
+    treeBlockedScale:[.5,1.5],albedo:[.1,.3],absorptance:[.3,.7],
+    bufferGramsPerRH:[15,50],bufferTauHours:[2,6],dehumReturn:[0,.4],
+    infiltrationACH:[.15,.5],coilColdDeltaF:[2,6], // ΔT_cold affects the advisory only (D1)
+    // Carried over from the nine cases (not in the scope register; proposed for owner confirmation): body
+    // assembly (one of the three cases, equally likely), cab conductance factor, window/MaxxFan flow and
+    // wind-pressure sign, starting room RH offset (%), surface factor (advisory only).
+    cabFactor:[1.5,4.5],flow:[.7,1.2],windSign:[-1,1],rhOffset:[0,5],surfaceFactor:[.8,.9]});
+function forecastSigmaF(leadHours){
+    const h=Math.max(0,leadHours);return h<=12?2:h<=36?2+(h-12)/24:3.5;
+}
+function mulberry32(seed){let a=seed>>>0;return()=>{a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function fnv1a(text){let h=0x811C9DC5;for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,0x01000193);}return h>>>0;}
+// Acklam's rational approximation of the standard normal quantile (|error| < 1.2e-9).
+function normalQuantile(p){
+    const a=[-39.69683028665376,220.9460984245205,-275.9285104469687,138.357751867269,-30.66479806614716,2.506628277459239],
+        b=[-54.47609879822406,161.5858368580409,-155.6989798598866,66.80131188771972,-13.28068155288572],
+        c=[-.007784894002430293,-.3223964580411365,-2.400758277161838,-2.549732539343734,4.374664141464968,2.938163982698783],
+        d=[.007784695709041462,.3224671290700398,2.445134137142996,3.754408661907416],lo=.02425;
+    p=Math.min(1-1e-12,Math.max(1e-12,p));
+    if(p<lo){const q=Math.sqrt(-2*Math.log(p));return(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);}
+    if(p>1-lo){const q=Math.sqrt(-2*Math.log(1-p));return-(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);}
+    const q=p-.5,r=q*q;return(((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q/(((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
+}
+// Latin hypercube: n points in d dimensions, each dimension a random permutation of n strata, jittered.
+function latinHypercube(n,d,rand){
+    const out=Array.from({length:n},()=>new Array(d));
+    for(let j=0;j<d;j++){
+        const perm=Array.from({length:n},(_,i)=>i);
+        for(let i=n-1;i>0;i--){const k=Math.floor(rand()*(i+1));[perm[i],perm[k]]=[perm[k],perm[i]];}
+        for(let i=0;i<n;i++)out[i][j]=(perm[i]+rand())/n;
+    }
+    return out;
+}
+const ENSEMBLE_DIMENSIONS=Object.freeze(['temperatureError','dewPointError','skyOffset','windScale','airflow','storage',
+    'multiPlus','cerbo','phones','treeBlockedScale','albedo','absorptance','bufferCapacity','bufferTau','dehumReturn','infiltrationACH','coilColdDelta',
+    'bodyCase','cabFactor','flow','windSign','rhOffset','surfaceFactor','heading']);
+function ensembleSeed(envelope,request){
+    // Decision-relevant inputs only: identical inputs give identical members.
+    const points=(envelope.points||[]).map(p=>[+p.time,p.tOut,p.rh,p.wind??null,p.sky??null,p.cloud??null]);
+    return fnv1a(JSON.stringify({a:ENSEMBLE.algorithm,start:+request.start,initial:request.initial,occupancy:request.occupancy,departure:+request.departure||null,
+        returnTime:+request.returnTime||null,remote:!!request.remote,actual:request.actual?.key??null,windowStart:+envelope.windowStart||null,windowEnd:+envelope.windowEnd||null,
+        lat:envelope.lat,lon:envelope.lon,elevationM:envelope.elevationM??null,site:envelope.site??null,cloud:envelope.cloud??null,wind:envelope.wind??null,points,
+        dehumidifier:!!state.dehumidifierEnabled,indoorRH:state.indoorRH??null}));
+}
+function interpolateAirflow(s){
+    const w=AIR_WEATHER_CASES[0],end=s<0?AIR_WEATHER_CASES[1]:AIR_WEATHER_CASES[2],f=Math.abs(s);
+    const base={mix:w.mix,ductRear:DUCT.rearFraction,furnaceRear:FURNACE.rearFraction,widthFt:INTERZONE.widthFt};
+    const lin=(a,b)=>a+(b-a)*f;
+    return{mix:Math.exp(lin(Math.log(base.mix),Math.log(end.mix))),ductRear:lin(base.ductRear,end.ductRear),furnaceRear:lin(base.furnaceRear,end.furnaceRear),widthFt:lin(base.widthFt,end.widthFt)};
+}
+function interpolateStorage(s){
+    const e=s<0?ENSEMBLE_PRIORS.storage.low:ENSEMBLE_PRIORS.storage.high,f=Math.abs(s),out={solarToMass:STORAGE.solarToMass};
+    for(const k of ['airTotal','massTotal','massTauHours'])out[k]=STORAGE[k]+(e[k]-STORAGE[k])*f;
+    return out;
+}
+// Area-preserving map of the square [−1, 1]² onto the unit disk (Shirley & Chiu 1997).
+function concentricDisk(a,b){
+    if(a===0&&b===0)return[0,0];
+    const [r,phi]=Math.abs(a)>Math.abs(b)?[a,Math.PI/4*(b/a)]:[b,Math.PI/2-Math.PI/4*(a/b)];
+    return[r*Math.cos(phi),r*Math.sin(phi)];
+}
+function ar1Series(z0,knots,tauHours,rand){
+    const phi=Math.exp(-1/tauHours),k=Math.sqrt(1-phi*phi),out=[z0];
+    for(let i=1;i<knots;i++){const u1=Math.max(1e-12,rand()),u2=rand();out.push(phi*out[i-1]+k*Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2));}
+    return out;
+}
+// Builds the 32 scenarios. headingUnknown (analysis runs with envelope.allowUnknownHeading only): member 0 uses
+// the 16-point average (display central estimate) and each other member one cardinal heading.
+function buildEnsembleMembers(seed,origin,horizonHours,headingUnknown=false){
+    const P=ENSEMBLE_PRIORS,n=ENSEMBLE.members-1,rand=mulberry32(seed),U=latinHypercube(n,ENSEMBLE_DIMENSIONS.length,rand);
+    const range=(r,u)=>r[0]+(r[1]-r[0])*u,knots=Math.max(2,Math.ceil(horizonHours)+2);
+    const nominal={...BASE_AIR_SCENARIOS[0],name:'member 0 (nominal)',ensemble:Object.freeze({index:0,params:null,weather:null,draws:null})};
+    if(headingUnknown)nominal.heading='avg';
+    const members=[nominal];
+    for(let i=0;i<n;i++){
+        const u=Object.fromEntries(ENSEMBLE_DIMENSIONS.map((k,j)=>[k,U[i][j]])),stream=mulberry32((seed^Math.imul(i+1,0x9E3779B9))>>>0);
+        const zT=ar1Series(normalQuantile(u.temperatureError),knots,P.tauHours,stream),zD=ar1Series(normalQuantile(u.dewPointError),knots,P.tauHours,stream);
+        const temp=zT.map((z,h)=>z*forecastSigmaF(h)),dew=zD.map((z,h)=>z*forecastSigmaF(h)*P.dewSigmaScale);
+        // Categories take whole strata, so each category gets an equal share (11/10/10 of 31; 8/8/8/7 for headings).
+        const category=(v,k)=>Math.min(k-1,Math.floor(Math.floor(v*n)*k/n));
+        const [s,storagePosition]=concentricDisk(2*u.airflow-1,2*u.storage-1),airflow=interpolateAirflow(s),bodyIndex=category(u.bodyCase,3);
+        const solar={albedo:range(P.albedo,u.albedo),absorptance:range(P.absorptance,u.absorptance),treeScale:range(P.treeBlockedScale,u.treeBlockedScale)};
+        solar.key='m'+(i+1)+':'+seed;
+        const draws={u:Object.freeze(u),airflow:s,storagePosition,bodyCase:BODY_CASES[bodyIndex].id,cabFactor:range(P.cabFactor,u.cabFactor),infiltrationACH:range(P.infiltrationACH,u.infiltrationACH),
+            storage:interpolateStorage(storagePosition),
+            gains:{...GAIN_WATTS,multiPlusStandby:range(P.gains.multiPlusStandby,u.multiPlus),cerboAndDisplay:range(P.gains.cerboAndDisplay,u.cerbo),sleepPhoneCharging:range(P.gains.sleepPhoneCharging,u.phones)},
+            bufferGramsPerRH:range(P.bufferGramsPerRH,u.bufferCapacity),bufferTauHours:range(P.bufferTauHours,u.bufferTau),dehumReturn:range(P.dehumReturn,u.dehumReturn),
+            coilColdDeltaF:range(P.coilColdDeltaF,u.coilColdDelta),skyOffset:range([-P.skyPoints,P.skyPoints],u.skyOffset),windScale:range(P.windScale,u.windScale),solar,
+            temperatureErrorF:temp[0],dewPointErrorF:dew[0]};
+        const params=Object.freeze({storage:Object.freeze(draws.storage),gains:Object.freeze(draws.gains),infiltrationScale:draws.infiltrationACH/M.baseACH,
+            bufferScale:draws.bufferGramsPerRH/(MOISTURE_BUFFER.areaM2*MOISTURE_BUFFER.mbvGramsPerM2RH),bufferTauHours:draws.bufferTauHours,dehumReturn:draws.dehumReturn,
+            coilColdDeltaF:draws.coilColdDeltaF,solar:Object.freeze(solar)});
+        const weather=Object.freeze({origin,temp:Object.freeze(temp),dew:Object.freeze(dew),skyOffset:draws.skyOffset,windScale:draws.windScale});
+        const scenario={name:'member '+(i+1),flow:range(P.flow,u.flow),windSign:range(P.windSign,u.windSign),...airflow,rhOffset:range(P.rhOffset,u.rhOffset),tempOffset:0,
+            surfaceFactor:range(P.surfaceFactor,u.surfaceFactor),cabFactor:draws.cabFactor,bodyCase:BODY_CASES[bodyIndex],
+            ensemble:Object.freeze({index:i+1,params,weather,draws:Object.freeze(draws)})};
+        if(headingUnknown)scenario.heading=category(u.heading,4)*90;
+        members.push(scenario);
+    }
+    return members;
+}
+function knotValue(series,h){
+    if(h<=0)return series[0];const i=Math.floor(h);if(i>=series.length-1)return series.at(-1);
+    return series[i]+(series[i+1]-series[i])*(h-i);
+}
+// A member's weather: forecast temperature and dew point shifted by its error histories at each row start
+// (RH derived, dew point capped at the air temperature), wind scaled, hourly sky cover offset (clamped 0–100)
+// with irradiance recomputed. The no-location aggregate solar fallback is not perturbed (labeled limitation).
+function memberRows(rows,member,envelope){
+    const w=member.weather;if(!w)return rows;
+    const located=envelope.lat!=null&&envelope.lon!=null;
+    return rows.map(row=>{
+        const h=(row.from-w.origin)/3600000,tOut=row.tOut+knotValue(w.temp,h);
+        const dew=Math.min(dewPt(row.tOut,row.rh)+knotValue(w.dew,h),tOut),rh=Math.max(1,Math.min(100,100*saturationPa(dew)/saturationPa(tOut)));
+        const out={...row,tOut,rh,wind:(row.wind??0)*w.windScale,facadeCache:undefined};
+        if(located&&row.sunC&&Number.isFinite(row.sky)){out.sky=Math.max(0,Math.min(100,row.sky+w.skyOffset));out.sunC=solarComponentsCached(row.date,envelope.lat,envelope.lon,out.sky);}
+        return out;
+    });
+}
+// Called once per plan search after configureSolarScenarios. Off: undo any earlier ensemble.
+function configureEnsemble(envelope,request){
+    Object.assign(ENSEMBLE_SEARCH,{workStart:SEARCH_WORK,pruned:0,completions:0,deferred:0,shortlists:0,cut:0,expanded:0});
+    if(!ENSEMBLE.enabled){
+        if(AIR_SCENARIOS.some(s=>s.ensemble)){AIR_SCENARIOS.length=0;AIR_SCENARIOS.push(...BASE_AIR_SCENARIOS.map(s=>({...s})));}
+        return AIR_SCENARIOS.length;
+    }
+    const headingUnknown=AIR_SCENARIOS.some(s=>s.heading!==undefined); // four-heading analysis expansion was active
+    const bounds=planBounds(request.start,request),horizon=(+bounds.end-+request.start)/3600000;
+    const members=buildEnsembleMembers(ensembleSeed(envelope,request),+request.start,horizon,headingUnknown);
+    AIR_SCENARIOS.length=0;AIR_SCENARIOS.push(...members);
+    return AIR_SCENARIOS.length;
+}
+function ensembleTrials(trials){return trials.length>1&&trials[0]?.member===0;}
+// "Passes in every case" for a plain predicate: without the ensemble, every case; with it, the hard
+// constraints in every member and the predicate in the nominal member and at least ENSEMBLE.admit members.
+function casesPass(trials,pred,hard=()=>true){
+    if(!ensembleTrials(trials))return trials.every(t=>pred(t)&&hard(t));
+    return trials.length===ENSEMBLE.members&&trials.every(t=>hard(t)&&memberHardPass(t))&&pred(trials[0])&&trials.filter(pred).length>=ENSEMBLE.admit;
+}
+function memberHardPass(t){return t.equipmentEligible&&!t.floorBreach;}
+// D3 admission and severity. opts.readiness: count bedtime readiness in the joint pass (planFromTrials);
+// opts.returnAt {time, band}: count return comfort too (remote planning).
+function ensembleSummary(trials,opts={}){
+    const readiness=opts.readiness!==false,ret=opts.returnAt;
+    const returnOK=t=>!ret||t.trace.some(p=>+p.time===ret.time&&p.bedroom>=ret.band.low-1e-6&&p.bedroom<=ret.band.high+1e-6);
+    const joint=t=>t.suitable&&(!readiness||t.ready)&&returnOK(t);
+    const complete=trials.length===ENSEMBLE.members&&trials.every((t,i)=>t.member===i),nominal=trials[0];
+    const passes=trials.filter(joint).length,hard=trials.every(memberHardPass);
+    const admitted=complete&&hard&&joint(nominal)&&passes>=ENSEMBLE.admit;
+    const full=trials.every(t=>t.failureTime==null);
+    const severities=trials.map(t=>t.tempMissDegMin??0),worst=severities.slice().sort((a,b)=>b-a).slice(0,3);
+    const mean=v=>v.reduce((a,b)=>a+b,0)/Math.max(1,v.length);
+    const failing=trials.map((t,i)=>joint(t)&&memberHardPass(t)?null:{index:t.member??i,reason:memberHardPass(t)?planTrialReason(t)||(!t.ready?t.bedtimeReason:'')||'Misses return comfort.':
+        (t.unsafe[0]?.reason||'Predicted temperature falls below 65°F.'),time:t.firstFailureTime,conditions:ensembleMemberText(AIR_SCENARIOS[t.member??i],t.firstFailureTime)}).filter(Boolean);
+    return{members:ENSEMBLE.members,evaluated:trials.length,passes,hard,nominalPass:!!nominal&&joint(nominal),admitted,complete,fullHorizon:full,
+        severity:{mean:mean(severities),worst3:mean(worst),rhMean:mean(trials.map(t=>t.rhExceedMin??0))},failing,
+        nominal:nominal?{...targetMetrics([nominal]),recoveryInfo:recoverySummary([nominal]),score:nominal.score}:null};
+}
+// The time a plan stops being admissible: nominal failure, any hard-constraint failure, or the failure that
+// leaves fewer than ENSEMBLE.admit passing members. Members not evaluated count as lasting the horizon.
+function ensembleUntil(p){
+    const end=t=>+t.trace.at(-1).time,fail=t=>t.failureTime??t.firstFailureTime??(t.recoveryMinutes==null&&t.comfortReason?+t.start+M.recoveryMinutes*60000:(t.suitable?Infinity:end(t)));
+    const nominal=fail(p.trials[0]),hard=Math.min(...p.trials.filter(t=>!memberHardPass(t)).map(fail));
+    const times=p.trials.map(fail).concat(Array(Math.max(0,ENSEMBLE.members-p.trials.length)).fill(Infinity)).sort((a,b)=>a-b);
+    const count=times[ENSEMBLE.members-ENSEMBLE.admit]??Infinity,horizon=Math.max(...p.trials.map(end));
+    return Math.min(nominal,hard,count,horizon);
+}
+function stablePlanId(p){return(p.phases||[]).map(x=>x.time+':'+x.setup.key).join(';');}
+// D3 Option A for two admitted plans: mean severity, worst-three severity, RH exceedance, then the existing
+// comparators on the nominal member, then pass count, then a stable candidate ID.
+function compareEnsemble(a,b){
+    const x=a.ensemble,y=b.ensemble;
+    const n=(key,p,q)=>p[key]-q[key];
+    const sev=n('mean',x.severity,y.severity)||n('worst3',x.severity,y.severity)||n('rhMean',x.severity,y.severity);
+    if(sev)return sev;
+    const nominal=compareRecovery(x.nominal,y.nominal)||compareFront(x.nominal,y.nominal)||compareTarget(x.nominal,y.nominal)||
+        Number(!!b.natural)-Number(!!a.natural)||x.nominal.score-y.nominal.score||modePreference(a)-modePreference(b);
+    if(nominal)return nominal;
+    const ia=stablePlanId(a),ib=stablePlanId(b);
+    return y.passes-x.passes||(ia<ib?-1:ia>ib?1:0);
+}
+// Rerun members that stopped at a comfort or RH failure over the full horizon (no stop) when the plan can
+// still be admitted, so severity counts their later misses and every hard constraint is checked to the end.
+function completeEnsembleTrials(trials,rerun){
+    if(!ensembleTrials(trials)||trials.length!==ENSEMBLE.members)return trials;
+    const n=trials[0];if(!(n.suitable&&n.failureTime==null))return trials;
+    if(trials.filter(t=>t.suitable).length<ENSEMBLE.admit||trials.some(t=>!t.equipmentEligible))return trials;
+    return trials.map((t,i)=>t.failureTime!=null?rerun(i):t);
+}
+// UI (scope WP13): pass fractions of tested conditions, not probabilities; the failing conditions are named.
+function ensembleSearchText(search){
+    if(!search)return '';
+    return search.exhaustive?'Search: every plan that could still qualify was checked in all '+ENSEMBLE.members+' conditions. Plans were set aside early only after failing a check that rules them out.':
+        'Bounded search: '+search.unchecked+' plan'+(search.unchecked===1?'':'s')+' that could still qualify '+(search.unchecked===1?'was':'were')+' not checked in all '+ENSEMBLE.members+' conditions because the search reached its computation limit. The best plan found is shown.';
+}
+function ensembleResultHTML(plan,search=null){
+    const x=plan?.ensemble;if(!x)return '';
+    const shown=x.failing.slice(0,3).map(f=>'<li>'+escapeHTML((f.index===0?'Nominal estimate':'Condition '+f.index+' ('+f.conditions+')')+': '+f.reason)+'</li>').join('');
+    return '<div class="mitigation-box" data-ensemble="'+x.passes+'/'+x.members+'"><strong>Works in '+x.passes+' of '+x.members+' tested conditions</strong>'+
+        escapeHTML(x.admitted?'The nominal estimate passes, and at least '+ENSEMBLE.admit+' of the '+x.members+' sampled weather and installation conditions pass every check together.':
+            'A plan qualifies when the nominal estimate and at least '+ENSEMBLE.admit+' of '+x.members+' sampled conditions pass every check together'+(x.evaluated<x.members?' ('+x.evaluated+' were evaluated).':'.'))+
+        (shown?'<ul class="ensemble-failing">'+shown+(x.failing.length>3?'<li>'+(x.failing.length-3)+' more conditions fail.</li>':'')+'</ul>':'')+
+        '<p class="hint">Conditions combine forecast error, front–rear airflow, heat storage, air leakage, internal gains, sun and moisture assumptions. These are tested conditions, not probabilities. Temperature ranges shown cover all '+x.evaluated+' evaluated conditions.</p>'+
+        (search?'<p class="hint" data-search="'+(search.exhaustive?'exhaustive':'bounded')+'">'+escapeHTML(ensembleSearchText(search))+'</p>':'')+'</div>';
+}
+function ensembleMemberText(scenario,time=null){
+    const d=scenario?.ensemble?.draws,w=scenario?.ensemble?.weather;if(!d)return 'the nominal working estimate';
+    const parts=[],at=Number.isFinite(time)&&w?time:null,error=at!=null?knotValue(w.temp,(at-w.origin)/3600000):d.temperatureErrorF;
+    if(Math.abs(error)>=1.5)parts.push('outdoor '+Math.abs(error).toFixed(1)+'°F '+(error>0?'warmer':'cooler')+' than forecast '+(at!=null?'when it fails':'at the start'));
+    if(Math.abs(d.airflow)>=.5)parts.push(d.airflow<0?'restricted front–rear airflow':'greater front–rear airflow');
+    if(d.bodyCase!=='nominal')parts.push(BODY_CASES.find(b=>b.id===d.bodyCase).name);
+    if(d.infiltrationACH>=.4||d.infiltrationACH<=.2)parts.push(d.infiltrationACH>=.4?'leakier coach':'tighter coach');
+    if(d.cabFactor>=3.75||d.cabFactor<=2.25)parts.push(d.cabFactor>=3.75?'higher cab heat loss':'lower cab heat loss');
+    return parts.length?parts.join(', '):'small departures from the working estimate';
+}
 const COMFORT=Object.freeze({tolerance:.5,
     sleeping:Object.freeze({low:65,high:69,target:67}),
     nonSleeping:Object.freeze({low:68,high:73,target:71})});
@@ -1586,6 +1873,7 @@ function applyRecoverySetting(setup,request,time){
 }
 function optimizePhase(plan,index,envelope,request,rows,from=+request.start,to=+planBounds(request.start,request).end,stageEvaluate=null){
     const base=plan.phases[index].setup,recovery=recoverySetting(base,request,plan.phases[index].time),values=settingValues(base).filter(v=>!recovery||(isAutoMode(base.type)?v[recovery.field]===recovery.value:v===recovery.value));if(!values.length)return plan;
+    if(ENSEMBLE.exactFallback&&plan.pruned&&index>0&&!plan.trials.some(t=>t.failureTime!=null&&t.failureTime<plan.phases[index].time))plan=fullPlan(plan); // exact check below
     if(plan.trials.some(t=>t.failureTime!=null&&t.failureTime<plan.phases[index].time))return plan;
     const field=base.type==='ac'?'cool':base.type==='maxxfan'?'fan':'heat';
     const candidates=values.filter(v=>isAutoMode(base.type)?v.heat!==base.setpoints.heat||v.cool!==base.setpoints.cool:v!==base.setpoints[field]);
@@ -1598,15 +1886,24 @@ function optimizePhase(plan,index,envelope,request,rows,from=+request.start,to=+
         Object.assign(p,targetMetrics([t],from,to));return{value,plan:p};
     }).sort((a,b)=>comparePlans(a.plan,b.plan));
     let best=plan,tested=0;
-    for(const candidate of screened.filter((c,i)=>i<3||c.plan.suitable)){
+    const listed=screened.filter((c,i)=>i<3||c.plan.suitable),done=b=>b.suitable&&(b.ready||from>=+(planBounds(request.start,request).bedtime||request.start));
+    const evaluate=(candidate,opts)=>{
         const phases=plan.phases.map((p,i)=>i===index?{...p,setup:withSetting(base,candidate.value)}:p);
-        const next=stageEvaluate?stageEvaluate(phases[index].setup):evaluatePlan(phases,envelope,request,rows);
-        if(comparePlans(next,best)<0)best=next;
+        return stageEvaluate?stageEvaluate(phases[index].setup,opts):evaluatePlan(phases,envelope,request,rows,opts);
+    };
+    if(ensembleOverBudget()){
+        // WP13 bounded search: exact pruning on every listed candidate, then a shortlist of the survivors.
+        const plans=shortlistComplete(listed.map(c=>evaluate(c,{defer:true})),p=>done(p)||done(plan));
+        for(const next of plans)best=pickPlan(next,best);
+        return best;
+    }
+    for(const candidate of listed){
+        best=pickPlan(evaluate(candidate),best);
         tested++;
         // Verify the best three plus every nominally qualified candidate until
         // a robust option is found. Grossly failed nominal controls need not
         // repeat their complete trajectory in every sensitivity scenario.
-        if(tested>=3&&best.suitable&&(best.ready||from>=+(planBounds(request.start,request).bedtime||request.start)))break;
+        if(tested>=3&&done(best))break;
     }
     return best;
 }
@@ -1772,7 +2069,7 @@ const WP7_COIL=Object.freeze({coldDeltaF:4,flagAtF:32,
     // the compressor runs; the CCC2 staging (autoFanSpeed) is reported alongside.
     autoAssumedFan:'Low'});
 function wp7CoilState(returnF,w,outF,pressure,fan){
-    const coil=wp6CoolingOutput(returnF,w,outF,pressure,fan),coldestF=coil.adpF-WP7_COIL.coldDeltaF;
+    const coil=wp6CoolingOutput(returnF,w,outF,pressure,fan),coldestF=coil.adpF-(MEMBER_PARAMS?.coilColdDeltaF??WP7_COIL.coldDeltaF);
     return{fan,adpF:coil.adpF,leavingSaturationF:coil.leavingSaturationF,coldestF,flag:coldestF<=WP7_COIL.flagAtF,clamped:coil.clamped,shr:coil.shr,cfm:coil.cfm};
 }
 // WP10 (v6.6.20): wind and infiltration. Pinned sources:
@@ -1809,7 +2106,8 @@ const INFILTRATION=(()=>{
 // Whole-coach infiltration, cfm (indoor temperature: zone-volume mean; wind: NWS 10 m mph).
 function infiltrationCFM(temperatures,tOut,metMph,leakageCm2=INFILTRATION.leakageCm2){
     const tin=temperatures[0]*M.fraction[0]+temperatures[1]*M.fraction[1],dK=Math.abs(tin-tOut)*5/9,u=localWindMph(metMph)*.44704;
-    return leakageCm2*Math.sqrt(INFILTRATION.stack*dK+INFILTRATION.wind*u*u)*2.1188799727;
+    // WP13: a member's reference ACH draw scales A_L (Q ∝ A_L, so the reference ACH scales with it).
+    return leakageCm2*(MEMBER_PARAMS?.infiltrationScale??1)*Math.sqrt(INFILTRATION.stack*dK+INFILTRATION.wind*u*u)*2.1188799727;
 }
 // Conduction assemblies by zone (area ft², calm-condition R), matching envelopeAllocation exactly at calm.
 function envelopeAssemblies(cabFactor=3,bodyCase=BODY_CASES[0]){
@@ -1866,8 +2164,9 @@ function solvePair(diagonal,off,rhs){const det=diagonal[0]*diagonal[1]-off[0]*of
 // node; solar splits 50/50 between air and mass (scope prior).
 const STORAGE={airTotal:297,massTotal:574,massTauHours:.98,solarToMass:.5};
 function zoneStorage(){
-    const air=M.fraction.map(f=>STORAGE.airTotal*f),mass=M.fraction.map(f=>STORAGE.massTotal*f);
-    return{air,mass,coupling:mass.map(c=>c/STORAGE.massTauHours)};
+    const s=MEMBER_PARAMS?.storage||STORAGE; // WP13 member draws
+    const air=M.fraction.map(f=>s.airTotal*f),mass=M.fraction.map(f=>s.massTotal*f);
+    return{air,mass,coupling:mass.map(c=>c/s.massTauHours)};
 }
 // Buoyant exchange through the open bed-foundation boundary (not a doorway):
 // Q = (Cd/3)·W_eff·H·√(g·H·|ΔT|/T̄) each way, equal and opposite. Cd 0.6 and
@@ -1939,7 +2238,7 @@ function acMoistureRemoval(w,duty,pressure=SEA_LEVEL_PA,density=1){
 // τ_b = 4 h. Stored as mass, never as an equivalent humidity ratio, so temperature or pressure
 // changes cannot create or destroy water.
 const MOISTURE_BUFFER={areaM2:40,mbvGramsPerM2RH:.75,tauHours:4};
-function bufferCapacityLbPerRH(){return MOISTURE_BUFFER.areaM2*MOISTURE_BUFFER.mbvGramsPerM2RH/453.59237;}
+function bufferCapacityLbPerRH(){return MOISTURE_BUFFER.areaM2*MOISTURE_BUFFER.mbvGramsPerM2RH/453.59237*(MEMBER_PARAMS?.bufferScale??1);}
 function bufferEquilibrium(rh){return M.fraction.map((f,z)=>bufferCapacityLbPerRH()*f*Math.max(0,Math.min(100,rh[z])));}
 function rhSlope(tF,w,pressure=SEA_LEVEL_PA){return 100*pressure*.62198/((.62198+w)**2*saturationPa(tF));}
 // buffer (optional): {mass:[lb,lb], temperatures:[°F,°F]}. Solved implicitly with the air balance
@@ -1949,14 +2248,14 @@ function mixedMoistureStep(w,tFront,sourceLbHr,outdoorCFM,outdoorW,dt,enabled,
     const outsideMassFlow=4.5*outdoorDensity*outdoorCFM;
     let denominator=airMass/dt+outsideMassFlow,rhs=airMass/dt*w+sourceLbHr+outsideMassFlow*outdoorW;
     const exchange=buffer?buffer.temperatures.map((tz,z)=>({b:bufferCapacityLbPerRH()*M.fraction[z],a:rhFromRatio(tz,w,pressure),s:rhSlope(tz,w,pressure),m:buffer.mass[z]})):[];
-    const lag=MOISTURE_BUFFER.tauHours+dt;
+    const lag=(MEMBER_PARAMS?.bufferTauHours??MOISTURE_BUFFER.tauHours)+dt;
     exchange.forEach(x=>{denominator+=x.b*x.s/lag;rhs+=(x.m-x.b*(x.a-x.s*w))/lag;});
     const uncontrolled=rhs/denominator,performance=dehumidifierPerformance(tFront,rhFromRatio(tFront,w,pressure));
     const requested=enabled&&performance.running?Math.max(0,(uncontrolled-humidityRatio(tFront,50,pressure))*denominator):0;
     // Returned moisture: while the humidistat cycles, 15% of each cycle's removal re-evaporates,
     // so cycling nets (1 − f) of capacity. Once cycling cannot meet the demand the unit runs on
     // continuously, where the return falls to zero at full load (continuous in demand).
-    const capacity=performance.capacityLbHr,cycling=capacity*(1-DEHUM_WP9.returnedFraction);
+    const capacity=performance.capacityLbHr,cycling=capacity*(1-(MEMBER_PARAMS?.dehumReturn??DEHUM_WP9.returnedFraction));
     const partLoad=requested>0?(cycling>0?Math.min(1,requested/cycling):1):0;
     const removal=Math.min(requested,capacity),gross=partLoad*capacity;
     // EnergyPlus generic cycling loss: PLF = .95 + .05*PLR; water meets PLR,
@@ -2035,7 +2334,7 @@ function scheduleWeather(envelope,start,end,maxStepMin=.5){
         // WP8: with a known location, irradiance comes from sun position, clear sky and hourly sky cover.
         const sky=Number.isFinite(weather.sky)?weather.sky:(1-(weather.cloud??envelope.cloud??.6))*100;
         const sunC=envelope.lat!=null&&envelope.lon!=null?solarComponentsCached(date,envelope.lat,envelope.lon,sky):null;
-        rows.push({from,to,date,dt:(to-from)/3600000,tOut:weather.tOut,rh:weather.rh,wind:weather.wind??envelope.wind??0,solar,sunC});
+        rows.push({from,to,date,dt:(to-from)/3600000,tOut:weather.tOut,rh:weather.rh,wind:weather.wind??envelope.wind??0,solar,sunC,sky});
     }
     return rows;
 }
@@ -2049,7 +2348,18 @@ function advanceComparisonSensor(sensed,frontStart,frontEnd,hours,sensor){
     const ramp=ratio<1e-5?ratio/2:1-response/ratio;
     return sensed+(frontStart+sensor.bias-sensed)*response+(frontEnd-frontStart)*ramp;
 }
+// WP13: an ensemble member (scenario.ensemble, index ≥ 1) runs with its own perturbed weather rows and its
+// installation draws active (MEMBER_PARAMS, read by the helpers it affects). Member 0 is the nominal case and
+// takes the unchanged path. The simulation is synchronous, so the context is restored before returning.
 function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,options={}){
+    const member=options.scenario?.ensemble;
+    if(!member?.params)return zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,options);
+    const {start,end}=simulationBounds(envelope);
+    const rows=memberRows(options.rows||scheduleWeather(envelope,start,end,options.maxStepMin||.5),member,envelope);
+    const saved=MEMBER_PARAMS;MEMBER_PARAMS=member.params;
+    try{return zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,{...options,rows});}finally{MEMBER_PARAMS=saved;}
+}
+function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,options={}){
     const {start,end}=simulationBounds(envelope),rows=options.rows||scheduleWeather(envelope,start,end,options.maxStepMin||.5);
     if(!rows.length||rows.some(row=>!Number.isFinite(row.dt)||row.dt<=0))throw new Error('The calculation needs positive-duration intervals. Rebuild the plan with valid times.');
     const scenario=options.scenario||AIR_SCENARIOS[0],pressure=sitePressurePa(envelope.elevationM);
@@ -2076,6 +2386,10 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     let priorDehumHeat=0,dehumRuntimeMinutes=0,moistureTotals={occupants:0,dehumidifier:0,ac:0,outside:0,acDrained:0,coilEvaporated:0,bufferUptake:0,dehumidifierReturned:0},initialWaterLb=w.reduce((sum,v,z)=>sum+v*airMass[z],0)+(wb?wb[0]+wb[1]:0);
     let condensedLb=0,humidRun=0,humidMax=0,surfaceRun=[0,0],surfaceMax=0,minMargin=Infinity,maxRH=0,minRH=100,maxSurfaceRH=0;
     let warmRun=0,warmMax=0,coldRun=0,coldMax=0,severeRun=0,severeMax=0,recovery=null,freezeRisk=null,condensationConcern=null,failureTime=null,comfortProblem=null,surfaceConcern=null;
+    // WP13 (D3) severity: bedroom degree-minutes outside the applicable band (warm × 2, existing policy) and
+    // minutes inside room-air RH runs that exceed the sustained-RH rule. Observation only unless the
+    // ensemble policy is enabled; neither changes this trial's pass/fail.
+    let tempMissDegMin=0,rhExceedMin=0,humidFailTime=null;
     const unsafe=[],warnings=new Set(),trace=[],segments=[],storage=zoneStorage();
     // Mass nodes start in equilibrium with the measured air (labeled assumption).
     let tm=t.slice();
@@ -2103,10 +2417,13 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     if(carry){
         t=carry.t.slice();tm=(carry.tm??carry.t).slice();w=carry.w.slice();phase=carry.phase;lastSetup=carry.lastSetup||null;
         ({score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern}=carry);
+        tempMissDegMin=carry.tempMissDegMin??0;rhExceedMin=carry.rhExceedMin??0;humidFailTime=carry.humidFailTime??null;
         moistureTotals={...carry.moistureTotals};surfaceRun=carry.surfaceRun.slice();
         if(carry.wb!==undefined)wb=carry.wb&&carry.wb.slice();if(carry.coilWater)coilWater={...carry.coilWater};unsafe.push(...carry.unsafe);carry.warnings.forEach(w=>warnings.add(w));
     }
-    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),tm:tm.slice(),w:w.slice(),wb:wb&&wb.slice(),coilWater:{...coilWater},initialCoilLb,phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin),...(sensor?{sensorReading}:{}),...(comparisonSettings?{comparisonHeatSource:heatSource}:{})});};
+    // Checkpoints only at whole five minutes: every grid handoff resumes from one, and any other handoff time is
+    // simulated directly (identical result, tested). This keeps cached prefixes small on a phone (WP13).
+    const capture=time=>{if(options.capture&&time%300000===0)checkpoints.push({time,t:t.slice(),tm:tm.slice(),w:w.slice(),wb:wb&&wb.slice(),coilWater:{...coilWater},initialCoilLb,phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,tempMissDegMin,rhExceedMin,humidFailTime,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin),...(sensor?{sensorReading}:{}),...(comparisonSettings?{comparisonHeatSource:heatSource}:{})});};
     record(carry?rows[0].from:start.getTime(),carry?(rows[0].from-start.getTime())/60000:0);
     // Surface estimates are output-only observations, including at the initial state.
     const moistureCheck=(weather,elapsed,dt,rh)=>{
@@ -2116,7 +2433,9 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
             surfaceRun[z]=c.surfaceRH>=M.surfaceRHLimit?surfaceRun[z]+dt*60:0;surfaceMax=Math.max(surfaceMax,surfaceRun[z]);
             if(!surfaceConcern&&surfaceRun[z]>=M.surfaceMinutes)surfaceConcern={time:new Date(start.getTime()+elapsed*60000),zone:z,surfaceRH:c.surfaceRH,roomRH:rh[z]};
             if(c.condensation&&!condensationConcern)condensationConcern={time:new Date(start.getTime()+elapsed*60000),zone:z,source:'surface',margin:c.margin};});
-        if(elapsed>M.recoveryMinutes){humidRun=Math.max(...rh)>M.humidLimit?humidRun+dt*60:0;humidMax=Math.max(humidMax,humidRun);}
+        if(elapsed>M.recoveryMinutes){humidRun=Math.max(...rh)>M.humidLimit?humidRun+dt*60:0;humidMax=Math.max(humidMax,humidRun);
+            // A run counts in full once it exceeds the sustained limit.
+            if(humidRun>M.humidMinutes){rhExceedMin+=humidRun-dt*60>M.humidMinutes?dt*60:humidRun;humidFailTime??=start.getTime()+elapsed*60000;}}
     };
     if(!carry)moistureCheck(rows[0].tOut+scenario.tempOffset,0,0,t.map((v,z)=>rhFromRatio(v,w[z],pressure)));
     capture(carry?rows[0].from:start.getTime());
@@ -2273,6 +2592,7 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
         const outside=comfortT>band.high||coldT<band.low;
         if(outside)hoursOut+=dt;
         score+=dt*(2*Math.max(0,comfortT-band.high)+Math.max(0,band.low-coldT));
+        tempMissDegMin+=dt*60*(2*Math.max(0,comfortT-band.high)+Math.max(0,band.low-coldT));
         const humidityPenalty=Math.max(...now.rh.map(h=>h<=55?0:h<=60?.4:h<=65?1.9:3.4));score+=dt*humidityPenalty;
         if(elapsed>(activeRecovery?(recovery??Infinity):M.recoveryMinutes)){warmRun=comfortT>band.high?warmRun+dt*60:0;warmMax=Math.max(warmMax,warmRun);coldRun=coldT<band.low?coldRun+dt*60:0;coldMax=Math.max(coldMax,coldRun);severeRun=comfortT>band.high+1?severeRun+dt*60:0;severeMax=Math.max(severeMax,severeRun);}
         if(recovery===null&&comfortT<=band.high&&coldT>=band.low)recovery=elapsed;
@@ -2315,11 +2635,16 @@ function zoneProfile(mode,envelope,isOvernight,setpoints,meta,startIndoor,option
     const recoveryInfo=activeRecovery?{direction:recoveryDirection,initial:initialTemperature,minutes:recovery,
         complete:recovered,final:finalIndoor,progress:recoveryProgress,through:trace.at(-1).time}:null;
     const comfortEligible=!comfortReason,moistureEligible=!moistureReason,equipmentEligible=!unsafe.length;
+    // WP13: the 65°F floor with current recovery semantics (a hard constraint in every member), and the first
+    // time any check fails (for the longest-acceptable ordering when the run did not stop at it).
+    const floorBreach=activeRecovery?recoveryFloorBreach:min<floor-1e-6;
+    const failTimes=[unsafe[0]?.time?.getTime(),comfortProblem?.time?.getTime(),humidFailTime].filter(Number.isFinite);
+    const firstFailureTime=failTimes.length?Math.min(...failTimes):null;
     const suitable=equipmentEligible&&comfortEligible&&moistureEligible;
     return{start,end,trace,segments,unsafe,maxFan,freezeRisk,isOvernight,recoveryInfo,coil:coilLog,warnings:[...warnings],score:score+draftScore,draftScore,hoursOut,didCool,didHeat,heatMinutes,coolMinutes,
         finalIndoor,capacityCool,capacityHeat,heatingFloorLimited,defrostMinutes,config,comfortLow:band.low,comfortHigh:band.high,floorCompliant:min>=floor-1e-6,
         endInBand:finalIndoor>=floor&&finalIndoor<=band.high,comfortEligible,comfortReason,moistureEligible,moistureReason,equipmentEligible,suitable,
-        moisture:moistureLedger(),surfaceWarning,surfaceConcern,condensationConcern,comfortProblem,recoveryMinutes:recovery,finalZones:{temperature:t.slice(),mass:tm.slice(),water:w.slice(),buffer:wb&&wb.slice(),coil:{...coilWater}},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
+        moisture:moistureLedger(),surfaceWarning,surfaceConcern,condensationConcern,comfortProblem,recoveryMinutes:recovery,floorBreach,firstFailureTime,tempMissDegMin,rhExceedMin,finalZones:{temperature:t.slice(),mass:tm.slice(),water:w.slice(),buffer:wb&&wb.slice(),coil:{...coilWater}},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
 }
 function profileCandidate(type,sim,setpoints){
     const first=sim.unsafe[0],values=sim.trace.map(p=>p.indoor),min=Math.min(...sim.trace.map(p=>p.bedroom)),max=Math.max(...values);
@@ -2573,9 +2898,13 @@ function phaseControl(phases){return time=>{let current=phases[0].setup;for(cons
 function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=null,resume=null,capture=false,diagnostic=false){
     const bounds=planBounds(request.start,request),timeline=rows||planRows(envelope,request,.5,phases.map(p=>p.time));
     // Split even a partial final step exactly at each equipment/target change.
-    const split=[];
-    for(const row of timeline){const cuts=[...new Set([row.from,...phases.map(p=>p.time).filter(t=>t>row.from&&t<row.to),row.to])].sort((a,b)=>a-b);
-        for(let i=1;i<cuts.length;i++)split.push({...row,from:cuts[i-1],to:cuts[i],dt:(cuts[i]-cuts[i-1])/3600000});}
+    const split=[],times=[...new Set(phases.map(p=>p.time))].sort((a,b)=>a-b);
+    for(const row of timeline){
+        // Same cuts as the former Set/sort per row: start, interior phase times in order, end.
+        let prev=row.from;
+        for(const t of times)if(t>row.from&&t<row.to){split.push({...row,from:prev,to:t,dt:(t-prev)/3600000});prev=t;}
+        if(row.to!==prev)split.push({...row,from:prev,to:row.to,dt:(row.to-prev)/3600000});
+    }
     const first=phases[0].setup;
     const activeRows=resume?split.filter(row=>row.from>=resume.time):split;
     const sim=zoneProfile(first.type,envelope,bounds.sleep,first.setpoints,C.metaAwake,request.initial.temperature[0],{
@@ -2588,32 +2917,185 @@ function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=nul
     const unavailable=phases.find((p,i)=>i>0&&!setupChangeAllowed(phases[i-1].setup,p.setup,p.time,request));
     if(unavailable){sim.unsafe.push({time:new Date(unavailable.time),reason:'This setup change requires an unavailable action during sleep or absence.',issueCode:'unavailable-action'});sim.suitable=false;sim.equipmentEligible=false;}
     const bedtimeReason=ready?'':!atBedtime?'Conditions fail before bedtime.':'Bedroom is '+atBedtime.bedroom.toFixed(1)+'°F at '+(localParts(bounds.bedtime).hour===22&&localParts(bounds.bedtime).minute===0?'10 PM':formatTime(bounds.bedtime))+'; it must be within the '+sleepPolicy.low+'–'+sleepPolicy.high+'°F sleeping band (target '+sleepPolicy.target+'°F).';
-    return{...sim,ready,bedtimeReason,atBedtime};
+    return{...sim,ready,bedtimeReason,atBedtime,member:scenario.ensemble?scenario.ensemble.index:null};
 }
 function planTrialReason(trial){return trial.unsafe[0]?.reason||trial.moistureReason||trial.comfortReason||trial.bedtimeReason||'';}
-function evaluatePlan(phases,envelope,request,rows){
-    const trials=AIR_SCENARIOS.map(s=>{
-        if(phases.length<2||!envelope.planCache)return simulatePlan(phases,envelope,request,s,rows);
-        const key=phases[0].setup.key+'|'+s.name+(request.occupancy==='staying'?'':'|'+(rows?.at(-1)?.to??'full'));
-        let prefix=envelope.planCache.get(key);
-        if(!prefix){
-            prefix=simulatePlan([phases[0]],envelope,request,s,rows,null,true);
-            // Keep recent complete prefixes without retaining every screened
-            // thermostat setting's full trace/checkpoints on a phone.
-            if(envelope.planCache.size>=12)envelope.planCache.delete(envelope.planCache.keys().next().value);
-        }else envelope.planCache.delete(key);
-        envelope.planCache.set(key,prefix);
-        const time=phases[1].time;
-        if(prefix.failureTime!=null&&prefix.failureTime<=time)return prefix;
-        const checkpoint=prefix.checkpoints.find(p=>p.time===time);
-        if(!checkpoint){
-            // A handoff derived from a forecast boundary may not lie on the
-            // cached grid. Resolve it directly rather than reset/interpolate state.
-            return simulatePlan(phases,envelope,request,s,rows);
-        }
-        return simulatePlan(phases,envelope,request,s,rows,{time,carry:checkpoint,prefix});
+// One member's trial of a plan, reusing a cached first-phase prefix when the plan has a handoff.
+function memberTrial(phases,envelope,request,rows,i){
+    const s=AIR_SCENARIOS[i];
+    if(phases.length<2||!envelope.planCache)return simulatePlan(phases,envelope,request,s,rows);
+    // WP13: a staying plan changes setup only up to bedtime, so a cached first-phase prefix runs to bedtime, not
+    // through the night. A later handoff is simulated directly (identical result, tested).
+    const bounds=planBounds(request.start,request),cut=request.occupancy==='staying'&&bounds.bedtime?+bounds.bedtime:null;
+    if(cut!=null&&phases[1].time>cut)return simulatePlan(phases,envelope,request,s,rows);
+    const key=phases[0].setup.key+'|'+s.name+(request.occupancy==='staying'?'':'|'+(rows?.at(-1)?.to??'full'));
+    let prefix=envelope.planCache.get(key);
+    if(!prefix){
+        const prefixRows=cut==null?rows:(rows||planRows(envelope,request,.5,[phases[0].time])).filter(r=>r.to<=cut);
+        prefix=simulatePlan([phases[0]],envelope,request,s,prefixRows,null,true);
+        // Keep recent complete prefixes without retaining every screened
+        // thermostat setting's full trace/checkpoints on a phone.
+        if(envelope.planCache.size>=Math.max(12,Math.ceil(12*AIR_SCENARIOS.length/9)))envelope.planCache.delete(envelope.planCache.keys().next().value);
+    }else envelope.planCache.delete(key);
+    envelope.planCache.set(key,prefix);
+    const time=phases[1].time;
+    if(prefix.failureTime!=null&&prefix.failureTime<=time)return prefix;
+    const checkpoint=prefix.checkpoints.find(p=>p.time===time);
+    if(!checkpoint){
+        // A handoff derived from a forecast boundary may not lie on the
+        // cached grid. Resolve it directly rather than reset/interpolate state.
+        return simulatePlan(phases,envelope,request,s,rows);
+    }
+    return simulatePlan(phases,envelope,request,s,rows,{time,carry:checkpoint,prefix});
+}
+// WP13 Search (scope v3). Exhaustive: every member is simulated (the release-gate reference and the
+// ENSEMBLE.search='exhaustive' analysis mode). Otherwise members run in order and stop as soon as the plan
+// certainly cannot qualify (exact pruning, below); the plan is marked `pruned` and can be completed on demand.
+// opts.start: trials already evaluated for these phases and rows. opts.full: never prune. opts.defer: stop a
+// plan that can still qualify after the screening members and mark it `screen`, for the shortlist.
+function evaluatePlan(phases,envelope,request,rows,opts={}){
+    const n=AIR_SCENARIOS.length,screening=ensembleScreening()&&!opts.full,trials=opts.start?opts.start.slice():[];
+    let stop=null;
+    for(let i=trials.length;i<n;i++){
+        if(screening&&certainlyUnsuitable(trials)){stop='pruned';break;}
+        if(screening&&opts.defer&&i>=ENSEMBLE.screening){stop='screen';break;}
+        trials.push(memberTrial(phases,envelope,request,rows,i));
+    }
+    if(!stop&&screening&&trials.length===n&&certainlyUnsuitable(trials))stop='pruned';
+    if(stop==='pruned'){
+        ENSEMBLE_SEARCH.pruned++;
+        const plan=planFromTrials(phases,trials,envelope,request);
+        // `start` holds the members already evaluated; slimPlan clears it, and completion then starts over.
+        plan.pruned={start:trials,complete(){ENSEMBLE_SEARCH.completions++;return evaluatePlan(phases,envelope,request,rows,{full:true,start:this.start||undefined});}};
+        return plan;
+    }
+    if(stop==='screen'){
+        ENSEMBLE_SEARCH.deferred++;
+        const plan=planFromTrials(phases,trials,envelope,request);
+        plan.screen={severity:screeningSeverity(phases,envelope,request,rows,trials),start:trials,complete(){return evaluatePlan(phases,envelope,request,rows,{start:this.start||undefined});}};
+        return plan;
+    }
+    return planFromTrials(phases,completeEnsembleTrials(trials,i=>simulatePlan(phases,envelope,request,AIR_SCENARIOS[i],rows,null,false,true)),envelope,request);
+}
+// Exact pruning: a plan that has failed in the nominal member, failed a hard constraint in any member, or failed
+// in more members than admission allows (32 − 29 = 3) cannot qualify, so the remaining members are not needed
+// to decide it. Its ordering among plans that do not qualify uses the members evaluated (others count as lasting
+// the horizon, as before).
+function certainlyUnsuitable(trials){
+    if(!trials.length)return false;
+    if(!trials[0].suitable)return true;
+    let failed=0;
+    for(const t of trials){if(!memberHardPass(t))return true;if(!t.suitable)failed++;}
+    return failed>AIR_SCENARIOS.length-ENSEMBLE.admit;
+}
+function ensembleScreening(){return ENSEMBLE.enabled&&ENSEMBLE.search!=='exhaustive'&&AIR_SCENARIOS.length===ENSEMBLE.members&&!!AIR_SCENARIOS[0]?.ensemble;}
+// Severity across the screening members, over the full horizon (a member that stopped at a comfort or RH
+// failure is rerun without stopping), as the shortlist order.
+function screeningSeverity(phases,envelope,request,rows,trials){
+    const full=trials.map((t,i)=>t.failureTime!=null&&memberHardPass(t)?simulatePlan(phases,envelope,request,AIR_SCENARIOS[i],rows,null,false,true):t);
+    const v=full.map(t=>t.tempMissDegMin??0),worst=v.slice().sort((a,b)=>b-a).slice(0,3),mean=x=>x.reduce((a,b)=>a+b,0)/Math.max(1,x.length);
+    return{mean:mean(v),worst3:mean(worst),rhMean:mean(full.map(t=>t.rhExceedMin??0)),passes:trials.filter(t=>t.suitable&&t.ready).length};
+}
+function compareScreening(a,b){
+    const x=a.screen.severity,y=b.screen.severity;
+    return x.mean-y.mean||x.worst3-y.worst3||x.rhMean-y.rhMean||y.passes-x.passes||(stablePlanId(a)<stablePlanId(b)?-1:stablePlanId(a)>stablePlanId(b)?1:0);
+}
+// Lazy completion keeps exact pruning exact. On every comparator key before the mean score (qualification
+// rank, how long a plan stays acceptable, recovery, front fit, target fit, natural recovery), the members a pruned
+// plan evaluated are never worse than its full evaluation: those keys are earliest failures, extremes or the
+// nominal member. So when that bound already decides a comparison, the full result is the same; otherwise the
+// pruned plan is completed first. comparePlans on full plans is unchanged.
+function comparePlanBounds(a,b){
+    const rank=c=>!c.suitable?2:!c.ready?1:0;
+    const until=p=>ensembleTrials(p.trials)?ensembleUntil(p):Math.min(...p.trials.map(t=>t.failureTime??(t.recoveryMinutes==null&&t.comfortReason?
+        +t.start+M.recoveryMinutes*60000:+t.trace.at(-1).time)));
+    const duration=!a.suitable&&!b.suitable&&a.trials&&b.trials?until(b)-until(a):0;
+    return rank(a)-rank(b)||duration||compareRecovery(a,b)||compareFront(a,b)||compareTarget(a,b)||Number(!!b.natural)-Number(!!a.natural);
+}
+function fullPlan(p){if(!p?.pruned)return p;p.pruned.full??=p.pruned.complete();return p.pruned.full;}
+// The plan comparePlans prefers between the full evaluations of a and b; b on ties (as `if(compare(a,b)<0)b=a`).
+function pickPlan(a,b){
+    if(!b)return a;if(!a)return b;
+    if(ENSEMBLE.exactFallback&&(a.pruned||b.pruned)){
+        const bound=comparePlanBounds(a,b);
+        if(bound>0&&!b.pruned)return b;
+        if(bound<0&&!a.pruned)return a;
+        a=fullPlan(a);b=fullPlan(b);
+    }
+    return comparePlans(a,b)<0?a:b;
+}
+// Daytime learning treats a stage as ready at bedtime; completions keep that.
+function readyStage(p){
+    p.ready=true;
+    for(const k of ['pruned','screen'])if(p[k]){const inner=p[k];p[k]={...inner,complete(){return readyStage(inner.complete.call(this));}};}
+    return p;
+}
+// WP13 memory: a plan kept for ranking only (search results, learned stages, period candidates) keeps each
+// member's ranking fields and final trace point, not its trajectories. Anything that later needs a trajectory
+// re-evaluates the plan from its phases (deterministic), and a pruned plan's completion starts over.
+function slimTrial(t){
+    return{member:t.member,start:t.start,failureTime:t.failureTime,firstFailureTime:t.firstFailureTime,recoveryMinutes:t.recoveryMinutes,comfortReason:t.comfortReason,
+        moistureReason:t.moistureReason,bedtimeReason:t.bedtimeReason,suitable:t.suitable,ready:t.ready,equipmentEligible:t.equipmentEligible,moistureEligible:t.moistureEligible,
+        floorBreach:t.floorBreach,floorCompliant:t.floorCompliant,unsafe:t.unsafe.slice(0,1),score:t.score,tempMissDegMin:t.tempMissDegMin,rhExceedMin:t.rhExceedMin,
+        trace:t.trace.length?[t.trace.at(-1)]:[],segments:[],slim:true};
+}
+function slimPlan(p){
+    if(!p?.trials||p.slim)return p;
+    const out={...p,trials:p.trials.map(slimTrial),slim:true};
+    for(const k of ['pruned','screen'])if(p[k])out[k]={...p[k],start:null,full:undefined};
+    return out;
+}
+// First best plan in list order, as list.sort(comparePlans)[0] (a stable sort).
+function bestPlan(list){let best=null;for(const p of list)best=best?pickPlan(p,best):p;return best;}
+// As plans.slice().sort(comparePlans) keeping the first plan of each type, in that order. The kept plans are full.
+function bestByType(plans,type=p=>p.type){
+    const groups=new Map();
+    plans.forEach((p,i)=>{const k=type(p);if(!groups.has(k))groups.set(k,[]);groups.get(k).push({p,i});});
+    const kept=[...groups.values()].map(g=>{
+        let best=g[0];
+        for(const c of g.slice(1)){const w=pickPlan(c.p,best.p);if(w===c.p||w===c.p.pruned?.full)best={p:w,i:c.i};else best={p:w,i:best.i};}
+        return{p:fullPlan(best.p),i:best.i};
     });
-    return planFromTrials(phases,trials,envelope,request);
+    return kept.sort((a,b)=>comparePlans(a.p,b.p)||a.i-b.i).map(k=>k.p);
+}
+// Earliest member failure before `time` (Infinity if none), exact for a pruned plan: a member that was not
+// evaluated can fail before a handoff only in its first-phase trajectory, which is shared by every handoff time.
+function earliestFailureBefore(plan,time,envelope,request,rows){
+    let m=Math.min(...plan.trials.map(t=>t.failureTime??Infinity));
+    if(ENSEMBLE.exactFallback&&plan.pruned&&plan.phases.length>1)for(let i=plan.trials.length;i<AIR_SCENARIOS.length;i++){
+        const f=prefixFailure(plan.phases[0],envelope,request,rows,i);if(f!=null&&f<m)m=f;
+    }
+    return m<time?m:Infinity;
+}
+function prefixFailure(phase,envelope,request,rows,i){
+    const s=AIR_SCENARIOS[i],key=phase.setup.key+'|'+s.name+(request.occupancy==='staying'?'':'|'+(rows?.at(-1)?.to??'full'));
+    const cached=envelope.planCache?.get(key);if(cached)return cached.failureTime;
+    envelope.prefixFailures??=new Map();
+    const bounds=planBounds(request.start,request),cut=request.occupancy==='staying'&&bounds.bedtime?+bounds.bedtime:null;
+    if(!envelope.prefixFailures.has(key))envelope.prefixFailures.set(key,simulatePlan([phase],envelope,request,s,cut==null?rows:(rows||planRows(envelope,request,.5,[phase.time])).filter(r=>r.to<=cut)).failureTime);
+    return envelope.prefixFailures.get(key);
+}
+// repairPlanFans changes the fan of these setups when any member fails an equipment check.
+function fanRepairable(plan){return plan.phases.some(p=>['ac','auto','auto_furnace'].includes(p.setup.type));}
+// Search bookkeeping for one plan search (reset by configureEnsemble).
+const ENSEMBLE_SEARCH={workStart:0,pruned:0,completions:0,deferred:0,shortlists:0,cut:0,expanded:0};
+function ensembleOverBudget(){return ensembleScreening()&&SEARCH_WORK-ENSEMBLE_SEARCH.workStart>ENSEMBLE.budgetHours;}
+// Bounded shortlist (scope v3, WP13 Search item 3), used once the search is over its work budget. plans: results
+// of evaluatePlan(..., {defer:true}); a plan marked `screen` survived exact pruning on the screening members.
+// Survivors are ordered by severity across the screening members, and the first K are completed, expanding
+// K = 6 → 12 → all survivors while none qualifies. Survivors left unevaluated are dropped and counted (disclosed).
+function shortlistComplete(plans,qualifies){
+    const out=plans.filter(p=>!p.screen),survivors=plans.filter(p=>p.screen).sort(compareScreening);
+    if(!survivors.length)return out;
+    ENSEMBLE_SEARCH.shortlists++;
+    let done=0;
+    for(const k of [...ENSEMBLE.shortlist,Infinity]){
+        while(done<Math.min(k,survivors.length))out.push(survivors[done++].screen.complete());
+        if(done>=survivors.length||out.some(qualifies))break;
+        ENSEMBLE_SEARCH.expanded++;
+    }
+    ENSEMBLE_SEARCH.cut+=survivors.length-done;
+    return out;
 }
 function screenPlan(phases,envelope,request,rows){
     // A failed nominal trajectory cannot qualify across all cases. Screen timing
@@ -2641,10 +3123,20 @@ function recoveryNotice(info){
     return '<div class="mitigation-box"><strong>'+action+' the RV from '+info.initial.toFixed(1)+'°F</strong>'+escapeHTML(text)+'</div>';
 }
 function planFromTrials(phases,trials,envelope,request){
-    const failed=trials.find(t=>!t.suitable),late=trials.find(t=>!t.ready);
-    const suitable=!failed,ready=!late,first=phases[0].setup,last=phases.at(-1).setup;
-    const natural=naturalRecovery(trials,request,first);
-    return{...targetMetrics(trials),recoveryInfo:recoverySummary(trials),phases,trials,suitable,ready,reason:failed?planTrialReason(failed):late?late.bedtimeReason:'',
+    const first=phases[0].setup,last=phases.at(-1).setup;
+    // WP13 (D3): with the ensemble, a plan is admitted when every member passes the hard constraints, the
+    // nominal member passes, and at least ENSEMBLE.admit of the same members pass jointly. A single-trial
+    // screen keeps its own result. Without the ensemble: every case must pass (v6.6.16 rule).
+    const ensemble=ensembleTrials(trials)?ensembleSummary(trials):null;
+    let failed,late,suitable,ready;
+    if(ensemble){
+        suitable=ensemble.complete&&ensemble.hard&&trials[0].suitable&&trials.filter(t=>t.suitable).length>=ENSEMBLE.admit;
+        ready=trials[0].ready&&ensemble.passes>=ENSEMBLE.admit;
+        failed=suitable?null:(!trials[0].suitable?trials[0]:trials.find(t=>!memberHardPass(t))||trials.find(t=>!t.suitable)||trials[0]);
+        late=ready?null:(!trials[0].ready?trials[0]:trials.find(t=>!t.ready)||trials[0]);
+    }else{failed=trials.find(t=>!t.suitable);late=trials.find(t=>!t.ready);suitable=!failed;ready=!late;}
+    const natural=naturalRecovery(ensemble?[trials[0]]:trials,request,first);
+    return{...targetMetrics(trials),recoveryInfo:recoverySummary(trials),phases,trials,suitable,ready,ensemble,reason:failed?planTrialReason(failed):late?late.bedtimeReason:'',
         score:trials.reduce((a,t)=>a+t.score,0)/trials.length,natural,type:first.type,nightType:last.type,
         setup:first,nightSetup:last,envelope,request,prepareAt:phases.find((p,i)=>i>0&&p.setup.sleepComfort)?.time??null};
 }
@@ -2667,9 +3159,11 @@ function comparePlans(a,b){
     // v6.6.19 (owner decision, November 18, 2026): a trial that never reaches the comfort band trips no
     // in-run stop, so it counts as failing at its 30-minute recovery deadline. Otherwise a sequence that
     // never cools (or heats) the coach would look acceptable through the whole horizon.
-    const until=p=>Math.min(...p.trials.map(t=>t.failureTime??(t.recoveryMinutes==null&&t.comfortReason?
+    const until=p=>ensembleTrials(p.trials)?ensembleUntil(p):Math.min(...p.trials.map(t=>t.failureTime??(t.recoveryMinutes==null&&t.comfortReason?
         +t.start+M.recoveryMinutes*60000:+t.trace.at(-1).time)));
     const duration=!a.suitable&&!b.suitable&&a.trials&&b.trials?until(b)-until(a):0;
+    // WP13 (D3, Option A): two admitted ensemble plans rank by severity first.
+    if(!rank(a)&&!rank(b)&&a.ensemble?.admitted&&b.ensemble?.admitted)return compareEnsemble(a,b);
     return rank(a)-rank(b)||duration||compareRecovery(a,b)||compareFront(a,b)||compareTarget(a,b)||Number(!!b.natural)-Number(!!a.natural)||a.score-b.score||modePreference(a)-modePreference(b);
 }
 function currentRecommendation(envelope,request,plans){
@@ -2689,7 +3183,7 @@ function currentRecommendation(envelope,request,plans){
         if(!p.suitable)continue;
         candidates.push({...p,setup:p.setup,trials:p.trials,reviewAt,type:p.setup.type});
     }
-    candidates.sort((a,b)=>compareRecovery(a,b)||compareFront(a,b)||compareTarget(a,b)||Number(!!b.natural)-Number(!!a.natural)||a.score-b.score||modePreference(a)-modePreference(b));
+    candidates.sort((a,b)=>(a.ensemble?.admitted&&b.ensemble?.admitted?compareEnsemble(a,b):0)||compareRecovery(a,b)||compareFront(a,b)||compareTarget(a,b)||Number(!!b.natural)-Number(!!a.natural)||a.score-b.score||modePreference(a)-modePreference(b));
     const current=candidates[0];if(!current)return null;
     const matching=plans.filter(p=>p.type===current.type&&setupPhysicalKey(p.setup)===setupPhysicalKey(current.setup));
     const template=matching.find(p=>p.nightType===current.type)||matching[0];
@@ -2718,7 +3212,7 @@ function shortlistVents(envelope,request,sleep){
     ranked.sort(compareCandidates);const tested=[];
     for(const c of ranked){
         if(c.suitable){const trials=[c.nominal,...AIR_SCENARIOS.slice(1).map(s=>simulatePlan([{time:+request.start,setup:c.setup}],envelope,request,s,rows))];
-            c.suitable=trials.every(t=>t.suitable);c.score=trials.reduce((n,t)=>n+t.score,0)/trials.length;c.equipmentEligible=trials.every(t=>t.equipmentEligible);c.moistureEligible=trials.every(t=>t.moistureEligible);}
+            c.suitable=ensembleTrials(trials)?ensembleSummary(trials).admitted:trials.every(t=>t.suitable);c.score=trials.reduce((n,t)=>n+t.score,0)/trials.length;c.equipmentEligible=trials.every(t=>t.equipmentEligible);c.moistureEligible=trials.every(t=>t.moistureEligible);}
         tested.push(c);if(tested.filter(t=>t.suitable).length>=4)break;
     }
     tested.sort(compareCandidates);return tested.slice(0,4).map(c=>c.config);
@@ -2726,11 +3220,14 @@ function shortlistVents(envelope,request,sleep){
 
 function repairPlanFans(plan,envelope,request,rows){
     // Each trial always restarts at the measured state; no mid-simulation fan-speed magic.
-    if(plan.trials.every(t=>t.equipmentEligible))return plan;
+    // WP13: whether any member fails an equipment check needs every member of a pruned plan.
+    const eligible=p=>(ENSEMBLE.exactFallback&&p.pruned&&p.trials.every(t=>t.equipmentEligible)&&fanRepairable(p)?fullPlan(p):p).trials.every(t=>t.equipmentEligible);
+    if(eligible(plan))return plan;
     for(const fan of ['Medium','High']){
         const phases=plan.phases.map(p=>({time:p.time,setup:['ac','auto','auto_furnace'].includes(p.setup.type)?{...p.setup,fan,key:p.setup.key+'|'+fan}:p.setup}));
         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))continue;
-        const next=evaluatePlan(phases,envelope,request,rows);
+        let next=evaluatePlan(phases,envelope,request,rows);
+        if(ENSEMBLE.exactFallback&&next.pruned&&next.trials.every(t=>t.equipmentEligible))next=fullPlan(next);
         if(next.trials.every(t=>t.equipmentEligible))return next;
         plan=next;
     }
@@ -2741,27 +3238,35 @@ function stageSetups(sleep,vents){
         ['Auto','Low','Medium','High'].map(fan=>planSetup(base.type,sleep,base.config,fan)):[base]);
 }
 function stageSummary(plan,from,to){
-    return{...targetMetrics(plan.trials,from,to),recoveryInfo:recoverySummary(plan.trials),setup:plan.setup,suitable:plan.suitable,reason:plan.reason,ready:plan.ready,
+    return{...targetMetrics(plan.trials,from,to),recoveryInfo:recoverySummary(plan.trials),setup:plan.setup,suitable:plan.suitable,reason:plan.reason,ready:plan.ready,ensemble:plan.ensemble??null,
         bedroom:traceRange(plan,from,to,'bedroom'),front:traceRange(plan,from,to,'midCoach'),
         humidity:traceRange(plan,from,to,'rh'),frontRH:traceRange(plan,from,to,'midRH')};
 }
 function stageGroup(plans,from,to){
-    const modes=new Map();for(const p of plans.slice().sort(comparePlans))if(!modes.has(p.type))modes.set(p.type,stageSummary(p,from,to));
-    return [...modes.values()];
+    return bestByType(plans).map(p=>stageSummary(p,from,to));
 }
 function stagePlan(prefix,setup,from,to,envelope,request,rows){
     const original=stagePlanRaw(prefix,setup,from,to,envelope,request,rows);
-    return optimizePhase(original,original.phases.length-1,envelope,request,rows.filter(row=>row.to<=to),from,to,changed=>stagePlanRaw(prefix,changed,from,to,envelope,request,rows));
+    return optimizePhase(original,original.phases.length-1,envelope,request,rows.filter(row=>row.to<=to),from,to,(changed,opts)=>stagePlanRaw(prefix,changed,from,to,envelope,request,rows,opts));
 }
-function stagePlanRaw(prefix,setup,from,to,envelope,request,rows){
+function stagePlanRaw(prefix,setup,from,to,envelope,request,rows,opts={}){
+    const given=setup;
     if(setup!==request.actual)setup=applyRecoverySetting(setup,request,from);
     const phases=[...prefix.filter(p=>p.time<from),{time:from,setup}],stageRows=rows.filter(row=>row.to<=to);
-    const p=evaluatePlan(phases,envelope,request,stageRows),failed=p.trials.find(t=>!t.suitable||+t.trace.at(-1).time!==to);
+    const p=evaluatePlan(phases,envelope,request,stageRows,opts),bedtimeStage=planBounds(request.start,request).bedtime&&to===+planBounds(request.start,request).bedtime;
+    // WP13: a stage's joint pass counts bedtime readiness only when the stage ends at bedtime.
+    if(p.ensemble)p.ensemble=ensembleSummary(p.trials,{readiness:!!bedtimeStage});
+    const failed=p.ensemble?(p.ensemble.admitted?p.trials.find(t=>+t.trace.at(-1).time!==to):(p.trials.find(t=>!memberHardPass(t))||p.trials.find(t=>!t.suitable)||p.trials[0])):
+        p.trials.find(t=>!t.suitable||+t.trace.at(-1).time!==to);
     const available=request.occupancy!=='away'||setupChangeAllowed(request.actual,phases[0].setup,+request.start,request);
     const idleHeat=setup!==request.actual&&['hp','furnace'].includes(setup.type)&&p.trials.every(t=>!t.segments.some(s=>s.startMs>=from&&s.startMs<to&&['hp','furnace'].includes(s.operation)&&s.duty>0));
     const bedtime=planBounds(request.start,request).bedtime;
-    return{...p,...targetMetrics(p.trials,from,to),setup,type:setup.type,suitable:available&&!failed&&!idleHeat,ready:bedtime&&to===+bedtime?p.ready:true,
+    const out={...p,...targetMetrics(p.trials,from,to),setup,type:setup.type,suitable:available&&!failed&&!idleHeat,ready:bedtime&&to===+bedtime?p.ready:true,
         reason:!available?'This setup requires an unavailable physical adjustment while you are away.':failed?planTrialReason(failed):idleHeat?'Heating is not needed during this interval; this heating mode would remain idle.':''};
+    // WP13 Search: completing a pruned or screened stage re-derives the stage result from the full member set.
+    if(p.pruned)out.pruned={start:p.trials,complete(){ENSEMBLE_SEARCH.completions++;return stagePlanRaw(prefix,given,from,to,envelope,request,rows,{full:true,start:this.start||undefined});}};
+    if(p.screen)out.screen={severity:p.screen.severity,start:p.trials,complete(){return stagePlanRaw(prefix,given,from,to,envelope,request,rows,{start:this.start||undefined});}};
+    return out;
 }
 function* departureOvernight(prefix,nights,envelope,request,rows){
     const bounds=planBounds(request.start,request),bed=+bounds.bedtime,earliest=Math.max(+request.returnTime,+request.start);
@@ -2775,7 +3280,7 @@ function* departureOvernight(prefix,nights,envelope,request,rows){
         };
         const nominal=simulate(AIR_SCENARIOS[0],0);
         const trials=nominal.suitable&&nominal.ready?[nominal,...AIR_SCENARIOS.slice(1).map((s,i)=>simulate(s,i+1))]:[nominal];
-        return planFromTrials(phases,trials,envelope,request);
+        return planFromTrials(phases,completeEnsembleTrials(trials,i=>simulatePlan(phases,envelope,request,AIR_SCENARIOS[i],rows,null,false,true)),envelope,request);
     };
     const times=new Set([bed,earliest]);
     for(let t=bed-PLAN.searchMinutes*60000;t>earliest;t-=PLAN.searchMinutes*60000)times.add(t);
@@ -2797,18 +3302,24 @@ function* departureOvernight(prefix,nights,envelope,request,rows){
                 if(found)break;
             }
         }
-        if(best)plans.push(optimizeSequence(best,envelope,request,rows,Math.max(+request.returnTime,+request.start)));
+        if(best)plans.push(fullPlan(optimizeSequence(best,envelope,request,rows,Math.max(+request.returnTime,+request.start))));
     }
     annotateAutoPlans(plans);plans.sort(comparePlans);
     return{winner:plans[0],plans};
 }
-function returnComfort(plan,bounds,request){
+function returnComfort(plan,bounds,request,joint=true){
     const back=+request.returnTime,band=comfortPolicy(bounds.hasSleep&&back===+bounds.sleepFrom);
+    // WP13: return comfort is part of each member's joint pass (joint); the fixed-setup trigger counts it alone.
+    if(ensembleTrials(plan.trials)){
+        if(joint)return ensembleSummary(plan.trials,{returnAt:{time:back,band}}).admitted;
+        const ok=t=>t.trace.some(p=>+p.time===back&&p.bedroom>=band.low-1e-6&&p.bedroom<=band.high+1e-6);
+        return ok(plan.trials[0])&&plan.trials.filter(ok).length>=ENSEMBLE.admit;
+    }
     return plan.trials.every(t=>t.trace.some(p=>+p.time===back&&p.bedroom>=band.low-1e-6&&p.bedroom<=band.high+1e-6));
 }
 function missesSleepComfort(overnight,back){
-    return overnight?.plans.length&&overnight.plans.every(p=>p.trials.some(t=>
-        (t.comfortProblem&&+t.comfortProblem.time>=back)||(t.atBedtime&&!t.ready)));
+    const miss=t=>(t.comfortProblem&&+t.comfortProblem.time>=back)||(t.atBedtime&&!t.ready);
+    return overnight?.plans.length&&overnight.plans.every(p=>ensembleTrials(p.trials)?miss(p.trials[0])||p.trials.filter(t=>!miss(t)).length<ENSEMBLE.admit:p.trials.some(miss));
 }
 function remoteTrigger(held,bounds,request,sleepMiss){
     const back=+request.returnTime;
@@ -2817,7 +3328,7 @@ function remoteTrigger(held,bounds,request,sleepMiss){
             time:p.time,reason:'Predicted bed-area temperature falls below the '+C.comfortFloor+'°F protection floor'
         })))).filter(p=>+p.time>=+request.departure).sort((a,b)=>+a.time-+b.time)[0];
     if(protection)return {time:+protection.time,reason:protection.reason,protection:true};
-    if(!returnComfort(held,bounds,request))return {time:back,reason:'The bedroom is predicted to miss its comfort range at return.'};
+    if(!returnComfort(held,bounds,request,false))return {time:back,reason:'The bedroom is predicted to miss its comfort range at return.'};
     if(sleepMiss){
         return {time:back,reason:'The fixed departure setup falls short of the projected sleep comfort requirements.'};
     }
@@ -2866,7 +3377,7 @@ function* remoteDeparturePlan(fixedPlans,nights,envelope,request,rows,bounds,bou
                 // action even when the return comfort band cannot be verified.
                 if(trigger.protection&&!protectionFallback&&screen.equipmentEligible&&screen.moistureEligible&&screen.floorCompliant){
                     const trials=AIR_SCENARIOS.map(s=>simulatePlan(phases,envelope,request,s,stageRows,null,false,true));
-                    if(trials.every(t=>t.equipmentEligible&&t.moistureEligible&&t.floorCompliant)){
+                    if(casesPass(trials,t=>t.moistureEligible,t=>t.equipmentEligible&&t.floorCompliant)){
                         const protectedPlan=planFromTrials(phases,trials,envelope,request);
                         protectionFallback={current,plan:protectedPlan,overnight:null,complete:false,
                             action:{time,setup,reason:trigger.reason,riskTime:trigger.time,protection:true,limited:true,
@@ -2899,7 +3410,8 @@ function* searchDeparturePlans(envelope,request){
     let currents=[];
     if(departure>from){
         const currentSetups=back===+bounds.bedtime?[...days,...stageSetups(true,vents).filter(s=>s.type==='ac')]:days;
-        for(const setup of currentSetups){currents.push(stagePlan([],setup,from,departure,envelope,request,rows));yield{current:currents.length};}
+        // WP13: absence stages are short; their full ordering is used below, so pruned stages are completed.
+        for(const setup of currentSetups){currents.push(fullPlan(stagePlan([],setup,from,departure,envelope,request,rows)));yield{current:currents.length};}
         currents.sort(comparePlans);
         stages.current={from,to:departure,recommended:null,options:stageGroup(currents,from,departure)};
     }else currents=[{suitable:true,ready:true,phases:[],setup:days[0],score:0,type:days[0].type}];
@@ -2911,7 +3423,7 @@ function* searchDeparturePlans(envelope,request){
         if(current!==currents.find(p=>p.suitable)&&over()){bounded.budget=true;break;}
         const prefix=departure>from?current.phases:[],tested=[];
         for(const setup of depSetups){
-            tested.push(setup===request.actual?stagePlanRaw(prefix,setup,departure,back,envelope,request,rows):stagePlan(prefix,setup,departure,back,envelope,request,rows));
+            tested.push(fullPlan(setup===request.actual?stagePlanRaw(prefix,setup,departure,back,envelope,request,rows):stagePlan(prefix,setup,departure,back,envelope,request,rows)));
             yield{departure:tested.length};
         }
         tested.sort((a,b)=>comparePlans(a,b)||Number(sameSetup(current.setup,b.setup))-Number(sameSetup(current.setup,a.setup)));
@@ -2952,7 +3464,7 @@ function* searchDeparturePlans(envelope,request){
         const stageRows=rows.filter(row=>row.to<=back);
         for(const candidate of departurePlans){
             const trials=AIR_SCENARIOS.map(s=>simulatePlan(candidate.phases,envelope,request,s,stageRows,null,false,true));
-            if(!trials.every(t=>t.equipmentEligible&&t.moistureEligible&&t.floorCompliant))continue;
+            if(!casesPass(trials,t=>t.moistureEligible,t=>t.equipmentEligible&&t.floorCompliant))continue;
             selectedDeparture=planFromTrials(candidate.phases,trials,envelope,request);
             stages.partialDeparture=true;break;
         }
@@ -3001,7 +3513,7 @@ function renderDeparturePlan(result){
         let out='<section class="plan-stage" data-stage="'+kind+'"><h3>'+escapeHTML(title)+'</h3><p class="plan-time">'+interval(stage.from,stage.to)+'</p>';
         if(recommended?.setup){
             const keep=kind==='departure'&&stages.current?.recommended&&sameSetup(stages.current.recommended.setup,recommended.setup);
-            out+='<div class="result-primary">'+escapeHTML(setupName(recommended.setup))+'</div>';
+            out+='<div class="result-primary">'+escapeHTML(setupName(recommended.setup))+'</div>'+ensembleResultHTML(recommended,result.search);
             const hold=kind==='departure'&&request.occupancy==='away';
             const instruction=hold?(stages.remoteAction?.time===stage.from?'Apply the remote adjustment below.':'Keep your current setup'+(stages.remoteAction?' until the adjustment below.':'.')):setupInstructions(recommended.setup);
             out+='<p class="hint">'+(keep?'Keep this setup when you leave. ':'')+escapeHTML(instruction)+'</p>'+recoveryNotice(recommended.recoveryInfo)+metrics(recommended);
@@ -3047,6 +3559,8 @@ function renderDeparturePlan(result){
 
 function* searchPlans(envelope,request){
     const result=yield* searchPlansCore(envelope,request);
+    // WP13 Search disclosure: exhaustive unless the bounded shortlist left plans that could still qualify unchecked.
+    if(ENSEMBLE.enabled&&AIR_SCENARIOS[0]?.ensemble)result.search={exhaustive:ENSEMBLE_SEARCH.cut===0,unchecked:ENSEMBLE_SEARCH.cut,pruned:ENSEMBLE_SEARCH.pruned,shortlists:ENSEMBLE_SEARCH.shortlists};
     const hasCurrent=result.stages?!!result.stages.current?.recommended||!!result.stages.departure.recommended:(result.winner.suitable&&result.winner.ready)||!!result.current;
     if(!hasCurrent&&request.occupancy!=='away')result.recoveryAction=recoveryAction(envelope,request);
     result.bedtimeRecovery=bedtimeRecovery(result,envelope,request);
@@ -3082,10 +3596,11 @@ function wp7CoilAdvisory(result,envelope,request){
     // Only an evaluated, executable plan that passes the current policy (suitable and ready) and the
     // physics check in every case is offered. A plan without compressor cooling passes the physics check.
     const bounds=result.bounds||planBounds(request.start,request),start=+request.start,end=+bounds.end;
-    for(const alt of result.plans){
+    for(let alt of result.plans){
         if(alt===plan||!(alt.suitable&&alt.ready))continue;
         if(advisory.alternativesChecked>=4)break;
         advisory.alternativesChecked++;
+        if(alt.slim&&alt.rebuild)alt=alt.rebuild();
         const altCheck=wp7CoilCheck(alt,envelope,request);
         if(altCheck&&altCheck.flagged>0)continue;
         advisory.alternative={phases:alt.phases.map(p=>({time:p.time,setup:p.setup})),check:altCheck,
@@ -3131,7 +3646,7 @@ function bedtimeRecovery(result,envelope,request){
     const reached=point=>direction==='heat'?point.bedroom>=sleep.target:point.bedroom<=sleep.target;
     const inSleepBand=point=>point.bedroom>=sleep.low-1e-6&&point.bedroom<=sleep.high+1e-6;
     const verify=phases=>AIR_SCENARIOS.map(scenario=>simulatePlan(phases,envelope,request,scenario,null,null,false,true));
-    const safe=trials=>trials.every(trial=>trial.equipmentEligible&&trial.moistureEligible);
+    const safe=trials=>casesPass(trials,trial=>trial.moistureEligible,trial=>trial.equipmentEligible);
     const summarize=(trials,from)=>{
         const hits=trials.map(trial=>trial.trace.find(point=>+point.time>=from&&inSleepBand(point)));
         const times=hits.filter(Boolean).map(point=>+point.time);
@@ -3159,7 +3674,7 @@ function bedtimeRecovery(result,envelope,request){
     const phases=switchAt===start?[{time:start,setup:night}]:[dayPhase,{time:switchAt,setup:night}];
     const trials=verify(phases),bedroom=readingAt({trials},bedtime,'bedroom');
     const eta=safe(trials)?summarize(trials,bedtime):null;
-    const verified=safe(trials)&&trials.every(trial=>trial.ready&&trial.suitable);
+    const verified=safe(trials)&&casesPass(trials,trial=>trial.ready&&trial.suitable);
     return {setup,night,start,switchAt,bedtime,transition,bedroom,eta,verified,
         reviewAt:action?.reviewAt,request,direction,target:sleep.target};
 }
@@ -3225,7 +3740,7 @@ function recoveryActionHTML(action){
     return '<div class="mitigation-box"><strong>Start temperature recovery '+(action.request.future?'at the planned start':'now')+'</strong><p>'+escapeHTML(setupName(action.setup))+': '+planActionText({time:+action.request.start,setup:action.setup},action.request)+'</p><p>This improves the predicted temperature compared with leaving HVAC off. A complete comfort plan has not passed; available capacity or later conditions may prevent reaching or maintaining the target. Refresh both readings by '+escapeHTML(formatTime(new Date(action.reviewAt)))+' and rebuild the plan.</p></div>'+recoveryNotice(action.recoveryInfo);
 }
 function* searchPlansCore(envelope,request){
-    validatePlanRequest(request);envelope.planCache=new Map();configureSolarScenarios(envelope);
+    validatePlanRequest(request);envelope.planCache=new Map();configureSolarScenarios(envelope);configureEnsemble(envelope,request);
     if(request.occupancy==='leaving'||request.occupancy==='away')return yield* searchDeparturePlans(envelope,request);
     const bounds=planBounds(request.start,request),rows=planRows(envelope,request),vents=shortlistVents(envelope,request,bounds.sleep);
     const nightVents=bounds.bedtime?shortlistVents(envelope,request,true):vents;
@@ -3238,21 +3753,20 @@ function* searchPlansCore(envelope,request){
         // every retained connected sequence is still fully verified below.
         const daytime=days.map(base=>{
             const fans=['ac','hp','auto','auto_furnace'].includes(base.type)?['Auto','Low','Medium','High']:[base.fan];
-            return fans.map(fan=>{
+            return bestPlan(fans.map(fan=>{
                 const setup={...base,fan,key:base.key+'|'+fan};
-                const original=stagePlanRaw([],setup,+request.start,+bounds.bedtime,envelope,request,rows);original.ready=true;
-                return optimizePhase(original,0,envelope,request,rows.filter(r=>r.to<=+bounds.bedtime),+request.start,+bounds.bedtime,changed=>{const p=stagePlanRaw([],changed,+request.start,+bounds.bedtime,envelope,request,rows);p.ready=true;return p;});
-            }).sort(comparePlans)[0];
+                const original=readyStage(stagePlanRaw([],setup,+request.start,+bounds.bedtime,envelope,request,rows));
+                return slimPlan(optimizePhase(original,0,envelope,request,rows.filter(r=>r.to<=+bounds.bedtime),+request.start,+bounds.bedtime,(changed,opts)=>{const p=stagePlanRaw([],changed,+request.start,+bounds.bedtime,envelope,request,rows,opts);p.ready=true;return readyStage(p);}));
+            }));
         });
         // Cache eviction must not erase a verified daytime result and trigger
         // an unnecessary exhaustive daytime-bridge search.
         daytimeCovered=daytime.some(p=>p.suitable);
         days=daytime.map(p=>p.setup);
-        const prefix=daytime.slice().sort(comparePlans)[0].phases;
+        const prefix=bestPlan(daytime).phases;
         nights=nights.map(setup=>{
             const fans=['ac','hp','auto','auto_furnace'].includes(setup.type)?['Auto','Low','Medium','High']:[setup.fan];
-            return fans.map(fan=>stagePlan(prefix,{...setup,fan,key:setup.key+'|'+fan},+bounds.bedtime,+bounds.end,envelope,request,rows))
-                .sort(comparePlans)[0].setup;
+            return bestPlan(fans.map(fan=>slimPlan(stagePlan(prefix,{...setup,fan,key:setup.key+'|'+fan},+bounds.bedtime,+bounds.end,envelope,request,rows)))).setup;
         });
         // A control that cannot start at bedtime may work when preparation
         // begins earlier, under different weather. Keep the original controls
@@ -3269,7 +3783,7 @@ function* searchPlansCore(envelope,request){
             for(const fan of fans){
                 const setup={...base,fan,key:base.key+'|'+fan};
                 const p=repairPlanFans(evaluatePlan([{time:+request.start,setup}],envelope,request,rows),envelope,request,rows);
-                results.push(optimizeSequence(p,envelope,request,rows));yield{completed:results.length};
+                results.push(slimPlan(optimizeSequence(p,envelope,request,rows)));yield{completed:results.length};
             }
         }
     }else{
@@ -3290,16 +3804,15 @@ function* searchPlansCore(envelope,request){
                 if(!setupChangeAllowed(day,night,time,request))return null;
                 const phases=time===+request.start?[{time,setup:night}]:[{time:+request.start,setup:day},{time,setup:night}];
                 if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))return null;
-                let plan=screenPlan(phases,envelope,request,rows);
-                if(plan.trials.some(t=>!t.equipmentEligible))plan=repairPlanFans(plan,envelope,request,rows);
-                if(!closest||comparePlans(plan,closest)<0)closest=plan;
+                let plan=repairPlanFans(screenPlan(phases,envelope,request,rows),envelope,request,rows);
+                closest=closest?pickPlan(plan,closest):plan;
                 return plan;
             };
             for(const time of [...times].filter(t=>t>=+request.start&&t<=+bounds.bedtime).sort((a,b)=>b-a)){
                 if(time>latestRelevant)continue;
                 const plan=attempt(time);if(!plan)continue;
                 if(plan.suitable&&plan.ready){found=plan;break;}
-                const firstFailure=Math.min(...plan.trials.map(t=>t.failureTime??Infinity));
+                const firstFailure=earliestFailureBefore(plan,time,envelope,request,rows);
                 if(firstFailure<time)latestRelevant=firstFailure;
                 yield{searching:time};
             }
@@ -3333,13 +3846,13 @@ function* searchPlansCore(envelope,request){
                             [{time:+request.start,setup:day},{time,setup:cool},{time:+bounds.bedtime,setup:night}];
                         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))continue;
                         const plan=screenPlan(phases,envelope,request,rows);
-                        if(!closest||comparePlans(plan,closest)<0)closest=plan;
+                        closest=closest?pickPlan(plan,closest):plan;
                         if(plan.suitable&&plan.ready){found=plan;break;}yield{searching:time};
                     }
                     if(found)break;
                 }
             }
-            if(found||closest)results.push(found||closest);
+            if(found||closest)results.push(slimPlan(found||closest));
             yield{completed:results.length};
         }
     }
@@ -3365,43 +3878,56 @@ function* searchPlansCore(envelope,request){
                     for(let time=+bounds.bedtime;time>handoff;time-=30*60000){
                         if(!setupChangeAllowed(bridge,night,time,request))continue;
                         const phases=[{time:+request.start,setup:day},{time:handoff,setup:bridge},{time,setup:night}];
-                        let p=screenPlan(phases,envelope,request,rows);
-                        if(p.trials.some(t=>!t.equipmentEligible))p=repairPlanFans(p,envelope,request,rows);
+                        const p=repairPlanFans(screenPlan(phases,envelope,request,rows),envelope,request,rows);
                         if(p.suitable&&p.ready){recovered=p;break;}
-                        const earliest=Math.min(...p.trials.map(t=>t.failureTime??Infinity));if(earliest<time&&earliest<=handoff)break;
+                        const earliest=earliestFailureBefore(p,handoff+1,envelope,request,rows);if(earliest<time&&earliest<=handoff)break;
                         yield{searching:time};
                     }
-                    if(recovered){results.push(recovered);yield{completed:results.length};}
+                    if(recovered){results.push(slimPlan(recovered));yield{completed:results.length};}
                 }
             }
         }
     }
-    const settingsGroups=new Map();
-    for(const p of results.slice().sort(comparePlans)){const key=p.type+'|'+p.nightType;if(!settingsGroups.has(key))settingsGroups.set(key,p);}
+    const settingsGroups=bestByType(results,p=>p.type+'|'+p.nightType);
     // Restore all cases for retained results, including rejected diagnostic
     // plans, before ranking and presenting them.
-    results=[...settingsGroups.values()].map(p=>optimizeSequence(evaluatePlan(p.phases,envelope,request,rows),envelope,request,rows));
+    // WP13 memory: each final plan keeps its ranking fields and AUTO statistics; a plan that is displayed is
+    // rebuilt from its phases (the same deterministic evaluation) when its trajectories are needed.
+    results=settingsGroups.map(p=>{
+        const f=fullPlan(optimizeSequence(evaluatePlan(p.phases,envelope,request,rows),envelope,request,rows));
+        if(!ensembleTrials(f.trials))return f;
+        f.autoStats=autoStats(f);const slim=slimPlan(f),phases=f.phases;
+        slim.rebuild=()=>({...evaluatePlan(phases,envelope,request,rows,{full:true}),score:slim.score,autoExplanation:slim.autoExplanation,autoStats:slim.autoStats});
+        return slim;
+    });
     annotateAutoPlans(results);
     results.sort(comparePlans);
     if(!results.length)throw new Error('No executable setup can be evaluated with the entered physical arrangement.');
+    if(results[0].rebuild)results[0]=results[0].rebuild();
     const current=results[0].suitable&&results[0].ready?null:currentRecommendation(envelope,request,results);
     const result={winner:results[0],plans:results,bounds,envelope,request,current};
     result.comparisons=periodComparisons(result,days,nights,rows);
     return result;
+}
+// Trials in which AUTO both cooled and heated (≥ 5 min each) after preparation, and the nominal member's
+// heating minutes; read from the trajectories once (WP13 keeps final plans slim afterwards).
+function autoStats(plan){
+    const since=plan.prepareAt??+plan.request.start;
+    const both=plan.trials.filter(t=>{
+        const parts=t.segments.filter(s=>s.startMs>=since),minutes=op=>parts.filter(s=>s.operation===op).reduce((n,s)=>n+s.hours*60*s.duty,0);
+        return minutes('ac')>=5&&minutes('hp')+minutes('furnace')>=5;
+    }).length;
+    const nightHeat=plan.trials[0].segments.filter(s=>s.startMs>=since&&['hp','furnace'].includes(s.operation)).reduce((n,s)=>n+s.hours*60*s.duty,0);
+    return{both,nightHeat};
 }
 function annotateAutoPlans(plans){
     for(const plan of plans){
         if(!isAutoMode(plan.nightType))continue;
         const peers=plans.filter(p=>p.setup.type===plan.setup.type&&setupPhysicalKey(p.setup)===setupPhysicalKey(plan.setup)&&p.suitable&&p.ready);
         const ac=peers.some(p=>p.nightType==='ac'),heat=peers.some(p=>p.nightType==='hp'||p.nightType==='furnace');
-        const since=plan.prepareAt??+plan.request.start;
-        const both=plan.trials.filter(t=>{
-            const parts=t.segments.filter(s=>s.startMs>=since),minutes=op=>parts.filter(s=>s.operation===op).reduce((n,s)=>n+s.hours*60*s.duty,0);
-            return minutes('ac')>=5&&minutes('hp')+minutes('furnace')>=5;
-        }).length;
+        const {both,nightHeat}=plan.autoStats||autoStats(plan);
         const need=!ac&&!heat&&both>0;
         plan.autoExplanation=ac?'Cooling alone is acceptable; AUTO receives no benefit for reheating.':heat?'Heating alone is acceptable; both functions are not needed.':need?'Both functions prevent a single-mode shortfall in '+both+' of '+AIR_SCENARIOS.length+' sensitivity scenarios.':'A sustained need for both functions is not established.';
-        const nightHeat=plan.trials[0].segments.filter(s=>s.startMs>=since&&['hp','furnace'].includes(s.operation)).reduce((n,s)=>n+s.hours*60*s.duty,0);
         plan.score+=need?-1:ac&&nightHeat>0?1+nightHeat/30:.5;
     }
 }
@@ -3418,11 +3944,10 @@ function periodComparisons(result,days,nights,rows){
         idle:plan.trials.every(t=>!t.segments.some(s=>s.startMs>=from&&s.startMs<to&&s.duty>0&&['ac','hp','furnace'].includes(s.operation))),
         reason:plan.reason,score:plan.score,bedroom:traceRange(plan,from,to,'bedroom'),
         humidity:traceRange(plan,from,to,'rh'),front:traceRange(plan,from,to,'midCoach')});
-    const bestByMode=plans=>{
-        plans.sort(comparePlans);const grouped=new Map();
-        for(const p of plans)if(!grouped.has(p.type))grouped.set(p.type,p);
-        return [...grouped.values()];
-    };
+    // WP13 memory: each candidate is summarized while its trajectories are at hand, then kept slim; a candidate
+    // completed during ranking is summarized from its full evaluation.
+    const keep=(plan,from,to)=>{const s=slimPlan(plan);if(!plan.pruned)s.summary=summarize(plan,from,to);return s;};
+    const bestByMode=(plans,from,to)=>bestByType(plans).map(p=>p.summary&&p.slim?p.summary:summarize(p.slim&&p.rebuild?p.rebuild():p,from,to));
     if(!bounds.sleep){
         // The next displayed adjustment ends the current comparison interval. An
         // alternative must work continuously until then, not borrow an earlier
@@ -3435,15 +3960,15 @@ function periodComparisons(result,days,nights,rows){
             for(const setup of setups){
                 const available=request.occupancy!=='away'||setupChangeAllowed(request.actual,setup,+request.start,request);
                 const p=stagePlan([],setup,+request.start,end,envelope,request,dayRows);
-                candidates.push(p);
+                candidates.push(keep(p,+request.start,end));
             }
             output.day={from:+request.start,to:end,recommended:current?.setup||winner.setup,
-                options:bestByMode(candidates).map(p=>summarize(p,+request.start,end))};
+                options:bestByMode(candidates,+request.start,end)};
         }
     }
     if(bounds.sleep){
         output.night={from:+request.start,to:+bounds.end,projected:false,recommended:winner.suitable?winner.nightSetup:null,
-            options:bestByMode(result.plans.slice()).map(p=>summarize(p,+request.start,+bounds.end))};
+            options:bestByMode(result.plans.slice(),+request.start,+bounds.end)};
     }else if(winner.suitable&&winner.ready){
         const from=+bounds.bedtime,prefix=winner.phases.filter(p=>p.time<from),candidates=[];
         for(const base of nights){
@@ -3453,11 +3978,13 @@ function periodComparisons(result,days,nights,rows){
                 let plan=evaluatePlan([...prefix,{time:from,setup}],envelope,request,rows);
                 plan=optimizePhase(plan,plan.phases.length-1,envelope,request,rows,from,+bounds.end);
                 // Label/group by the overnight mode, never the common daytime mode.
-                candidates.push({...plan,setup:plan.nightSetup,type:plan.nightType});
+                const labeled={...plan,setup:plan.nightSetup,type:plan.nightType};
+                if(plan.pruned){const inner=plan.pruned;labeled.pruned={start:inner.start,complete(){const f=inner.complete.call(this);return{...f,setup:f.nightSetup,type:f.nightType};}};}
+                candidates.push(keep(labeled,from,+bounds.end));
             }
         }
         output.night={from,to:+bounds.end,projected:true,recommended:winner.nightSetup,
-            options:bestByMode(candidates).map(p=>summarize(p,from,+bounds.end))};
+            options:bestByMode(candidates,from,+bounds.end)};
     }
     return output;
 }
@@ -3523,7 +4050,7 @@ function renderPlan(result){
     const step=(title,time,body)=>'<div class="plan-step"><div class="plan-time">'+escapeHTML(time)+'</div><strong>'+escapeHTML(title)+'</strong><p>'+body+'</p></div>';
     const safe=p.suitable&&p.ready,current=!safe&&result.current;
     const badge=current?'<div class="risk-badge moderate"><div class="risk-dot moderate"></div><span>Recheck overnight</span></div>':policyBadge(safe&&p.recoveryInfo?.complete!==false,true);
-    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+badge+'</div>'+wp7CoilAdvisoryHTML(result.coilAdvisory,request)+comfortPolicyText()+spatialModelText()+recoveryActionHTML(result.recoveryAction);
+    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+badge+'</div>'+wp7CoilAdvisoryHTML(result.coilAdvisory,request)+ensembleResultHTML(p,result.search)+comfortPolicyText()+spatialModelText()+recoveryActionHTML(result.recoveryAction);
     if(result.bedtimeRecovery?.overnight)html+=bedtimeRecoveryHTML(result.bedtimeRecovery);
     if(current){
         html+='<div class="result-primary">'+escapeHTML(setupName(current.setup))+'</div>';
@@ -3610,14 +4137,44 @@ function checkResultValidity(){
     const problem=resultContext.mode==='forecast'?forecastProblem():'';
     if(problem||Date.now()>=resultContext.expires)invalidateResults(problem||'The next action time has arrived or the plan needs refreshed readings. Build a fresh plan.');
 }
+// The plan result the Worker posts: only what the page renders and logs. Checkpoints are dropped; plans other
+// than the winner keep no trajectories. With the WP13 ensemble, each sampled member of the plans shown
+// (winner, current recommendation and its outlook, recovery action) keeps a display trace and no segments;
+// the nominal member is kept whole (plan logging reads it).
+function trimPlanResult(result){
+    delete result.envelope.planCache;delete result.envelope.prefixFailures;
+    const grouped=new Map();for(const p of result.plans)if(!grouped.has(p.type))grouped.set(p.type,p);result.plans=[...new Set([result.winner,...grouped.values()])];
+    for(const p of result.plans)for(const t of p.trials){delete t.checkpoints;if(p!==result.winner){t.trace=[];t.segments=[];}}
+    const shown=[result.winner,result.current,result.current?.outlook,result.recoveryAction].filter(p=>p?.trials);
+    // Search-only handles (functions) cannot be posted.
+    for(const p of [...result.plans,...shown])for(const k of ['rebuild','pruned','screen'])delete p[k];
+    const b=result.bounds||{},r=result.request||{};
+    const marks=new Set([r.start,b.start,b.end,b.bedtime,b.sleepFrom,r.departure,r.returnTime,result.current?.reviewAt,result.recoveryAction?.reviewAt,
+        ...shown.flatMap(p=>(p.phases||[]).map(x=>x.time))].filter(v=>v!=null).map(Number));
+    for(const p of shown)for(const t of p.trials){delete t.checkpoints;if(t.member>0){t.trace=displayTrace(t.trace,marks);t.segments=[];}}
+    return result;
+}
+// Exact values at every display boundary (marks), and between consecutive boundaries two points carrying the
+// interval's minimum and maximum of each field. Ranges and readings over windows that start and end at marks are
+// unchanged (traceRange, readingAt, frontOutlook, currentOutlook).
+function displayTrace(trace,marks){
+    const fields=['indoor','bedroom','midCoach','rh','midRH','dewPoint','midDewPoint'],out=[]; /* water (per-zone array) is not displayed */let lo=null,hi=null;
+    for(const p of trace){
+        if(marks.has(+p.time)){if(lo)out.push(lo,hi);lo=hi=null;out.push(p);continue;}
+        if(lo&&p.sleep!==lo.sleep){out.push(lo,hi);lo=hi=null;}
+        if(!lo){lo={...p};hi={...p};continue;}
+        for(const f of fields){if(p[f]<lo[f])lo[f]=p[f];if(p[f]>hi[f])hi[f]=p[f];}
+    }
+    if(lo)out.push(lo,hi);
+    return out;
+}
 function calculateInWorker(request,envelope,onProgress,inputs={state,forecast}){
     const source=document.querySelector('script').textContent;
     const bootstrap=`(()=>{const elements=new Map();const element=id=>{if(!elements.has(id))elements.set(id,{value:'',textContent:'',innerHTML:'',style:{},classList:{add(){},remove(){},toggle(){}},replaceChildren(){},addEventListener(){}});return elements.get(id);};
 const document={getElementById:element,querySelectorAll:()=>[],addEventListener(){},hidden:false};const navigator={};const window={location:{protocol:'worker:'},addEventListener(){}};
 ${source}
 self.onmessage=event=>{try{Object.assign(state,event.data.state);forecast=event.data.forecast;forecast.timeZone=event.data.envelope.timeZone;const iterator=searchPlans(event.data.envelope,event.data.request);let step,count=0;do{step=iterator.next();if(++count%5===0)self.postMessage({progress:count});}while(!step.done);const result=step.value;delete result.envelope.planCache;
-const grouped=new Map();for(const p of result.plans)if(!grouped.has(p.type))grouped.set(p.type,p);result.plans=[...new Set([result.winner,...grouped.values()])];
-for(const p of result.plans)for(const t of p.trials){delete t.checkpoints;if(p!==result.winner){t.trace=[];t.segments=[];}}
+trimPlanResult(result);
 self.postMessage({result});}catch(error){self.postMessage({error:error.message});}};})();`;
     return new Promise((resolve,reject)=>{
         const url=URL.createObjectURL(new Blob([bootstrap],{type:'application/javascript'}));
@@ -3631,7 +4188,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.20';
+const LOG_APP_VERSION='6.6.21';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';

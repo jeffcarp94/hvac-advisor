@@ -54,7 +54,8 @@ test('preparation search checks a fine-grid timing island after coarse proposals
  // A synthetic narrow readiness window supplies a non-monotonic timing oracle;
  // real temperature, humidity and equipment checks must still pass inside it.
  const a=app();load(a,require('./fixtures/synthetic-cool-52f-night.cjs'));
- a.run(`AIR_SCENARIOS.splice(3);island=+planBounds(r.start,r).bedtime-15*60000;
+ // v6.6.21: this checks the timing-search mechanics with three of the nine cases, so the WP13 ensemble is off here.
+ a.run(`ENSEMBLE.enabled=false;AIR_SCENARIOS.splice(3);island=+planBounds(r.start,r).bedtime-15*60000;
  planSetups=sleep=>[sleep?withSetting(planSetup('auto',true,null,'Low'),{heat:67,cool:71}):withSetting(planSetup('ac',false,null,'Low'),71)];
  optimizePhase=plan=>plan;shortlistVents=()=>[];
  originalSimulate=simulatePlan;simulatePlan=(...args)=>{
