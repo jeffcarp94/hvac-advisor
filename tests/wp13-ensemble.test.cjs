@@ -10,10 +10,11 @@ function scene(a,temps=[49,46,44,42,40,38,36,35,34],initial='[67,66]'){
 }
 function members(a){a.run(`members=buildEnsembleMembers(ensembleSeed(e,r),+r.start,9);`);}
 
-test('the policy is off by default and the nine v6.6.16 cases are unchanged',()=>{
+test('the policy is on (v6.6.21); turning it off restores the nine v6.6.16 cases unchanged',()=>{
  const a=app();scene(a);
- assert.equal(a.run('ENSEMBLE.enabled'),false);
- assert.equal(a.run('configureEnsemble(e,r)'),9);
+ assert.equal(a.run('ENSEMBLE.enabled'),true);
+ assert.equal(a.run('configureEnsemble(e,r)'),32);
+ a.run('ENSEMBLE.enabled=false');assert.equal(a.run('configureEnsemble(e,r)'),9);
  assert.equal(a.run('AIR_SCENARIOS.some(s=>s.ensemble)'),false);
  // Enabling then disabling restores the nine cases.
  a.run('ENSEMBLE.enabled=true;configureEnsemble(e,r)');assert.equal(a.run('AIR_SCENARIOS.length'),32);

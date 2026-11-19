@@ -1,7 +1,7 @@
 # WP13 priors: proposal for owner review (November 18, 2026)
 
-Status: **priors approved by the owner, November 18, 2026 (§4); the ensemble policy is still built behind
-`ENSEMBLE.enabled` (off) pending the shortlist stage and enabling.** Owner decisions 4 and 5
+Status: **priors approved by the owner, November 18, 2026 (§4); the ensemble policy was enabled in v6.6.21
+(owner decision, November 19, 2026).** Owner decisions 4 and 5
 (November 18, 2026) direct the storage and furnace rear-share ranges. Everything else follows scope v3 §4 and
 WP13 item 2, adjusted only where WP11 shipped first. Items marked **Proposed** need Jeff's confirmation.
 The garage runs are owner field data (digitized YoLink, ±0.3°F, ±1 min). Steady nights and fixtures in the

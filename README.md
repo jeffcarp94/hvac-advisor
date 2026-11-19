@@ -1,4 +1,4 @@
-# v6.6.21 (in review, not enabled) — WP13 sampled conditions and severity ranking
+# v6.6.21 — WP13 sampled conditions and severity ranking
 
 - **What is built.** The nine fixed "what if" cases can be replaced by 32 sampled conditions: the normal estimate plus 31 combinations of forecast error (temperature, dew point, clouds, wind), front–rear airflow, heat storage, air leakage, internal gains, sun and moisture assumptions. A plan qualifies when the normal estimate passes, every condition passes the equipment and 65°F protection checks, and at least 29 of the 32 pass every comfort and humidity check together. Qualifying plans are ranked by how far and how long the bedroom misses its band (warm misses count double), then the worst three conditions, then humid minutes, then the existing comparisons. The plan card would say "Works in X of 32 tested conditions" and name the ones that fail.
 - **Search stage (November 18, 2026).**
@@ -7,8 +7,8 @@
   - **Disclosure.** The plan card says whether every plan that could qualify was checked in all 32 conditions, or (bounded search) how many were not.
   - **The bounded shortlist is built but switched off.** It needed 0–29% more simulation on these fixtures (more on one), because the existing search already stops early. It never returned a worse plan, and on March found a marginally better one.
   - **Still too slow for the phone target.** Ensemble plans take about 1.1–8 times as long as nine-case plans (about 2–28 minutes on the evening fixtures here, and roughly three times that on a throttled phone profile). The nine-case planner doesn't meet the 20-second target either.
-- **Not switched on.** Your review of the before/after results comes first (scope WP13). Recommendations are unchanged until you approve.
-- **Effect if enabled.** On the test fixtures (sunlit ones at all four headings), 5 of 19 runs qualify instead of 1: March, the bedtime-preparation case at N, S and W (E passes 28 of 32, one short), and the surface case. See [the method and tables](model-assumptions.md#v6621-in-review-not-enabled--wp13-sampled-ensemble-and-d3-severity-ranking) and [the proposed ranges](reports/wp13-priors.md).
+- **Switched on (owner decision, November 19, 2026),** with the bounded shortlist off. Plans are now chosen across the 32 sampled conditions.
+- **Effect.** On the test fixtures (sunlit ones at all four headings), 5 of 19 runs qualify instead of 1: March, the bedtime-preparation case at N, S and W (E passes 28 of 32, one short), and the surface case. See [the method and tables](model-assumptions.md#v6621--wp13-sampled-ensemble-and-d3-severity-ranking) and [the proposed ranges](reports/wp13-priors.md).
 
 # v6.6.20 — WP10 wind and infiltration
 

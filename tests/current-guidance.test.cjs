@@ -80,7 +80,7 @@ test('Winterset evening gives verified current guidance when the complete plan f
  // Full window/fan search is exercised in browser CI; isolate closed-coach guidance here.
  const a=setup();a.run('shortlistVents=()=>[];result=runUnifiedPlan(r,e);html=renderPlan(result)');
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),false);
- assert.ok(a.run('result.current'));assert.equal(a.run('result.winner.trials.length'),9);
+ assert.ok(a.run('result.current'));assert.equal(a.run('result.winner.trials.length'),32); // v6.6.21: 32 sampled conditions
  // The retained diagnostic may now fail nominally as well as in a sensitivity case.
  // Its qualification must never certify the separately verified current guidance.
  assert.ok(a.run('result.winner.trials.some(t=>!t.suitable)'));
@@ -92,7 +92,7 @@ test('Winterset evening gives verified current guidance when the complete plan f
   return settingValues(setup).includes(setup.setpoints[field]);
  }`);
  assert.ok(a.run('result.winner.phases.every(p=>programmable(p.setup))&&programmable(result.current.setup)'));
- assert.equal(a.run('result.current.trials.length'),9);
+ assert.equal(a.run('result.current.trials.length'),32);
  assert.equal(a.run('result.current.reviewAt'),+new Date(winterset.request.start)+30*60000);
  assert.equal(a.run('result.current.trials.every(t=>t.suitable&&+t.trace.at(-1).time===result.current.reviewAt&&t.moisture.humidMax===0)'),true);
  assert.match(a.run('html'),/Select (COOL|HEAT PUMP|FURNACE) at \d+°F|Select AUTO (HEAT PUMP|FURNACE); set HEAT TO \d+°F and COOL TO \d+°F/);assert.match(a.run('html'),/Bed-area comfort takes priority/);assert.match(a.run('html'),/dew point/);

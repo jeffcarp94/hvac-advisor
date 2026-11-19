@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.20 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.21 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -107,7 +107,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.20</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.21</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -1534,14 +1534,14 @@ function configureSolarScenarios(envelope){
     return AIR_SCENARIOS.length;
 }
 // WP13 (v6.6.21; scope v3 WP13, owner decision D3): sampled uncertainty ensemble and severity ranking.
-// Built behind ENSEMBLE.enabled, default OFF: the scope requires the owner to review the before/after table
-// before the policy is enabled. With it off, AIR_SCENARIOS keeps the nine v6.6.16 cases and nothing changes.
+// Enabled in v6.6.21 after the owner reviewed the before/after table (November 19, 2026). With ENSEMBLE.enabled
+// off (analysis and legacy tests), AIR_SCENARIOS keeps the nine v6.6.16 cases and v6.6.20 behavior.
 // Member 0 is the nominal working case (unchanged path). Members 1–31 are a Latin hypercube (one stratum per
 // member in every dimension; mulberry32 PRNG; ENSEMBLE.algorithm versions the method) seeded from a hash of
 // the decision-relevant inputs, so identical inputs give identical members. Every candidate, phase and
 // alternative in a run sees the same member draws and weather histories (common random numbers).
 // These are tested conditions, not probabilities.
-const ENSEMBLE=Object.seal({enabled:false,members:32,admit:29,algorithm:'lhs-mulberry32-v1',
+const ENSEMBLE=Object.seal({enabled:true,members:32,admit:29,algorithm:'lhs-mulberry32-v1',
     // WP13 Search: 'auto' prunes exactly and, over the work budget, completes a bounded shortlist of survivors
     // ordered by severity across the screening members (nominal plus members 1–7); 'exhaustive' evaluates every
     // member of every plan (release-gate reference).
@@ -4158,7 +4158,7 @@ function trimPlanResult(result){
 // interval's minimum and maximum of each field. Ranges and readings over windows that start and end at marks are
 // unchanged (traceRange, readingAt, frontOutlook, currentOutlook).
 function displayTrace(trace,marks){
-    const fields=['indoor','bedroom','midCoach','rh','midRH','dewPoint','midDewPoint','water'],out=[];let lo=null,hi=null;
+    const fields=['indoor','bedroom','midCoach','rh','midRH','dewPoint','midDewPoint'],out=[]; /* water (per-zone array) is not displayed */let lo=null,hi=null;
     for(const p of trace){
         if(marks.has(+p.time)){if(lo)out.push(lo,hi);lo=hi=null;out.push(p);continue;}
         if(lo&&p.sleep!==lo.sleep){out.push(lo,hi);lo=hi=null;}
@@ -4188,7 +4188,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.20';
+const LOG_APP_VERSION='6.6.21';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';

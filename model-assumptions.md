@@ -1,6 +1,6 @@
-# v6.6.21 (in review, not enabled) — WP13 sampled ensemble and D3 severity ranking
+# v6.6.21 — WP13 sampled ensemble and D3 severity ranking
 
-Scope v3 WP13 and owner decision D3. **Built behind `ENSEMBLE.enabled`, default off.** The scope requires the owner to review the before/after table before the policy is enabled, so live recommendations still use the nine v6.6.16 cases and the v6.6.16 comparators. With the flag off, every fixture decision is identical to v6.6.20 (below), and the full suite passes. Nothing here is fitted to any fixture.
+Scope v3 WP13 and owner decision D3. **Enabled (`ENSEMBLE.enabled`, owner decision November 19, 2026, after reviewing the before/after table below), with the bounded shortlist off (`ENSEMBLE.budgetHours` unlimited).** Turning the flag off restores the nine v6.6.16 cases and v6.6.20 decisions exactly (verified on every fixture run). Nothing here is fitted to any fixture.
 
 ## Method
 
@@ -29,7 +29,7 @@ Priors and labels: `reports/wp13-priors.md`. Jeff approved all five prior questi
 
 ## Tests (`tests/wp13-ensemble.test.cjs`, 13)
 
-Default off and restore; determinism and seed sensitivity; nominal member identical to the working case; member context restored (also after an exception); Latin-hypercube strata in every dimension, bounds, disk draw and area preservation; family endpoints; σ schedule and AR(1) correlation (20 seeds × 31 members: lag-6 h ≈ e⁻¹); RH consistency with the dew point; admission boundaries 28/29/30, nominal failure, a single hard failure, joint pass; one severe hot miss loses to two slight cool misses; worst-three tie-break; RH tie-break before the nominal comparators; full-horizon severity and the rerun rule; non-admitted ordering; unknown-heading members; an end-to-end deterministic run. Tests that assume nine cases are unchanged while the flag is off; they must be updated when it is enabled.
+Default off and restore; determinism and seed sensitivity; nominal member identical to the working case; member context restored (also after an exception); Latin-hypercube strata in every dimension, bounds, disk draw and area preservation; family endpoints; σ schedule and AR(1) correlation (20 seeds × 31 members: lag-6 h ≈ e⁻¹); RH consistency with the dew point; admission boundaries 28/29/30, nominal failure, a single hard failure, joint pass; one severe hot miss loses to two slight cool misses; worst-three tie-break; RH tie-break before the nominal comparators; full-horizon severity and the rerun rule; non-admitted ordering; unknown-heading members; an end-to-end deterministic run. Enabling (v6.6.21) updated the tests that assumed nine cases or the flag off: trial counts are 32 (`condensation-advisory`, `current-guidance`), the period-comparison payload check uses `trimPlanResult`, the three-case timing-island test and the flag-off result test turn the ensemble off explicitly, and the default test now expects the policy on. The full-night test (synthetic 60°F night) still qualifies, with 29 of 32 passing (COOL 67 Low from 9:30 PM CDT, then HEAT PUMP 68 Low at 10 PM); it now checks the nominal and the 29-of-32 rule instead of every case.
 
 Search tests (`tests/wp13-search.test.cjs`, 11): defaults; pruning boundaries (3 vs 4 failures, nominal, equipment, 65°F floor); a pruned plan completes to exactly the exhaustive evaluation and a qualifying plan is never pruned; every pairwise choice and the best-by-type selection with pruned plans match the exhaustive comparator; shortlist order and K = 6 → 12 → all expansion; screening survivors complete exactly; five-minute checkpoints and resumed-equals-direct; display-trace ranges and readings; end to end, automatic and exhaustive render the same plan and the trimmed Worker result renders identically; disclosure text; flag-off result unchanged. `tests/recovery.test.cjs` resumes at 10 instead of 12 minutes (checkpoints are kept at five-minute marks). The browser smoke test cancels a running ensemble plan in the Worker.
 
@@ -64,7 +64,7 @@ Qualified runs (19 runnable): nine cases 1 (surface synthetic); ensemble 5 (Marc
 
 ## Search (WP13 Search stage, November 18, 2026)
 
-Scope v3 WP13 "Search". No thermodynamic value, eligibility rule, comfort criterion or comparator changed. The flag is still off.
+Scope v3 WP13 "Search". No thermodynamic value, eligibility rule, comfort criterion or comparator changed.
 
 | Item | Implementation |
 | --- | --- |

@@ -106,7 +106,7 @@ test('checkpoints: prefixes keep only five-minute marks, and a resumed handoff e
 
 test('display trace: ranges and readings at display boundaries are unchanged',()=>{
  const a=app();scene(a);
- a.run(`tr=Array.from({length:400},(_,i)=>({time:new Date(${start}+i*45000),bedroom:67+Math.sin(i/7)*2,midCoach:66+Math.cos(i/5),rh:45+Math.sin(i/3)*4,midRH:44,dewPoint:40+Math.sin(i/11),midDewPoint:39,indoor:66.5,water:.1,sleep:i>=200}));
+ a.run(`tr=Array.from({length:400},(_,i)=>({time:new Date(${start}+i*45000),bedroom:67+Math.sin(i/7)*2,midCoach:66+Math.cos(i/5),rh:45+Math.sin(i/3)*4,midRH:44,dewPoint:40+Math.sin(i/11),midDewPoint:39,indoor:66.5,water:[.01,.01],sleep:i>=200}));
   marks=new Set([${start},${start}+80*45000,${start}+200*45000,${start}+399*45000]);d=displayTrace(tr,marks);P={trials:[{trace:tr}]};Q={trials:[{trace:d}]};`);
  assert.ok(a.run('d.length')<20);
  for(const [f,t] of [[0,80],[0,399],[80,200],[200,399]])for(const field of ['bedroom','midCoach','rh','midRH','dewPoint'])
@@ -135,7 +135,7 @@ test('disclosure text: exhaustive and bounded searches',()=>{
 });
 
 test('flag off: nine cases are evaluated in full and the posted result keeps the winner trajectories',()=>{
- const a=app();scene(a);a.run('res=runUnifiedPlan(r,e);');
+ const a=app();scene(a);a.run('ENSEMBLE.enabled=false;res=runUnifiedPlan(r,e);');
  assert.equal(a.run('res.search===undefined'),true);assert.equal(a.run('res.winner.trials.length'),9);
  a.run('trimPlanResult(res);');assert.equal(a.run('res.winner.trials.every(t=>t.segments.length>0&&t.trace.length>2)'),true);
 });
