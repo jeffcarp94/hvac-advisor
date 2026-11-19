@@ -35,7 +35,7 @@ const jobs=[
 // synthetic fixtures have none, so a sunlit fixture is run at each cardinal heading (labeled assumption).
 const runs=[];
 for(const [name,job] of jobs)runs.push([name,job,null]);
-const HEADINGS=['N','E','S','W'];
+const HEADINGS=(process.env.HEADINGS||'N,E,S,W').split(','); // v6.6.21: HEADINGS env limits the reruns
 for(let i=0;i<runs.length;i++){
  const [name,job,heading]=runs[i];
  if(only&&name!==only)continue;

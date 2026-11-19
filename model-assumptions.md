@@ -1,3 +1,77 @@
+# v6.6.21 (in review, not enabled) — WP13 sampled ensemble and D3 severity ranking
+
+Scope v3 WP13 and owner decision D3. **Built behind `ENSEMBLE.enabled`, default off.** The scope requires the owner to review the before/after table before the policy is enabled, so live recommendations still use the nine v6.6.16 cases and the v6.6.16 comparators. With the flag off, every fixture decision is identical to v6.6.20 (below), and the full suite passes. Nothing here is fitted to any fixture.
+
+## Method
+
+| Item | Implementation |
+| --- | --- |
+| Members | N = 32. Member 0 is the nominal working case (unchanged code path; its trial equals the v6.6.16 working case exactly). Members 1–31: Latin hypercube, one stratum per member in each of 24 dimensions; categories take whole strata (body case 11/10/10). PRNG mulberry32; algorithm id `lhs-mulberry32-v1` (`ENSEMBLE.algorithm`) |
+| Seed | FNV-1a hash of the decision-relevant inputs (start, readings, occupancy and times, actual setup, window, location, elevation, site, forecast points, dehumidifier, entered RH). Same inputs give the same members |
+| Common random numbers | One member set per plan search (`configureEnsemble` after `configureSolarScenarios`); every candidate, phase, alternative and check uses the same members and weather histories |
+| Weather | Temperature and dew-point errors: AR(1) at hourly knots (6 h correlation), σ 2°F to 12 h, linear to 3°F at 36 h, 3.5°F beyond, lead from the plan start; linear between knots, applied at each row start. RH derived from the perturbed temperature and dew point (dew point capped at air temperature). Sky cover ±20 points with irradiance recomputed; wind × 0.7–1.3. The no-location aggregate solar fallback and the rain RH floor are not re-applied (labeled) |
+| Installation draws | Active only inside a member's simulation (`MEMBER_PARAMS`, restored afterwards): storage, internal gains, infiltration (scales A_L), moisture buffer capacity and time constant, dehumidifier returned moisture, tree blocked fraction, albedo, absorptance, coil ΔT_cold (advisory). Airflow and body/cab/window fields go through the scenario object as before |
+| Airflow and storage | Garage-supported families drawn jointly on the unit disk (`reports/wp13-priors.md`) |
+| Not sampled | D2-gated capacities, WP6 airflow and changeover δ/h; calibrated furnace output and furnace-to-mass share; heading for daylight plans (decision B). Analysis runs that allow an Unknown heading give member 0 the 16-point average and each other member one cardinal heading |
+
+Priors, labels and the owner questions: `reports/wp13-priors.md`.
+
+## Qualification and ranking (D3)
+
+- **Hard constraints in every member:** equipment limits and the existing coil policy (`equipmentEligible`), executability (unavailable actions are equipment failures), and the 65°F floor with the current recovery semantics (`floorBreach`).
+- **Joint pass per member:** bedroom comfort, sustained room-air RH, bedtime readiness (only when the interval ends at bedtime) and return comfort (remote planning) together.
+- **Admission:** all 32 evaluated, hard constraints pass in all, the nominal member passes jointly, and at least 29 of the same 32 pass jointly.
+- **Ranking of admitted plans** (`compareEnsemble`): mean bedroom degree-minutes outside the applicable band over all 32 (warm × 2), then mean of the three worst, then mean minutes inside sustained RH runs (> 65% beyond 30 min, counted in full; kept separate), then the existing comparators on the nominal member (recovery, front fit, target fit with the cooler preference, natural recovery, score, mode preference), then pass count, then a stable candidate ID.
+- **Full-horizon severity:** if a plan can still be admitted, every member that stopped at a comfort or RH failure is rerun to the end without stopping (`completeEnsembleTrials`), so later misses count and every hard constraint is checked to the end. Plans that cannot be admitted keep early stopping.
+- **Plans not admitted** keep the longest-acceptable ordering, generalized: a plan stays admissible until the nominal fails, any hard constraint fails, or the fourth member fails (the failure that leaves fewer than 29). Members that were not evaluated count as lasting the horizon. **Interpretation for owner review** (the v6.6.16 rule used the earliest failure of any case).
+- **"Every case passes" checks elsewhere** (protection fallback, partial departure, bedtime recovery): hard constraints in every member, the other condition in the nominal member and at least 29 (`casesPass`).
+- **UI:** "Works in X of 32 tested conditions", the rule, up to three failing conditions named with their main departures and reasons, and "tested conditions, not probabilities". Checked at 390 and 480 px in both themes (synthetic summaries; no horizontal overflow). The envelope note names the sampled conditions when enabled.
+
+## Tests (`tests/wp13-ensemble.test.cjs`, 13)
+
+Default off and restore; determinism and seed sensitivity; nominal member identical to the working case; member context restored (also after an exception); Latin-hypercube strata in every dimension, bounds, disk draw and area preservation; family endpoints; σ schedule and AR(1) correlation (20 seeds × 31 members: lag-6 h ≈ e⁻¹); RH consistency with the dew point; admission boundaries 28/29/30, nominal failure, a single hard failure, joint pass; one severe hot miss loses to two slight cool misses; worst-three tie-break; RH tie-break before the nominal comparators; full-horizon severity and the rerun rule; non-admitted ordering; unknown-heading members; an end-to-end deterministic run. Tests that assume nine cases are unchanged while the flag is off; they must be updated when it is enabled.
+
+## Fixtures, dehumidifier on (flag off → flag on; `reports/wp13-fixtures-beforeafter.jsonl`)
+
+Sunlit fixtures at heading S (labeled assumption; Winterset 2026-05-08 also N, same result). Phase times UTC as printed (Winterset, March, May, October and July fixtures are CDT = UTC−5; the November synthetics are CST = UTC−6). Flag-off decisions equal the v6.6.20 report on every fixture.
+
+| Fixture | Nine cases (live) | Ensemble | Qualifies | Pass count |
+| --- | --- | --- | --- | --- |
+| March historical | AC 70 Low 02:00 → HP 67 Low 03:00; 1 of 9 cases fail (> 70°F for 15 min) | OFF 02:00 → AC 68 Low 02:20 → HP 67 Low 03:00 | no → **yes** | 31/32 (member 21 > 70°F for 15 min) |
+| Preparation synthetic (S) | MaxxFan 71 02:00 → AUTO 61/65 Low 03:00; 1 case below 65°F | AC 67 Auto 02:00 → AC 65 Low 02:55 → HP 67 Low 03:00 | no → **yes** | 30/32 |
+| Surface synthetic | AUTO 65/69 Low | MaxxFan 66 (Auto) | yes → yes | 32/32 |
+| Winterset 2025-10-01 | AUTO 67/71 Auto → AC 55 Low 02:45 → HP 66 Auto 03:00 | AUTO 66/70 Auto → AUTO 63/67 Low 03:00 | no | 0 |
+| October saved | AUTO 66/71 Low 23:48 → AUTO 63/67 Low 03:00 | AUTO 66/70 Low → AUTO 63/67 Low | no | 0 |
+| Winterset 2026-05-08 (N, S) | OFF 02:00 → AUTO 62/66 Low 03:00 | unchanged | no | 0 (nominal below 65°F) |
+| Hot synthetic (S) | AUTO 68/72 High 18:00 → AC 68 Low 01:35 → HP 66 Auto 03:00 | AC 72 High 18:00 → OFF 02:05 | no | 0 |
+| Falling synthetic | AUTO 67/71 Low | AUTO 66/70 Auto | no | 0 |
+| Rising synthetic | HP 67 Auto | HP 68 Low | no | 0 |
+| Away-return, Wi-Fi | HP 67 Low | unchanged | no | 22/32 |
+| Away-return, no Wi-Fi | expected error | unchanged | — | — |
+
+Qualified fixtures: 1 of 10 → 3 of 10. The two gains are the intended D3 relaxation: plans that failed one of nine extreme cases pass in 29 or more of 32 sampled conditions. The surface synthetic winner changes under the D3 comparator (severity first, then the comparators on the nominal member instead of the all-case maxima); both plans qualify. The other changes are best-available sequences under the new admissibility ordering; no fixture gains or loses an equipment or moisture failure.
+
+## Runtime and memory (Node 24, 2 cores, one fixture per process)
+
+| Fixture | Nine cases (s) | Ensemble (s) | Ratio |
+| --- | --- | --- | --- |
+| March historical | 220 | 847 | 3.9 |
+| Preparation synthetic S | 110 | 1,010 | 9.2 |
+| Winterset 2025-10-01 | 44 | 217 | 4.9 |
+| Winterset 2026-05-08 S | 53 | 162 | 3.1 |
+| October saved | 112 | 223 | 2.0 |
+| Hot synthetic S | 130 | 235 | 1.8 |
+| All runs above plus the short fixtures | 732 | 2,920 | 4.0 |
+
+Peak process RSS reached about 5–5.7 GB with the ensemble (two parallel runs were OOM-killed in an 8 GB container). The plan result posted by the Worker is about 37 MB of JSON with nine cases and 112 MB with 32 members on a 9-hour night (falling synthetic). **The 20 s p90 mobile time budget and the 150 MB memory limit are not met** by exhaustive evaluation; the bounded shortlist (scope WP13 Search item 3) and trimming the Worker result are the next stage, with the exhaustive release gate on every fixture.
+
+## Remaining uncertainty
+
+- The priors in `reports/wp13-priors.md` marked Proposed need owner confirmation; storage and airflow ranges rest on two unoccupied garage runs.
+- Forecast lead is measured from the plan start, not the NWS issue time.
+- The non-admitted ordering generalization is an interpretation.
+- Severity counts the initial recovery interval like any other miss (the scope does not exclude it).
+
 # v6.6.20 — WP10 wind and infiltration
 
 Scope v3 WP10 (decision change; no further gate). Nothing below is fitted to any fixture. Calm-condition U values are unchanged (exactly, for every body case and cab factor).

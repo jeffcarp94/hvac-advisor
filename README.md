@@ -1,3 +1,9 @@
+# v6.6.21 (in review, not enabled) — WP13 sampled conditions and severity ranking
+
+- **What is built.** The nine fixed "what if" cases can be replaced by 32 sampled conditions: the normal estimate plus 31 combinations of forecast error (temperature, dew point, clouds, wind), front–rear airflow, heat storage, air leakage, internal gains, sun and moisture assumptions. A plan qualifies when the normal estimate passes, every condition passes the equipment and 65°F protection checks, and at least 29 of the 32 pass every comfort and humidity check together. Qualifying plans are ranked by how far and how long the bedroom misses its band (warm misses count double), then the worst three conditions, then humid minutes, then the existing comparisons. The plan card would say "Works in X of 32 tested conditions" and name the ones that fail.
+- **Not switched on.** Your review of the before/after results comes first (scope WP13). Recommendations are unchanged until you approve.
+- **Effect if enabled.** On the test fixtures, 3 of 10 qualify instead of 1. March and the bedtime-preparation case pass in 31 and 30 of 32 conditions after failing one of the nine extreme cases. Planning is about 4 times slower and uses much more memory, so the phone time and memory limits need the next stage (a bounded shortlist) before release. See [the method](model-assumptions.md#v6621-in-review-not-enabled--wp13-sampled-ensemble-and-d3-severity-ranking) and [the proposed ranges](reports/wp13-priors.md).
+
 # v6.6.20 — WP10 wind and infiltration
 
 - **What changed.** Wind no longer raises all heat loss by 2% per mph. The forecast wind (measured at 10 m) is converted to the wind at the coach (3 m, about 0.55 × the forecast). That local wind changes only the outside surface film of each wall, roof, floor and window, and drives air leakage.

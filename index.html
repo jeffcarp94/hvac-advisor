@@ -1715,7 +1715,7 @@ function ensembleSummary(trials,opts={}){
     const severities=trials.map(t=>t.tempMissDegMin??0),worst=severities.slice().sort((a,b)=>b-a).slice(0,3);
     const mean=v=>v.reduce((a,b)=>a+b,0)/Math.max(1,v.length);
     const failing=trials.map((t,i)=>joint(t)&&memberHardPass(t)?null:{index:t.member??i,reason:memberHardPass(t)?planTrialReason(t)||(!t.ready?t.bedtimeReason:'')||'Misses return comfort.':
-        (t.unsafe[0]?.reason||'Predicted temperature falls below 65°F.'),time:t.firstFailureTime,conditions:ensembleMemberText(AIR_SCENARIOS[t.member??i])}).filter(Boolean);
+        (t.unsafe[0]?.reason||'Predicted temperature falls below 65°F.'),time:t.firstFailureTime,conditions:ensembleMemberText(AIR_SCENARIOS[t.member??i],t.firstFailureTime)}).filter(Boolean);
     return{members:ENSEMBLE.members,evaluated:trials.length,passes,hard,nominalPass:!!nominal&&joint(nominal),admitted,complete,fullHorizon:full,
         severity:{mean:mean(severities),worst3:mean(worst),rhMean:mean(trials.map(t=>t.rhExceedMin??0))},failing,
         nominal:nominal?{...targetMetrics([nominal]),recoveryInfo:recoverySummary([nominal]),score:nominal.score}:null};
@@ -1761,10 +1761,10 @@ function ensembleResultHTML(plan){
         (shown?'<ul class="ensemble-failing">'+shown+(x.failing.length>3?'<li>'+(x.failing.length-3)+' more conditions fail.</li>':'')+'</ul>':'')+
         '<p class="hint">Conditions combine forecast error, front–rear airflow, heat storage, air leakage, internal gains, sun and moisture assumptions. These are tested conditions, not probabilities. Temperature ranges shown cover all '+x.evaluated+' evaluated conditions.</p></div>';
 }
-function ensembleMemberText(scenario){
-    const d=scenario?.ensemble?.draws;if(!d)return 'the nominal working estimate';
-    const parts=[];
-    if(Math.abs(d.temperatureErrorF)>=1.5)parts.push('outdoor '+Math.abs(d.temperatureErrorF).toFixed(1)+'°F '+(d.temperatureErrorF>0?'warmer':'cooler')+' than forecast at the start');
+function ensembleMemberText(scenario,time=null){
+    const d=scenario?.ensemble?.draws,w=scenario?.ensemble?.weather;if(!d)return 'the nominal working estimate';
+    const parts=[],at=Number.isFinite(time)&&w?time:null,error=at!=null?knotValue(w.temp,(at-w.origin)/3600000):d.temperatureErrorF;
+    if(Math.abs(error)>=1.5)parts.push('outdoor '+Math.abs(error).toFixed(1)+'°F '+(error>0?'warmer':'cooler')+' than forecast '+(at!=null?'when it fails':'at the start'));
     if(Math.abs(d.airflow)>=.5)parts.push(d.airflow<0?'restricted front–rear airflow':'greater front–rear airflow');
     if(d.bodyCase!=='nominal')parts.push(BODY_CASES.find(b=>b.id===d.bodyCase).name);
     if(d.infiltrationACH>=.4||d.infiltrationACH<=.2)parts.push(d.infiltrationACH>=.4?'leakier coach':'tighter coach');
