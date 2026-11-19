@@ -244,6 +244,18 @@ function weather(url){
   assert.match(preparationText,/without manual changes\. AUTO HEAT PUMP can use LP furnace backup below 42°F/);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
   await page.screenshot({path:path.join(screens,'cooling-preparation-heat-pump.png'),fullPage:true});
+  // WP13 Search: a running ensemble plan in the Worker is cancelled when inputs change (scope v3, Search item 2).
+  const cancelled=await page.evaluate(async job=>{
+   const script=document.querySelector('script'),original=script.textContent;
+   script.textContent=original.replace('const ENSEMBLE=Object.seal({enabled:false,','const ENSEMBLE=Object.seal({enabled:true,');
+   const start=new Date(job.start),end=new Date(job.end),points=job.points.map(p=>({...p,time:new Date(p.time)}));
+   const request={occupancy:'staying',start,reading:start,initial:job.initial,future:true};
+   const envelope={windowStart:start,windowEnd:end,timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,site:{heading:'S',confirmed:true,cover:{}},singlePoint:false,points,cloud:points[0].cloud,wind:points[0].wind,precip:points[0].precip};
+   const t0=performance.now(),pending=calculateInWorker(request,envelope,()=>{});script.textContent=original;
+   await new Promise(r=>setTimeout(r,300));const running=!!planWorker;cancelPlanWorker();
+   try{await pending;return{running,rejected:false};}catch(error){return{running,rejected:true,message:error.message,worker:planWorker,ms:performance.now()-t0};}
+  },preparationJob);
+  assert.equal(cancelled.running,true);assert.equal(cancelled.rejected,true);assert.match(cancelled.message,/cancelled because inputs changed/);assert.equal(cancelled.worker,null);
   assert.deepEqual(errors,[]);await context.close();
   // Upgrade an actual v5.0 cache under the GitHub Pages project scope.
   for(const version of ['v5','v6']){

@@ -23,8 +23,10 @@ test('hot starts retain AC beyond 30 minutes and report actual recovery',()=>{
  }
 });
 test('recovery state survives a checkpoint and a departure boundary',()=>{
+ // v6.6.21 (WP13 Search): prefixes keep checkpoints at five-minute marks only, so the resume point moved from
+ // 12 to 10 minutes (still mid-recovery); any other handoff is simulated directly.
  const a=setup(110,95);a.run(`ph=[{time:+r.start,setup:cooling}];prefix=simulatePlan(ph,e,r,AIR_SCENARIOS[0],rows,null,true);
- time=+r.start+12*60000;carry=prefix.checkpoints.find(p=>p.time===time);
+ time=+r.start+10*60000;carry=prefix.checkpoints.find(p=>p.time===time);
  resumed=simulatePlan(ph,e,r,AIR_SCENARIOS[0],rows,{time,carry,prefix});`);
  assert.equal(a.run('resumed.recoveryMinutes'),a.run('prefix.recoveryMinutes'));
  assert.equal(a.run('resumed.finalIndoor'),a.run('prefix.finalIndoor'));
