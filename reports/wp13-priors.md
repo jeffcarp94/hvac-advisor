@@ -1,6 +1,7 @@
 # WP13 priors: proposal for owner review (November 18, 2026)
 
-Status: **proposed; the ensemble policy is built behind `ENSEMBLE.enabled` (off).** Owner decisions 4 and 5
+Status: **priors approved by the owner, November 18, 2026 (§4); the ensemble policy is still built behind
+`ENSEMBLE.enabled` (off) pending the shortlist stage and enabling.** Owner decisions 4 and 5
 (November 18, 2026) direct the storage and furnace rear-share ranges. Everything else follows scope v3 §4 and
 WP13 item 2, adjusted only where WP11 shipped first. Items marked **Proposed** need Jeff's confirmation.
 The garage runs are owner field data (digitized YoLink, ±0.3°F, ±1 min). Steady nights and fixtures in the
@@ -88,12 +89,18 @@ Member 0 is the nominal working case and takes the unchanged code path (its tria
 case exactly). Members 1–31 are a Latin hypercube in 24 dimensions (categories take whole strata; the heading dimension is used only by analysis runs that allow an Unknown heading), seeded by an
 FNV-1a hash of the decision-relevant inputs, algorithm id `lhs-mulberry32-v1`.
 
-## 4. Questions for the owner
+## 4. Owner decisions (November 18, 2026; binding)
 
-1. Storage: adopt the conditional family (295/540/0.85 ↔ 305/630/1.20) rather than the wider re-fitted
-   profile ranges, which would require varying the calibrated furnace output too?
-2. Airflow and storage: sample jointly on the unit disk (corners excluded), accepting the one 3% boundary
-   excess?
-3. Dew-point error σ: same schedule as temperature, independent?
-4. Keep the six carried-over sensitivity fields (body, cab, window flow, wind sign, RH offset, surface factor)
-   sampled over their nine-case ranges?
+Jeff chose the recommended option on all five questions:
+
+1. **Storage:** the conditional garage family (295/540/0.85 ↔ 305/630/1.20), not the wider re-fitted
+   profile ranges and not the scope's original priors.
+2. **Airflow and storage:** drawn jointly on the unit disk, so both extremes never combine. The one 3%
+   boundary excess is disclosed, not tuned.
+3. **Dew-point error:** same σ schedule and correlation as the temperature error, independent of it.
+4. **Carried-over fields:** keep all six (body, cab, window flow, wind sign, starting RH offset, surface
+   factor) sampled over their nine-case ranges.
+5. **Plans not admitted:** a plan stays acceptable until the nominal member fails, any hard constraint fails,
+   or the fourth member fails (the first time it could no longer qualify).
+
+Items marked Proposed in §3 are now adopted as listed.

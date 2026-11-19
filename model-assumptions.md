@@ -14,7 +14,7 @@ Scope v3 WP13 and owner decision D3. **Built behind `ENSEMBLE.enabled`, default 
 | Airflow and storage | Garage-supported families drawn jointly on the unit disk (`reports/wp13-priors.md`) |
 | Not sampled | D2-gated capacities, WP6 airflow and changeover δ/h; calibrated furnace output and furnace-to-mass share; heading for daylight plans (decision B). Analysis runs that allow an Unknown heading give member 0 the 16-point average and each other member one cardinal heading |
 
-Priors, labels and the owner questions: `reports/wp13-priors.md`.
+Priors and labels: `reports/wp13-priors.md`. Jeff approved all five prior questions as recommended on November 18, 2026 (§4 there).
 
 ## Qualification and ranking (D3)
 
@@ -23,7 +23,7 @@ Priors, labels and the owner questions: `reports/wp13-priors.md`.
 - **Admission:** all 32 evaluated, hard constraints pass in all, the nominal member passes jointly, and at least 29 of the same 32 pass jointly.
 - **Ranking of admitted plans** (`compareEnsemble`): mean bedroom degree-minutes outside the applicable band over all 32 (warm × 2), then mean of the three worst, then mean minutes inside sustained RH runs (> 65% beyond 30 min, counted in full; kept separate), then the existing comparators on the nominal member (recovery, front fit, target fit with the cooler preference, natural recovery, score, mode preference), then pass count, then a stable candidate ID.
 - **Full-horizon severity:** if a plan can still be admitted, every member that stopped at a comfort or RH failure is rerun to the end without stopping (`completeEnsembleTrials`), so later misses count and every hard constraint is checked to the end. Plans that cannot be admitted keep early stopping.
-- **Plans not admitted** keep the longest-acceptable ordering, generalized: a plan stays admissible until the nominal fails, any hard constraint fails, or the fourth member fails (the failure that leaves fewer than 29). Members that were not evaluated count as lasting the horizon. **Interpretation for owner review** (the v6.6.16 rule used the earliest failure of any case).
+- **Plans not admitted** keep the longest-acceptable ordering, generalized: a plan stays admissible until the nominal fails, any hard constraint fails, or the fourth member fails (the failure that leaves fewer than 29). Members that were not evaluated count as lasting the horizon. Owner decision, November 18, 2026 (the v6.6.16 rule used the earliest failure of any case).
 - **"Every case passes" checks elsewhere** (protection fallback, partial departure, bedtime recovery): hard constraints in every member, the other condition in the nominal member and at least 29 (`casesPass`).
 - **UI:** "Works in X of 32 tested conditions", the rule, up to three failing conditions named with their main departures and reasons, and "tested conditions, not probabilities". Checked at 390 and 480 px in both themes (synthetic summaries; no horizontal overflow). The envelope note names the sampled conditions when enabled.
 
@@ -67,9 +67,8 @@ Peak process RSS reached about 5–5.7 GB with the ensemble (two parallel runs w
 
 ## Remaining uncertainty
 
-- The priors in `reports/wp13-priors.md` marked Proposed need owner confirmation; storage and airflow ranges rest on two unoccupied garage runs.
+- The priors are owner-approved, but the storage and airflow ranges rest on two unoccupied garage runs.
 - Forecast lead is measured from the plan start, not the NWS issue time.
-- The non-admitted ordering generalization is an interpretation.
 - Severity counts the initial recovery interval like any other miss (the scope does not exclude it).
 
 # v6.6.20 — WP10 wind and infiltration
