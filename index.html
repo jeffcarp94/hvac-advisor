@@ -448,7 +448,16 @@ function dateFormatter(options){
     }
     return dateFormatters.get(key);
 }
+// WP13 performance (no decision change): local calendar parts memoized by time zone and instant.
+const LOCAL_PARTS_CACHE=new Map();
 function localParts(date){
+    const ms=+date,tz=analysisTimeZone(),key=tz+'|'+ms;
+    if(Number.isFinite(ms)){const hit=LOCAL_PARTS_CACHE.get(key);if(hit)return{...hit};}
+    const value=localPartsUncached(date);
+    if(Number.isFinite(ms)){if(LOCAL_PARTS_CACHE.size>=50000)LOCAL_PARTS_CACHE.clear();LOCAL_PARTS_CACHE.set(key,value);}
+    return{...value};
+}
+function localPartsUncached(date){
     const parts=dateFormatter({timeZone:analysisTimeZone(),year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'}).formatToParts(date);
     return Object.fromEntries(parts.filter(p=>p.type!=='literal').map(p=>[p.type,Number(p.value)]));
 }
@@ -858,7 +867,14 @@ const TREE_FACADE=Object.freeze({front:'tree_front',windshield:'tree_front',rear
 // Per-surface solar coefficients (BTU/h per BTU/(h·ft²) of incident irradiance) by zone and facade.
 // Glass: area × shade-and-glass SHGC (applied once). Opaque: sol-air excess α·I/h_o through the
 // surface's own conductance K = A/R, so no conduction is counted twice. The underside is unexposed.
+// Coefficients depend only on the cab factor and body case: build each set once (read-only).
+const SOLAR_COEFF_CACHE=new Map();
 function solarSurfaceCoefficients(cabFactor=3,bodyCase=BODY_CASES[0]){
+    const key=cabFactor+'|'+JSON.stringify(bodyCase);
+    if(!SOLAR_COEFF_CACHE.has(key))SOLAR_COEFF_CACHE.set(key,Object.freeze(solarSurfaceCoefficientsUncached(cabFactor,bodyCase).map(x=>Object.freeze(x))));
+    return SOLAR_COEFF_CACHE.get(key);
+}
+function solarSurfaceCoefficientsUncached(cabFactor=3,bodyCase=BODY_CASES[0]){
     const e=envelopeAllocation(cabFactor,bodyCase),g=GEOMETRY,fpp=g.ftPerPixel,h=g.coachHeight;
     const rearLen=(1484-960)*fpp,frontLen=(960-490)*fpp,W=(550-90)*fpp,cabW=(505-155)*fpp,cabLen=(490-220)*fpp;
     const area=id=>solarGlazing().find(x=>x.id===id).area,areas=bodySurfaces(),door=28*72/144;
@@ -897,8 +913,21 @@ function facadeIrradiance(c,headingDeg,cover){
 // Facade irradiance depends only on time, sky cover, heading and tree cover: cache it across rows,
 // scenarios and candidate plans within a run (rows are rebuilt per simulation).
 const SOLAR_FACADE_CACHE=new Map();
+const SOLAR_SUN_MEMO=new WeakMap();
 function solarZoneGains(row,heading,cover,coeffs){
     if(!row.sunC)return null;
+    const c=row.sunC;
+    // Sun below the horizon: every facade irradiance is exactly zero, so the result is [0, 0].
+    if(c.ghi===0&&c.dni===0&&c.dhi===0)return[0,0];
+    // Memo on the shared solar-position object (copied by reference into every split row), keyed by
+    // coefficient set, heading, cover, wind and row time: identical inputs give an identical result.
+    let memo=SOLAR_SUN_MEMO.get(c);if(!memo){memo=new Map();SOLAR_SUN_MEMO.set(c,memo);}
+    let byCoeffs=memo.get(coeffs);if(!byCoeffs){byCoeffs=new Map();memo.set(coeffs,byCoeffs);}
+    const memoKey=heading+'|'+(cover?JSON.stringify(cover):'')+'|'+(row.wind??0)+'|'+(+row.date);
+    const hit=byCoeffs.get(memoKey);if(hit)return hit.slice();
+    const value=solarZoneGainsUncached(row,heading,cover,coeffs);byCoeffs.set(memoKey,value);return value.slice();
+}
+function solarZoneGainsUncached(row,heading,cover,coeffs){
     if(!row.facadeCache){const k=+row.date+'|'+row.sunC.ghi.toFixed(3)+'|'+JSON.stringify(cover||{});
         row.facadeCache=SOLAR_FACADE_CACHE.get(k);if(!row.facadeCache){if(SOLAR_FACADE_CACHE.size>20000)SOLAR_FACADE_CACHE.clear();row.facadeCache={};SOLAR_FACADE_CACHE.set(k,row.facadeCache);}}
     const key=heading==='avg'?'avg':String(heading);
@@ -2573,9 +2602,13 @@ function phaseControl(phases){return time=>{let current=phases[0].setup;for(cons
 function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=null,resume=null,capture=false,diagnostic=false){
     const bounds=planBounds(request.start,request),timeline=rows||planRows(envelope,request,.5,phases.map(p=>p.time));
     // Split even a partial final step exactly at each equipment/target change.
-    const split=[];
-    for(const row of timeline){const cuts=[...new Set([row.from,...phases.map(p=>p.time).filter(t=>t>row.from&&t<row.to),row.to])].sort((a,b)=>a-b);
-        for(let i=1;i<cuts.length;i++)split.push({...row,from:cuts[i-1],to:cuts[i],dt:(cuts[i]-cuts[i-1])/3600000});}
+    const split=[],times=[...new Set(phases.map(p=>p.time))].sort((a,b)=>a-b);
+    for(const row of timeline){
+        // Same cuts as the former Set/sort per row: start, interior phase times in order, end.
+        let prev=row.from;
+        for(const t of times)if(t>row.from&&t<row.to){split.push({...row,from:prev,to:t,dt:(t-prev)/3600000});prev=t;}
+        if(row.to!==prev)split.push({...row,from:prev,to:row.to,dt:(row.to-prev)/3600000});
+    }
     const first=phases[0].setup;
     const activeRows=resume?split.filter(row=>row.from>=resume.time):split;
     const sim=zoneProfile(first.type,envelope,bounds.sleep,first.setpoints,C.metaAwake,request.initial.temperature[0],{
