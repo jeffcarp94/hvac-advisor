@@ -70,6 +70,10 @@ Scope v3 WP12 Phase A. **Observation only:** the page computes the metric after 
 - Observation only: computing the metric leaves the serialized result unchanged, the rendered plan differs only by the panel, and the log record is under 2,000 characters.
 - The receiver extends a Sheet whose header is the previous column list, keeps its rows, and still rejects any other header.
 
+## Decision identity, runtime and memory (`reports/wp12-decision-identity.jsonl`)
+
+Every fixture in MODE=auto (the live policy), v6.6.21 (`1fe18f6`) against this branch, sunlit fixtures at N, E, S and W: **all 20 runs give the same decision, phases, D3 summary and rendered-plan hash** (19 plans; the no-Wi-Fi away case gives the same input error). The rendered-plan hashes also equal the v6.6.21 report's. That run had the slow-storage fields on every member's trace. It raised Winterset 2025-10-01's peak live heap from 149 to 157 MB, so the final build keeps them on the nominal condition only. Reruns of the final build (`GCSAMPLE=50`): Winterset 2025-10-01 149 → 150 MB, preparation N 189 → 190 MB, same hashes. The posted Worker result is 5–7% larger (for example 3.14 → 3.35 MB on the hot synthetic at N). Planning time is unchanged within the noise of two runs sharing two cores (−1.5% to +5%). On the page the metric takes about 5 ms.
+
 ## Remaining uncertainty
 
 - Locations, window and door heights and the mattress height are assumptions from a drawing; furniture occlusion (the dinette table, bed sides) is not modeled.
