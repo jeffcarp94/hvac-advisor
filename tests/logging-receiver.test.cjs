@@ -5,8 +5,8 @@ const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const source=fs.readFileSync(path.join(__dirname,'..','tools','logging','Code.gs'),'utf8');
 const TOKEN='a'.repeat(40),OLD='b'.repeat(40);
 
-function receiver({properties={},failAppend=0,lockBusy=false}={}){
-  const rows=[];let appendFailures=failAppend;
+function receiver({properties={},failAppend=0,lockBusy=false,initialRows=null}={}){
+  const rows=initialRows?initialRows.map(r=>r.slice()):[];let appendFailures=failAppend;
   const range=(r,c,h,w)=>({
     setValues:v=>{rows[0]=v[0];},
     getValues:()=>[rows[0]||[]],
@@ -64,4 +64,23 @@ test('receiver guards formulas, writes missing values and validates schema and s
   assert.equal(r.post('{').code,'invalid_json');
   assert.equal(receiver({lockBusy:true}).post({token:TOKEN,event:event()}).code,'busy');
   assert.equal(receiver({properties:{HVAC_LOG_SPREADSHEET_ID:''}}).post({token:TOKEN,event:event()}).code,'not_initialized');
+});
+
+// v6.6.22 (WP12 Phase A): comfort_metric_json is appended to the column list; an existing Sheet with the previous
+// header is extended in place and keeps its rows. Any other header still stops the write.
+test('an existing Sheet with the previous header gains the new column and keeps its rows',()=>{
+  const columns=vm.runInContext('HVAC_LOG_COLUMNS',(()=>{const c={};vm.createContext(c);vm.runInContext(source,c);return c;})());
+  assert.equal(columns.at(-1),'comfort_metric_json');
+  const previous=columns.slice(0,-1),old=previous.map((_,i)=>i===1?'aaaaaaaa-1234-1234-1234-123456789abc':'x');
+  const r=receiver({initialRows:[previous,old]});
+  const reply=r.post({token:TOKEN,event:event({comfort_metric_json:'{"v":1}'})});
+  assert.equal(reply.ok,true);assert.equal(reply.row,3);
+  assert.deepEqual([...r.rows[0]],[...columns]);assert.equal(r.rows[1].length,previous.length);
+  assert.equal(r.rows[2][columns.indexOf('comfort_metric_json')],'{"v":1}');
+});
+test('a header that is not a prefix of the column list still stops the write',()=>{
+  const c={};vm.createContext(c);vm.runInContext(source,c);const columns=vm.runInContext('HVAC_LOG_COLUMNS',c);
+  const swapped=columns.slice(0,-1);[swapped[2],swapped[3]]=[swapped[3],swapped[2]];
+  const r=receiver({initialRows:[swapped]});
+  assert.equal(r.post({token:TOKEN,event:event()}).code,'write_failed');
 });

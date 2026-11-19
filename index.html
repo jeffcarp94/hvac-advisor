@@ -85,6 +85,7 @@
         .comparison-row{padding:10px 0;border-bottom:1px solid var(--border);}
         .comparison-row:last-child{border-bottom:0;padding-bottom:0;}
         .comparison-name{font-size:13px;font-weight:700;color:var(--text-primary);}
+        .comfort-row{margin:4px 0;font-size:12px;line-height:1.5;color:var(--text-secondary);}
         .comparison-text{margin-top:4px;font-size:12px;line-height:1.5;color:var(--text-secondary);}
         .comparison-range{margin-top:4px;font-size:12px;color:var(--text-primary);}
         .diag-key{color:var(--text-secondary);}.diag-val{font-family:var(--font-mono);font-weight:600;color:var(--text-primary);}
@@ -162,6 +163,8 @@
     </div>
     <details class="input-section" id="planningOptions"><summary>Equipment & planning options</summary>
         <label class="field">Portable dehumidifier<select id="dehumidifierMode" onchange="equipmentInputsChanged()"><option value="enabled">Enabled — 50% RH setting</option><option value="off">Off</option></select></label>
+        <label class="field">Awake clothing for the comfort metric<select id="comfortClothing" onchange="wp12ClothingChanged()"><option value="season">Season default</option><option value="0.36">0.36 clo — shorts, short sleeves</option><option value="0.5">0.5 clo — trousers, short sleeves</option><option value="0.65">0.65 clo — trousers, long sleeves</option><option value="0.8">0.8 clo — adds a sweater</option><option value="1">1.0 clo — warm layers</option></select></label>
+        <p class="hint" id="comfortClothingHint"></p>
         <p class="hint">MCD day shades remain down. One MaxxFan at a time. Active heating or cooling requires closed windows and closed/off MaxxFans.</p>
         <label class="field"><input id="remoteAccess" type="checkbox" checked onchange="planInputsChanged()" style="display:inline;width:auto"> Remote thermostat access is available</label>
         <p class="hint">Leave checked when the EasyTouch has Wi-Fi and you can reach it in the Micro-Air app. Read remote sensors in their app and enter values here. This app does not connect to or control equipment.</p>
@@ -2404,7 +2407,8 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
     const record=(time,elapsed)=>{
         if([...t,...w].some(v=>!Number.isFinite(v)))throw new Error('Indoor prediction is not finite. Check the inputs and rebuild the plan.');
         const comfortT=t[0],rh=t.map((v,z)=>rhFromRatio(v,w[z],pressure));
-        trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],dewPoint:dpFromRatio(w[0],pressure),midDewPoint:dpFromRatio(w[1],pressure),water:w.slice(),sleep:options.sleepAt?options.sleepAt(time):isOvernight});
+        trace.push({time:new Date(time),timeStr:'',elapsedMin:elapsed,indoor:comfortT,bedroom:t[0],midCoach:t[1],rh:rh[0],midRH:rh[1],dewPoint:dpFromRatio(w[0],pressure),midDewPoint:dpFromRatio(w[1],pressure),water:w.slice(),sleep:options.sleepAt?options.sleepAt(time):isOvernight,
+            bedMass:tm[0],midMass:tm[1]}); // WP12: slow-storage temperatures, read by the comfort metric only
         return{comfortT,rh};
     };
     const checkpoints=[],carry=options.carry,sensor=options.comparisonSensor;
@@ -2645,6 +2649,264 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
         finalIndoor,capacityCool,capacityHeat,heatingFloorLimited,defrostMinutes,config,comfortLow:band.low,comfortHigh:band.high,floorCompliant:min>=floor-1e-6,
         endInBand:finalIndoor>=floor&&finalIndoor<=band.high,comfortEligible,comfortReason,moistureEligible,moistureReason,equipmentEligible,suitable,
         moisture:moistureLedger(),surfaceWarning,surfaceConcern,condensationConcern,comfortProblem,recoveryMinutes:recovery,floorBreach,firstFailureTime,tempMissDegMin,rhExceedMin,finalZones:{temperature:t.slice(),mass:tm.slice(),water:w.slice(),buffer:wb&&wb.slice(),coil:{...coilWater}},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
+}
+// WP12 Phase A (v6.6.22): comfort metric — observation only. PMV/PPD per ASHRAE 55-2023 Normative Appendix B,
+// SET per the Normative Appendix D (D4) two-node program with the September 16, 2024 errata (TCL initialization,
+// CALCULATE_CE, body-position radiation area), ported from pythermalcomfort 4.8 (MIT) and checked against the
+// ASHRAE 55 validation cases. SI units inside these functions (°C, m/s, %, met, clo).
+function wp12PmvRaw(tdb,tr,vr,rh,met,clo,wme=0){
+    const pa=rh*10*Math.exp(16.6536-4030.183/(tdb+235)),icl=.155*clo,m=met*58.15,w=wme*58.15,mw=m-w;
+    const fcl=icl<=.078?1+1.29*icl:1.05+.645*icl,hcf=12.1*Math.sqrt(vr),taa=tdb+273,tra=tr+273;
+    const tcla=taa+(35.5-tdb)/(3.5*(6.45*icl+.1)),p1=icl*fcl,p2=p1*3.96,p3=p1*100,p4=p1*taa,p5=308.7-.028*mw+p2*(tra/100)**4;
+    let xn=tcla/100,xf=tcla/50,hc=hcf,n=0;
+    while(Math.abs(xn-xf)>.00015){
+        xf=(xf+xn)/2;hc=Math.max(2.38*Math.abs(100*xf-taa)**.25,hcf);xn=(p5+p4*hc-p2*xf**4)/(100+p3*hc);
+        if(++n>150)throw new Error('PMV did not converge.');
+    }
+    const tcl=100*xn-273,hl1=3.05e-3*(5733-6.99*mw-pa),hl2=mw>58.15?.42*(mw-58.15):0,hl3=1.7e-5*m*(5867-pa),hl4=.0014*m*(34-tdb);
+    const hl5=3.96*fcl*(xn**4-(tra/100)**4),hl6=fcl*hc*(tcl-tdb);
+    return(.303*Math.exp(-.036*m)+.028)*(mw-hl1-hl2-hl3-hl4-hl5-hl6);
+}
+function wp12Ppd(pmv){return 100-95*Math.exp(-.03353*pmv**4-.2179*pmv**2);}
+// Gagge two-node model (ASHRAE 55-2023 D4 with 2024 errata). Returns {set, tSkin, tCore, w}.
+function wp12TwoNode(tdb,tr,v,rh,met,clo,{wme=0,area=1.8258,pAtm=101325,position='sitting',calculateCE=false}={}){
+    const vapor=rh*Math.exp(18.6686-4030.183/(tdb+235))/100,airSpeed=Math.max(v,.1),kClo=.25,weight=70,metFactor=58.2,sbc=5.6697e-8;
+    const cSw=170,cDil=120,cStr=.5,tSkinN=33.7,tCoreN=36.8;let alfa=.1;const tBodyN=alfa*tSkinN+(1-alfa)*tCoreN,blN=6.3;
+    let tSkin=tSkinN,tCore=tCoreN,mBl=blN,eSkin=.1*met,qSens=0,w=0,eRsw=0,eDiff=0,eMax=0;
+    const atm=pAtm/101325,rClo=.155*clo,faCl=1+.15*clo,lr=2.2/atm,rm=(met-wme)*metFactor;let m=met*metFactor;
+    const eComfort=Math.max(0,.42*(rm-metFactor)),iCl=clo>0?.45:1,wMax=clo>0?.59*airSpeed**-.08:.38*airSpeed**-.29;
+    let hCc=Math.max(3*atm**.53,8.600001*(airSpeed*atm)**.53);
+    if(!calculateCE&&met>.85)hCc=Math.max(hCc,5.66*(met-.85)**.39);
+    let hR=4.7,hT=hR+hCc,rA=1/(faCl*hT),tOp=(hR*tr+hCc*tdb)/hT;
+    const qRes=.0023*m*(44-vapor),cRes=.0014*m*(34-tdb),areaRatio=position==='sitting'?.7:.73;
+    for(let step=1;step<60;step++){
+        let tCl=(rA*tSkin+rClo*tOp)/(rA+rClo),k=0;
+        for(;;){
+            hR=4*.95*sbc*((tCl+tr)/2+273.15)**3*areaRatio;hT=hR+hCc;rA=1/(faCl*hT);tOp=(hR*tr+hCc*tdb)/hT;
+            const next=(rA*tSkin+rClo*tOp)/(rA+rClo),done=Math.abs(next-tCl)<=.01;tCl=next;
+            if(done)break;if(++k>150)throw new Error('SET clothing temperature did not converge.');
+        }
+        qSens=(tSkin-tOp)/(rA+rClo);
+        const hfCs=(tCore-tSkin)*(5.28+1.163*mBl),sCore=m-hfCs-qRes-cRes-wme,sSkin=hfCs-qSens-eSkin;
+        tSkin+=sSkin*area/(.97*alfa*weight*60);tCore+=sCore*area/(.97*(1-alfa)*weight*60);
+        const tBody=alfa*tSkin+(1-alfa)*tCore,skSig=tSkin-tSkinN,warmSk=Math.max(0,skSig),colds=Math.max(0,-skSig);
+        const cWarm=Math.max(0,tCore-tCoreN),cCold=Math.max(0,tCoreN-tCore),warmB=Math.max(0,tBody-tBodyN);
+        mBl=Math.max(.5,Math.min(90,(blN+cDil*cWarm)/(1+cStr*colds)));
+        let mRsw=Math.min(500,cSw*warmB*Math.exp(warmSk/10.7));eRsw=.68*mRsw;
+        const rEa=1/(lr*faCl*hCc),rEcl=rClo/(lr*iCl);
+        eMax=(Math.exp(18.6686-4030.183/(tSkin+235))-vapor)/(rEa+rEcl);if(eMax===0)eMax=.001;
+        let pRsw=eRsw/eMax;w=.06+.94*pRsw;eDiff=w*eMax-eRsw;
+        if(w>wMax){w=wMax;pRsw=(wMax-.06)/.94;eRsw=pRsw*eMax;eDiff=.06*(1-pRsw)*eMax;}
+        if(eMax<0){eDiff=0;eRsw=0;w=wMax;}
+        eSkin=eRsw+eDiff;m=rm+19.4*colds*cCold;alfa=.0417737+.7451833/(mBl+.585417);
+    }
+    const qSkin=qSens+eSkin,psSk=Math.exp(18.6686-4030.183/(tSkin+235));
+    let hCs=3*atm**.53;if(!calculateCE&&met>.85)hCs=Math.max(hCs,5.66*(met-.85)**.39);hCs=Math.max(hCs,3);
+    const hTs=hCs+hR,rCloS=1.52/(met-wme/metFactor+.6944)-.1835,rClS=.155*rCloS,faClS=1+kClo*rCloS,fClS=1/(1+.155*faClS*hTs*rCloS);
+    const iMs=.45,iClS=iMs*hCs/hTs*(1-fClS)/(hCs/hTs-fClS*iMs),rAs=1/(faClS*hTs),rEaS=1/(lr*faClS*hCs),rEclS=rClS/(lr*iClS);
+    const hDs=1/(rAs+rClS),hEs=1/(rEaS+rEclS),err=x=>qSkin-hDs*(tSkin-x)-w*hEs*(psSk-.5*Math.exp(18.6686-4030.183/(x+235)));
+    let old=Math.round((tSkin-qSkin/hDs)*100)/100,set=old,dx=100;
+    for(let k=0;Math.abs(dx)>.01;k++){const e1=err(old),e2=err(old+1e-4);set=old-1e-4*e1/(e2-e1);dx=set-old;old=set;if(k>200)throw new Error('SET did not converge.');}
+    return{set,tSkin,tCore,w};
+}
+// ASHRAE 55-2023: for relative air speed above 0.1 m/s, PMV uses ta − CE and tr − CE at 0.1 m/s (SET-based
+// cooling effect, standing reference as in the standard's program).
+function wp12CoolingEffect(tdb,tr,vr,rh,met,clo){
+    if(vr<=.1)return 0;
+    const s=(t,r,v)=>wp12TwoNode(t,r,v,rh,met,clo,{position:'standing',calculateCE:true}).set,target=s(tdb,tr,vr);
+    let lo=0,hi=40;if(s(tdb,tr,.1)-target<=0||s(tdb-hi,tr-hi,.1)-target>0)return 0; // no root: 0, as the reference
+    for(let k=0;k<60;k++){const mid=(lo+hi)/2;if(s(tdb-mid,tr-mid,.1)-target>0)lo=mid;else hi=mid;}
+    return(lo+hi)/2;
+}
+// ASHRAE 55-2023 Table 7.3.4 applicability: 10–40°C air and radiant, 0–2 m/s, 1–4 met, 0–1.5 clo.
+function wp12PmvValid(tdb,tr,vr,met,clo){return tdb>=10&&tdb<=40&&tr>=10&&tr<=40&&vr>=0&&vr<=2&&met>=1&&met<=4&&clo>=0&&clo<=1.5;}
+function wp12Pmv(tdb,tr,vr,rh,met,clo){
+    if(!wp12PmvValid(tdb,tr,vr,met,clo))return{valid:false};
+    const ce=wp12CoolingEffect(tdb,tr,vr,rh,met,clo),pmv=wp12PmvRaw(tdb-ce,tr-ce,ce>0?.1:vr,rh,met,clo);
+    return{valid:true,pmv,ppd:wp12Ppd(pmv),ce};
+}
+// Lin & Deng (2008), Building and Environment 43(1):70–81, sleeping comfort equation (Fanger's heat balance at
+// 40 W/m², neutral sleeping skin 34.6°C, Rt = total insulation of the sleep system, m²·K/W; operative to and air ta
+// in °C, vapor pressure pa in kPa), as reproduced in Energies 18(11):2724 (2025), Eqs. 5–6.
+function wp12SleepPmv(to,ta,paKPa,rtM2KW){
+    const L=40-((34.6-to+.3762*(5.52-paKPa))/rtM2KW+.056*(34-ta)+.692*(5.87-paKPa));
+    return(.303*Math.exp(-.036*40)+.028)*L;
+}
+// WP12 Phase A geometry, surfaces and summary. Observation only: the page computes it after the search from the
+// nominal member (member 0) of the plan it displays and logs. Nothing in eligibility, ranking, recommendations or
+// timing reads it. Owner decisions, November 19, 2026: still air 0.1 m/s for every fan state (not measured);
+// bedding 1.8 clo, labeled uncalibrated; awake clothing default 0.5 clo May–Sep, 0.8 clo Oct–Apr (sticky owner
+// choice overrides); the rear window is in the rear bathroom, out of view from the beds; glass inside surfaces use
+// the film series (the calibrated glass R 1.0 stays in the heat balance).
+const WP12=Object.freeze({insideFilm:1.46,airSpeedMs:.1,awakeMet:1,beddingClo:1.8,summerMonths:Object.freeze([5,6,7,8,9]),
+    summerClo:.5,winterClo:.8,clothingChoices:Object.freeze([.36,.5,.65,.8,1]),mattressIn:26,bedPointIn:30,seatPointIn:40,
+    bedsideOffsetIn:16,sampleMinutes:5});
+const WP12_CLOTHING_KEY='hvac-advisor-comfort-clothing-v1';
+// Solid angle of an axis-aligned rectangle seen from point p. rect: {axis:0|1|2, at, u:[a,b], v:[c,d]}, where u and
+// v run along the other two axes in increasing axis order (ft).
+function wp12SolidAngle(p,rect){
+    const others=[0,1,2].filter(k=>k!==rect.axis),d=Math.abs(rect.at-p[rect.axis]);if(d<1e-9)return 0;
+    const f=(u,v)=>Math.atan(u*v/(d*Math.sqrt(d*d+u*u+v*v)));
+    const u1=rect.u[0]-p[others[0]],u2=rect.u[1]-p[others[0]],v1=rect.v[0]-p[others[1]],v2=rect.v[1]-p[others[1]];
+    return f(u2,v2)-f(u1,v2)-f(u2,v1)+f(u1,v1);
+}
+// Occupant points and their enclosing surfaces from the owner's scale drawing (pixels × ftPerPixel; heights in
+// inches). Window and door positions on each wall, mattress height and occupant points are labeled assumptions.
+let WP12_LOCATIONS_CACHE=null;
+function wp12Locations(){if(WP12_LOCATIONS_CACHE)return WP12_LOCATIONS_CACHE;return WP12_LOCATIONS_CACHE=(()=>{
+    const f=GEOMETRY.ftPerPixel,X=px=>px*f,inch=v=>v/12,H=GEOMETRY.coachHeight,zm=inch(WP12.mattressIn);
+    const yDriver=X(90),yEntry=X(550),bedW=inch(32),side=inch(WP12.bedsideOffsetIn),sec=id=>WINDOW_SECTIONS.find(w=>w.id===id);
+    const rect=(axis,at,u,v)=>({axis,at,u,v}),span=(center,width)=>[center-width/2,center+width/2];
+    // Each part: key, rectangle and the rectangles cut out of it (holes are listed as parts of their own).
+    const part=(key,r,holes=[])=>({key,rect:r,holes});
+    const bedX=X((960+1322)/2),jeffW=inch(sec('jeff1').width+sec('jeff2').width),kim=sec('kim');
+    const rearBox=(x0,x1)=>{
+        const kimWin=rect(1,yDriver,span(bedX,inch(kim.width)),[inch(30),inch(30+kim.height)]);
+        const jeffWin=rect(1,yEntry,span(bedX,jeffW),[inch(30),inch(30+sec('jeff1').height)]);
+        return[part('interior:0',rect(2,zm,[x0,x1],[yDriver,yDriver+bedW])),part('floor:0',rect(2,zm,[x0,x1],[yDriver+bedW,yEntry-bedW])),
+            part('interior:0',rect(2,zm,[x0,x1],[yEntry-bedW,yEntry])),part('roof:0',rect(2,H,[x0,x1],[yDriver,yEntry])),
+            part('wall:driver:0',rect(1,yDriver,[x0,x1],[zm,H]),[kimWin]),part('glass:driver:0',kimWin),
+            part('wall:entry:0',rect(1,yEntry,[x0,x1],[zm,H]),[jeffWin]),part('glass:entry:0',jeffWin),
+            part('interior:1',rect(0,x0,[yDriver,yEntry],[zm,H])),part('interior:0',rect(0,x1,[yDriver,yEntry],[zm,H]))];
+    };
+    const rear=rearBox(X(960),X(1322));
+    const dinetteX=X(684),doorX=X(861),dinW=inch(sec('dinette1').width+sec('dinette2').width),sink=sec('sink');
+    const dinWin=rect(1,yDriver,span(dinetteX,dinW),[inch(34),inch(34+sec('dinette1').height)]);
+    const sinkWin=rect(1,yEntry,span(dinetteX,inch(sink.width)),[inch(42),inch(42+sink.height)]);
+    const door=rect(1,yEntry,span(doorX,inch(28)),[0,inch(72)]),doorWin=rect(1,yEntry,span(doorX,inch(13)),[inch(38),inch(60)]);
+    const cabOpening=rect(0,X(490),[X(155),X(505)],[0,GEOMETRY.cabHeight]);
+    const front=[part('floor:1',rect(2,0,[X(490),X(960)],[yDriver,yEntry])),part('roof:1',rect(2,H,[X(490),X(960)],[yDriver,yEntry])),
+        part('wall:driver:1',rect(1,yDriver,[X(490),X(960)],[0,H]),[dinWin]),part('glass:driver:1',dinWin),
+        part('wall:entry:1',rect(1,yEntry,[X(490),X(960)],[0,H]),[sinkWin,door]),part('glass:entry:1',sinkWin),
+        part('door:1',door,[doorWin]),part('glass:entry:1',doorWin),
+        part('interior:0',rect(0,X(960),[yDriver,yEntry],[0,H])),part('wall:front:1',rect(0,X(490),[yDriver,yEntry],[0,H]),[cabOpening]),part('cab',cabOpening)];
+    const make=(id,name,zone,point,parts)=>{
+        const weights=new Map();let total=0;
+        for(const x of parts){const w=wp12SolidAngle(point,x.rect)-x.holes.reduce((s,h)=>s+wp12SolidAngle(point,h),0);weights.set(x.key,(weights.get(x.key)||0)+w);total+=w;}
+        return Object.freeze({id,name,zone,point,total,factors:Object.freeze([...weights].map(([key,w])=>Object.freeze({key,factor:w/total})))});
+    };
+    return Object.freeze([make('jeff','Jeff’s bed',0,[bedX,yEntry-side,inch(WP12.bedPointIn)],rear),
+        make('kim','Kim’s bed',0,[bedX,yDriver+side,inch(WP12.bedPointIn)],rear),
+        make('dinette','Dinette',1,[dinetteX,yDriver+side,inch(WP12.seatPointIn)],front)]);
+})();}
+// Effective facade irradiance (BTU/h·ft²) at a time, for the nominal member's heading (the confirmed heading, or
+// the 16-point average when none applies), as the planner's solar model.
+function wp12Facades(envelope,time,weather){
+    if(envelope.lat==null||envelope.lon==null)return null;
+    const sky=Number.isFinite(weather.sky)?weather.sky:(1-(weather.cloud??envelope.cloud??.6))*100,c=solarComponentsCached(new Date(time),envelope.lat,envelope.lon,sky);
+    if(c.ghi===0&&c.dni===0&&c.dhi===0)return null;
+    const site=envelope.site||{},scenario=AIR_SCENARIOS[0],heading=scenario.heading??(site.confirmed?headingDegrees(site.heading):null);
+    if(heading!=null)return facadeIrradiance(c,heading,site.cover);
+    const all=PARKING_HEADINGS.map((h,i)=>facadeIrradiance(c,i*22.5,site.cover)),avg={};
+    for(const f of Object.keys(SOLAR_FACADES))avg[f]={glass:all.reduce((t,x)=>t+x[f].glass,0)/all.length,opaque:all.reduce((t,x)=>t+x[f].opaque,0)/all.length};
+    return avg;
+}
+// Inside surface temperatures (°F) for one trace point. Opaque: assembly conduction with the wind-dependent
+// exterior film and sol-air excess α·I/h_o (WP8, WP10), inside film 1.46. Glass: film series, glass resistance
+// negligible; shades get no thermal credit and absorbed sun on glass or shade is not modeled. Interior surfaces
+// (beds, partitions, cabinets, the bathroom wall, the other zone seen through the open boundary): that zone's
+// WP11 slow storage temperature.
+function wp12Surfaces(envelope,point,time){
+    const scenario=AIR_SCENARIOS[0],e=envelopeAllocation(scenario.cabFactor??3,scenario.bodyCase??BODY_CASES[0]),b=e.bodyCase,a=e.areas;
+    const weather=lookupEnvelopeAt(envelope,new Date(time)),out=weather.tOut,film=exteriorFilmBtu(localWindMph(weather.wind??envelope.wind??0));
+    const fac=wp12Facades(envelope,time,weather),air=[point.bedroom,point.midCoach],mass=[point.bedMass??point.bedroom,point.midMass??point.midCoach];
+    const opaque=(ta,r,facade)=>{const te=out+(fac&&facade?SOLAR.absorptance*fac[facade].opaque/film:0);return ta-windU(r,film)*(ta-te)/WP12.insideFilm;};
+    const glass=ta=>ta-(ta-out)*(1/WP12.insideFilm)/(1/WP12.insideFilm+1/film);
+    const mix=list=>{const area=list.reduce((s,x)=>s+x[0],0);return Math.pow(list.reduce((s,x)=>s+x[0]*Math.pow(x[1]+459.67,4),0)/area,.25)-459.67;};
+    const rearRoof=a.rear.roof,frontRoof=a.roof-a.rear.roof,rearOpen=a.rear.opening,frontOpen=a.opening-a.rear.opening;
+    const cabR=e.cabOpaque/e.cabConduction,g=GEOMETRY,cabW=(505-155)*g.ftPerPixel,cabLen=(490-220)*g.ftPerPixel,cabGlass=solarGlazing().filter(x=>x.shade==='cab');
+    const cabFaces=[[g.cabFloor,opaque(air[1],cabR,'roof')],[g.cabFloor,opaque(air[1],cabR,null)],...cabGlass.map(x=>[x.area,glass(air[1])]),
+        ...['windshield','driver','entry'].map(f=>[Math.max(0,(f==='windshield'?cabW:cabLen)*g.cabHeight-cabGlass.filter(x=>x.facade===f).reduce((s,x)=>s+x.area,0)),opaque(air[1],cabR,f==='windshield'?'front':f)])];
+    const t={'interior:0':mass[0],'interior:1':mass[1],'floor:0':opaque(air[0],b.floor,null),'floor:1':opaque(air[1],b.floor,null),
+        'roof:0':mix([[rearRoof,opaque(air[0],b.roof,'roof')],[rearOpen,opaque(air[0],b.opening,'roof')]]),
+        'roof:1':mix([[frontRoof,opaque(air[1],b.roof,'roof')],[frontOpen,opaque(air[1],b.opening,'roof')]]),
+        'door:1':opaque(air[1],b.door,'entry'),cab:mix(cabFaces)};
+    for(const f of ['driver','entry','front','rear'])for(const z of [0,1]){t['wall:'+f+':'+z]=opaque(air[z],b.wall,f);t['glass:'+f+':'+z]=glass(air[z]);}
+    return t;
+}
+// Mean radiant temperature (°F): radiant weighting in absolute temperature, Σ F·T⁴ over the normalized factors.
+function wp12MeanRadiant(location,surfaces){
+    return Math.pow(location.factors.reduce((s,x)=>s+x.factor*Math.pow(surfaces[x.key]+459.67,4),0),.25)-459.67;
+}
+// ASHRAE 55-2023 Normative Appendix A: t_o = A·t_a + (1 − A)·t_r, A = 0.5 below 0.2 m/s, 0.6 to 0.6 m/s, 0.7 to 1.0 m/s.
+function wp12Operative(ta,tr,v=WP12.airSpeedMs){const A=v<.2?.5:v<.6?.6:.7;return A*ta+(1-A)*tr;}
+function wp12SeasonClo(time){return WP12.summerMonths.includes(localParts(new Date(time)).month)?WP12.summerClo:WP12.winterClo;}
+function wp12StoredClothing(){
+    try{const raw=localStorage.getItem(WP12_CLOTHING_KEY),v=raw==null?null:JSON.parse(raw).value;return WP12.clothingChoices.includes(v)?v:null;}catch{return null;}
+}
+function wp12Clothing(time){const owner=wp12StoredClothing();return owner==null?{clo:wp12SeasonClo(time),source:'season'}:{clo:owner,source:'owner'};}
+// The plan whose nominal trajectory the page shows and logs (as recordRunLog).
+function wp12Plan(result){
+    const complete=result.winner?.suitable&&result.winner?.ready,current=result.stages?.current?.recommended;
+    return complete?result.winner:result.current||current||result.stages?.departure?.recommended||null;
+}
+function wp12Comfort(result,envelope,request,clothing=wp12Clothing(+request.start)){
+    const plan=wp12Plan(result),trial=plan?.trials?.find(t=>t.member===0||t.member==null)||plan?.trials?.[0];
+    if(!trial?.trace?.length)return null;
+    const c=x=>(x-32)/1.8,F=x=>x*1.8+32,pAtm=sitePressurePa(envelope.elevationM),locations=wp12Locations(),rt=WP12.beddingClo*.155,step=WP12.sampleMinutes*60000;
+    const periods={awake:{},sleep:{}},grow=(obj,key,value)=>{if(!Number.isFinite(value))return;const r=obj[key]??=[value,value];r[0]=Math.min(r[0],value);r[1]=Math.max(r[1],value);};
+    let samples=0,last=-Infinity;
+    for(const p of trial.trace){
+        // The first point, then points at least the sample spacing apart (five-minute grid when the start is on it).
+        const time=+p.time;if(time-last<step||isAwayAt(request,time))continue;last=time;
+        const surfaces=wp12Surfaces(envelope,p,time);samples++;
+        for(const loc of locations){
+            if(p.sleep&&loc.zone!==0)continue;
+            const ta=loc.zone===0?p.bedroom:p.midCoach,rh=loc.zone===0?p.rh:p.midRH,tr=wp12MeanRadiant(loc,surfaces),to=wp12Operative(ta,tr);
+            const s=(p.sleep?periods.sleep:periods.awake)[loc.id]??={samples:0,outside:0};s.samples++;
+            grow(s,'operative',to);grow(s,'radiant',tr);grow(s,'air',ta);
+            if(p.sleep){const pa=rh/100*Math.exp(16.6536-4030.183/(c(ta)+235));grow(s,'sleepPmv',wp12SleepPmv(c(to),c(ta),pa,rt));continue;}
+            const r=wp12Pmv(c(ta),c(tr),WP12.airSpeedMs,rh,WP12.awakeMet,clothing.clo);
+            if(!r.valid){s.outside++;continue;}
+            grow(s,'pmv',r.pmv);grow(s,'ppd',r.ppd);
+            grow(s,'set',F(wp12TwoNode(c(ta),c(tr),WP12.airSpeedMs,rh,WP12.awakeMet,clothing.clo,{pAtm,position:'sitting'}).set));
+        }
+    }
+    return{version:1,clo:clothing.clo,cloSource:clothing.source,beddingClo:WP12.beddingClo,airSpeedMs:WP12.airSpeedMs,samples,periods};
+}
+function wp12Range(r,digits=1,unit=''){
+    if(!r)return'—';const fmt=v=>(v<0?'−':'')+Math.abs(v).toFixed(digits)+unit;
+    return r[0].toFixed(digits)===r[1].toFixed(digits)?fmt(r[0]):fmt(r[0])+' to '+fmt(r[1]);
+}
+function wp12HTML(comfort){
+    if(!comfort)return'';
+    const name=id=>wp12Locations().find(l=>l.id===id).name,lines=[];
+    const awake=Object.entries(comfort.periods.awake),sleep=Object.entries(comfort.periods.sleep);
+    if(awake.length)lines.push('<p class="hint"><strong>Awake, occupied</strong> (clothing '+comfort.clo+' clo'+(comfort.cloSource==='season'?', season default':', your setting')+', 1.0 met, still air):</p>'+
+        awake.map(([id,s])=>'<p class="comfort-row">'+escapeHTML(name(id))+': operative '+wp12Range(s.operative,1,'°F')+' (radiant '+wp12Range(s.radiant,1,'°F')+')'+
+            (s.pmv?' · PMV '+wp12Range(s.pmv,1)+' · PPD up to '+Math.round(s.ppd[1])+'% · SET '+wp12Range(s.set,1,'°F'):'')+(s.outside?' · '+s.outside+' of '+s.samples+' samples outside the ASHRAE 55 PMV range':'')+'</p>').join(''));
+    if(sleep.length)lines.push('<p class="hint"><strong>Sleeping</strong> (Lin & Deng; bedding '+comfort.beddingClo+' clo, uncalibrated):</p>'+
+        sleep.map(([id,s])=>'<p class="comfort-row">'+escapeHTML(name(id))+': operative '+wp12Range(s.operative,1,'°F')+' (radiant '+wp12Range(s.radiant,1,'°F')+') · sleep PMV '+wp12Range(s.sleepPmv,1)+'</p>').join(''));
+    if(!lines.length)return'';
+    return'<details class="diag-panel" id="wp12Panel"><summary>Comfort metric (observation only)</summary>'+lines.join('')+
+        '<p class="hint">These values do not affect which plan is chosen, its timing or its checks. They use the nominal tested condition only, sampled every '+WP12.sampleMinutes+' minutes while occupied. Operative temperature averages air and radiant temperature. PMV runs from −3 (cold) to +3 (hot); PPD is the predicted share dissatisfied (ASHRAE 55-2023). Air speed is not measured: still air (0.1 m/s) is used for every fan state.</p>'+
+        (sleep.length?'<p class="hint">Sleep PMV uses an uncalibrated 1.8 clo bedding value from the literature, with which the model is neutral near 78°F; it therefore reads cool across your 65–69°F sleep band. Your comfort votes can revise it later.</p>':'')+
+        '<p class="hint">Window surfaces are the glass: shades get no thermal credit, so windows with MCD shades down read colder than the shade you actually face, and sun-warmed shades are not modeled. Bed views exclude the rear bathroom and its window.</p></details>';
+}
+// Compact log record (comfort_metric_json): rounded ranges only.
+function wp12LogJSON(comfort){
+    if(!comfort)return null;
+    const round=(r,d=1)=>r?r.map(v=>+v.toFixed(d)):null,periods={};
+    for(const [kind,locs] of Object.entries(comfort.periods))for(const [id,s] of Object.entries(locs))(periods[kind]??={})[id]=
+        {n:s.samples,to_f:round(s.operative),tr_f:round(s.radiant),...(s.pmv?{pmv:round(s.pmv,2),ppd_max:Math.round(s.ppd[1]),set_f:round(s.set)}:{}),
+            ...(s.sleepPmv?{sleep_pmv:round(s.sleepPmv,2)}:{}),...(s.outside?{outside_range:s.outside}:{})};
+    return JSON.stringify({v:comfort.version,clo:comfort.clo,clo_source:comfort.cloSource,bedding_clo:comfort.beddingClo,air_ms:comfort.airSpeedMs,samples:comfort.samples,periods});
+}
+function wp12ClothingChanged(){
+    const value=document.getElementById('comfortClothing').value;
+    try{if(value==='season')localStorage.removeItem(WP12_CLOTHING_KEY);else localStorage.setItem(WP12_CLOTHING_KEY,JSON.stringify({value:Number(value),changed:new Date().toISOString()}));}
+    catch{document.getElementById('comfortClothingHint').textContent='This setting could not be saved on this device.';return;}
+    wp12RefreshClothingHint();
+    // Observation only: refresh the displayed comfort metric without rebuilding the plan.
+    if(lastPlan?.request&&lastPlan.comfortEnvelope){try{lastPlan.comfort=wp12Comfort(lastPlan,lastPlan.comfortEnvelope,lastPlan.request);
+        const panel=document.getElementById('wp12Panel'),html=wp12HTML(lastPlan.comfort);if(panel&&html)panel.outerHTML=html;}catch{}}
+}
+function wp12RefreshClothingHint(){
+    const owner=wp12StoredClothing(),season=wp12SeasonClo(Date.now());
+    document.getElementById('comfortClothingHint').textContent=owner==null?'Season default now: '+season+' clo (0.5 clo May–September, 0.8 clo October–April).':'Your setting is used until you choose the season default.';
+}
+function initializeComfortInputs(){
+    const owner=wp12StoredClothing();document.getElementById('comfortClothing').value=owner==null?'season':String(owner);wp12RefreshClothingHint();
 }
 function profileCandidate(type,sim,setpoints){
     const first=sim.unsafe[0],values=sim.trace.map(p=>p.indoor),min=Math.min(...sim.trace.map(p=>p.bedroom)),max=Math.max(...values);
@@ -4044,7 +4306,7 @@ function currentOutlook(current,bounds){
     return html+surfaceOutlook(p.trials);
 }
 function renderPlan(result){
-    if(result.stages)return renderDeparturePlan(result)+wp7CoilAdvisoryHTML(result.coilAdvisory,result.request);
+    if(result.stages)return renderDeparturePlan(result)+wp7CoilAdvisoryHTML(result.coilAdvisory,result.request)+wp12HTML(result.comfort);
     if(result.bedtimeRecovery&&!result.bedtimeRecovery.overnight)return bedtimeRecoveryHTML(result.bedtimeRecovery);
     const {winner:p,bounds,request}=result,initial=p.phases[0],sleepFrom=bounds.bedtime?+bounds.bedtime:+bounds.start;
     const step=(title,time,body)=>'<div class="plan-step"><div class="plan-time">'+escapeHTML(time)+'</div><strong>'+escapeHTML(title)+'</strong><p>'+body+'</p></div>';
@@ -4089,6 +4351,7 @@ function renderPlan(result){
     html+=renderPeriodComparisons(result.comparisons?.night,true);
     if(bounds.bedtime&&!result.comparisons?.night)html+='<p class="hint">Projected overnight alternatives need reassessment. A verified daytime and bedtime preparation plan is required before comparing overnight modes from common starting conditions.</p>';
     const e=result.envelope;
+    html+=wp12HTML(result.comfort);
     html+='<details class="diag-panel"><summary>Forecast & calculation details</summary><p class="hint">'+escapeHTML(formatStamp(bounds.start)+' → '+formatStamp(bounds.end)+' · '+analysisTimeZone())+'</p><p class="hint">'+(e.singlePoint?'Manual weather remains constant. Solar elevation changes when location is known.':'Changing NWS temperature, humidity, wind and sky conditions are evaluated throughout.')+'</p><p class="hint">Front temperature governs HVAC calls. Bed-area temperature governs comfort and target fit at all times. Both temperatures are initialized from entered readings. Humidity uses one mixed coach air volume; RH can differ with temperature, while predicted dew point is shared. Moisture and dehumidifier runtime carry continuously between stages.</p><p class="hint">MCD day shades down throughout. Bamboo bedding receives no invented cooling credit. Airflow, surface and equipment performance use the documented engineering assumptions.</p>'+'<p class="hint">'+escapeHTML(weatherProvenance(e))+'</p>'+spatialModelText(true)+'</details>';
     if(!safe&&p.trials.some(t=>t.unsafe.some(u=>u.issueCode==='cooling-ice')))html+='<p class="hint">The AC may ice up. If icing has already occurred, switch to FAN ONLY to melt the ice, then resume cooling with a warmer thermostat setting.</p>';
     return html+'</div>';
@@ -4564,6 +4827,7 @@ function recordRunLog(event,result,nextAction){
         event.coil_advisory=coil?JSON.stringify({flagged:coil.flagged,cases:coil.cases,staged_flagged:coil.stagedFlagged,auto_assumed:coil.autoAssumed,
             min_coldest_f:coil.minColdestF==null?null:+coil.minColdestF.toFixed(1),first_utc:coil.first?new Date(coil.first.time).toISOString():null,
             first_fan:coil.first?.fan??null,alternative:!!result.coilAdvisory.alternative}):'no cooling';
+        event.comfort_metric_json=wp12LogJSON(result.comfort); // WP12 Phase A (observation only)
     }
     enqueueLogEvent(event);
 }
@@ -4697,6 +4961,8 @@ async function analyze(){
             result=step.value;delete result.envelope.planCache;
         }
         if(revision!==planRevision)return;lastPlan=result;
+        // WP12 Phase A: observation only, computed after the plan is fixed.
+        try{result.comfortEnvelope=envelope;result.comfort=wp12Comfort(result,envelope,request);}catch{result.comfort=null;}
         const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');
         const futureActions=[...(result.bedtimeRecovery?.switchAt?[result.bedtimeRecovery.verified?result.bedtimeRecovery.switchAt:result.bedtimeRecovery.bedtime]:[]),...(result.recoveryAction?[result.recoveryAction.reviewAt]:[]),...(result.current?[result.current.reviewAt]:result.winner.phases.slice(1).map(p=>p.time)),request.departure&&+request.departure,request.returnTime&&+request.returnTime].filter(t=>t>Date.now());
         resultRecorded(envelope,Math.min(...futureActions),request);
@@ -4713,6 +4979,7 @@ function initializePlan(){
 }
 initializePlan();
 if(window.location.protocol!=='worker:')initializeLogging();
+if(window.location.protocol!=='worker:')try{initializeComfortInputs();}catch{}
 
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBanner').style.display='block';});

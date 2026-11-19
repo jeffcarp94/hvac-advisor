@@ -14,7 +14,8 @@ const HVAC_LOG_COLUMNS = [
   'transition', 'minutes_since_transition', 'windows_vents_json', 'dehumidifier',
   'occupancy', 'recommended_setup_json', 'prediction_30min_json',
   'prediction_2h_json', 'prediction_next_action_json', 'ensemble_pass_count',
-  'coil_advisory', 'vote_bedroom', 'vote_front', 'vote_context', 'vote_time'
+  'coil_advisory', 'vote_bedroom', 'vote_front', 'vote_context', 'vote_time',
+  'comfort_metric_json'
 ];
 
 function initializeHvacLogging() {
@@ -97,8 +98,17 @@ function prepareHvacLog_(book) {
   if (!sheet.getLastRow()) {
     header.setValues([HVAC_LOG_COLUMNS]);
     sheet.setFrozenRows(1);
-  } else if (header.getValues()[0].some((value, index) => value !== HVAC_LOG_COLUMNS[index])) {
-    throw new Error('Unexpected HVAC Run Log columns.');
+  } else {
+    // New columns are only ever appended (v6.6.22: comfort_metric_json). A header that matches the start of the
+    // current list, with blank cells after it, is extended in place; older rows keep blank new cells.
+    const existing = header.getValues()[0];
+    const blank = value => value === '' || value == null;
+    const first = existing.findIndex(blank), used = first < 0 ? existing.length : first;
+    if (!used || existing.slice(0, used).some((value, index) => value !== HVAC_LOG_COLUMNS[index]) ||
+        existing.slice(used).some(value => !blank(value))) {
+      throw new Error('Unexpected HVAC Run Log columns.');
+    }
+    if (used < width) header.setValues([HVAC_LOG_COLUMNS]);
   }
   return sheet;
 }
