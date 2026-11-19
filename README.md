@@ -1,3 +1,20 @@
+# v6.6.22 — WP12 Phase A comfort metric (observation only)
+
+- **What is new.** The plan card has a **Comfort metric (observation only)** panel, and each logged run has a `comfort_metric_json` field. For the plan shown, it estimates how warm or cool it feels at **Jeff’s bed, Kim’s bed and the dinette**, not just the air temperature:
+  - **Radiant temperature:** the average temperature of the surfaces each spot "sees" (walls, ceiling, floor, windows, beds and cabinets, the cab seen from the dinette), weighted by how much of the view each takes up. A nearby window counts much more than a distant one.
+  - **Operative temperature:** the average of air and radiant temperature (ASHRAE 55-2023), close to what a thermometer in a person's place would feel like.
+  - **Awake (occupied):** PMV (−3 cold to +3 hot), PPD (predicted share dissatisfied) and SET, per ASHRAE 55-2023, at 1.0 met.
+  - **Asleep (beds only):** the Lin & Deng (2008) sleeping comfort equation.
+- **It changes nothing.** The planner never reads it: eligibility, ranking, recommendations, timing, remote and sleep plans are unchanged. It is computed on the page after the plan is fixed, from the normal estimate (one of the 32 tested conditions). Every fixture gives the same decision and the same rendered plan as v6.6.21.
+- **Your settings (November 19, 2026).**
+  - **Awake clothing:** new **Awake clothing for the comfort metric** choice under Equipment & planning options, kept between visits. By default 0.5 clo May–September and 0.8 clo October–April.
+  - **Air speed:** nothing is measured, so still air (0.1 m/s) is used for every fan state.
+  - **Bedding:** 1.8 clo, a light-quilt value from the literature, labeled uncalibrated. With it the sleep equation is neutral near 78°F, so **your 65–69°F sleep band reads about −2 to −3 (cool)**. That reflects the uncalibrated bedding value, not a problem with your settings; your comfort votes can revise it later (WP12 Phase B).
+  - **Rear window:** it is in the rear bathroom, so it is out of view from the beds.
+- **Windows.** The window surface used is the glass itself, from the room air, outdoor air and wind, with no credit for shades. With MCD shades down the surface you actually face is warmer than that, and sun-warmed shades are not modeled.
+- **Logging.** The receiver adds one column at the end, `comfort_metric_json`. Paste the new `tools/logging/Code.gs` into the Sheet's script project and deploy a new version to record it; the existing tab gains the column header automatically on the next write. Until then the field is ignored and logging keeps working.
+- **Findings, reported rather than changed.** The calibrated glass R 1.0 is smaller than the window's two air films once wind blows, which would put the window surface below outdoor temperature; the comfort metric uses the films in series instead (owner decision), and the heat balance is unchanged. The scope asked for verified air speeds; none exist. See [the method](model-assumptions.md#v6622--wp12-phase-a-comfort-metric-observation-only).
+
 # v6.6.21 — WP13 sampled conditions and severity ranking
 
 - **What is built.** The nine fixed "what if" cases can be replaced by 32 sampled conditions: the normal estimate plus 31 combinations of forecast error (temperature, dew point, clouds, wind), front–rear airflow, heat storage, air leakage, internal gains, sun and moisture assumptions. A plan qualifies when the normal estimate passes, every condition passes the equipment and 65°F protection checks, and at least 29 of the 32 pass every comfort and humidity check together. Qualifying plans are ranked by how far and how long the bedroom misses its band (warm misses count double), then the worst three conditions, then humid minutes, then the existing comparisons. The plan card would say "Works in X of 32 tested conditions" and name the ones that fail.

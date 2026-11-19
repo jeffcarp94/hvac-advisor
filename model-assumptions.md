@@ -1,3 +1,83 @@
+# v6.6.22 — WP12 Phase A comfort metric (observation only)
+
+Scope v3 WP12 Phase A. **Observation only:** the page computes the metric after the plan is fixed, from the nominal member (member 0) of the plan it displays and logs (the same plan `recordRunLog` samples). No planner function reads it, so eligibility, ranking, recommendations and timing, including remote and sleep cases, are unchanged (acceptance item 3, verified on every fixture below). The only change on the planner path is that each trace point also carries the two WP11 slow-storage temperatures (`bedMass`, `midMass`).
+
+## Owner decisions, November 19, 2026
+
+1. **Air speed:** still air, 0.1 m/s, for every fan state. The scope asks for verified local air speeds by fan state, and none have been measured. The fan state is already logged; replace this value once there are readings.
+2. **Bedding:** 1.8 clo (0.279 m²·K/W) total sleep-system insulation, fixed, **labeled uncalibrated**. The owner's observation is 100% viscose-from-bamboo sheets and a breathable bamboo comforter ("sleeps cool"). The 1.8 clo light-quilt value is a literature figure as cited by later studies; Lin & Deng's measured table (B&E 43(5):905–916) was not accessible, and their manikin values span 0.90–4.89 clo. The owner was shown that 3.1 clo would put neutrality near 66°F and chose 1.8 clo labeled uncalibrated, leaving the mapping to Phase B votes.
+3. **Awake clothing:** sticky owner choice (0.36, 0.5, 0.65, 0.8 or 1.0 clo); before one is saved, 0.5 clo May–September and 0.8 clo October–April, by the coach-local month of the plan start.
+4. **Rear window:** in the rear bathroom, outside the bed views; the bathroom partition is an interior surface.
+5. **Glass surfaces:** film series (below), not the calibrated glass R.
+
+## Method
+
+| Item | Implementation |
+| --- | --- |
+| Locations | Jeff’s bed (entry side), Kim’s bed (driver side), dinette (driver side). Points from the owner's scale drawing (73 × 32 in beds along each side wall from the x = 960 px forward edge): beds at mid-length, 16 in from the wall, 30 in above the floor (owner-reviewed assumption); dinette occupant seated mid-dinette (x = 684 px, about 3.3 ft behind the cab edge), 16 in from the driver wall, 40 in up |
+| Enclosures | Rear: x 960–1322 px (the bath partition at 1322), mattress plane (26 in, assumption) to the 76 in ceiling. Its floor face is the two bed tops (interior) and the aisle (floor assembly). Front: x 490–960 px, floor to ceiling, with the cab opening (cab width × 5.5 ft) in the front face. Window bottoms (assumptions): bedside 30 in, dinette 34 in, sink 42 in; entry door 28 × 72 in centered at x = 861 px, its window 13 × 22 in at 38–60 in. None of these positions was measured |
+| View factors | Exact solid angle of each axis-aligned rectangle from the occupant point (corner-decomposition formula), holes subtracted, normalized by the total (each enclosure is closed, so the total is 4π to rounding). This is area-weighted and distance-adjusted as the scope asks, and the adjacent bedside window gets its larger share automatically |
+| Surface temperatures (opaque) | Assembly conduction with the WP10 wind-dependent exterior film: T_si = t_a − U(V)·(t_a − t_e)/h_i, h_i = 1.46 BTU/(h·ft²·°F) (scope). U(V) as the heat balance (calm R kept, exterior film varies). t_e = t_out + α·I/h_o(V), α 0.5, I from the WP8 facade irradiance at the nominal member's heading (confirmed heading, else the 16-point average), tree cover included. Floor: no sun. Roof: area-weighted T⁴ mix of roof and closed openings |
+| Surface temperatures (glass) | Film series: T_si = t_a − (t_a − t_out)·(1/h_i)/(1/h_i + 1/h_o(V)), glass resistance neglected. Shades get no thermal credit and absorbed sun on glass or shade is not modeled: with MCD shades down the surface faced is warmer than this, and in sun the shade may be warmer than the air |
+| Interior surfaces | Beds, partitions, cabinets, the bathroom wall and the other zone seen through the open boundary: that zone's WP11 slow-storage (mass node) temperature |
+| Cab (seen from the dinette) | Area-weighted T⁴ mix of cab glass (film series; MagneShades get no credit), cab opaque faces (cab conductance per area, facade sun) and the cab floor, at front-zone air temperature |
+| Mean radiant temperature | t_r⁴ = Σ F_i·T_i⁴ in absolute temperature |
+| Operative temperature | ASHRAE 55-2023 Normative Appendix A: t_o = A·t_a + (1 − A)·t_r, A = 0.5 below 0.2 m/s (0.6 to 0.6 m/s, 0.7 to 1.0 m/s). With still air, t_o = (t_a + t_r)/2 |
+| Awake: PMV/PPD | ASHRAE 55-2023 Normative Appendix B program (Fanger), 1.0 met, owner clothing, 0.1 m/s, zone RH. Above 0.1 m/s the standard's SET-based cooling effect applies (implemented; inactive at still air). Reported only inside the Table 7.3.4 applicability ranges (10–40°C air and radiant, 0–2 m/s, 1–4 met, 0–1.5 clo); a sample outside is counted, not scored |
+| Awake: SET | Gagge two-node program, ASHRAE 55-2023 Normative Appendix D (D4) with the September 16, 2024 errata (clothing-temperature initialization, `CALCULATE_CE`, body-position radiation area), seated (0.70), site pressure from the forecast elevation. Ported from pythermalcomfort 4.8.1 (MIT). The scope cites Appendix B for SET; in 55-2023 the SET program is D4 |
+| Sleep | Lin & Deng (2008), B&E 43(1):70–81: Fanger's balance at 40 W/m², neutral sleeping skin 34.6°C, the whole sleep system as one total insulation R_t (no air-speed term): L = 40 − {[(34.6 − t_o) + 0.3762(5.52 − p_a)]/R_t + 0.056(34 − t_a) + 0.692(5.87 − p_a)}, PMV = [0.303·e^(−0.036·40) + 0.028]·L (°C, kPa, m²·K/W), as reproduced in Energies 18(11):2724 (2025), Eqs. 5–6. The original paper was not accessible; the equation's terms match Fanger's at 40 W/m², and it reproduces an independent study's 18.5°C neutral point at 3.12 clo within 0.5°C |
+| Sampling and periods | First trace point, then every 5 minutes, while occupied. Awake: all three locations. Asleep: the beds only. Each period reports min–max of operative, radiant and air temperature, PMV, maximum PPD, SET and sleep PMV |
+| Display and log | Plan card panel "Comfort metric (observation only)" beside the existing bands; `comfort_metric_json` (rounded ranges, about 250–600 characters) appended to the run log. The receiver extends an existing header in place |
+
+### View factors
+
+| Surface | Jeff’s bed | Kim’s bed | Dinette |
+| --- | --- | --- | --- |
+| Interior, own zone | 0.517 | 0.517 | 0.100 (rear) |
+| Interior, other zone | 0.099 | 0.099 | — |
+| Ceiling | 0.122 | 0.122 | 0.179 |
+| Floor (aisle / floor) | 0.020 | 0.020 | 0.162 |
+| Own-side wall | 0.129 | 0.138 | 0.255 |
+| Own-side glass | 0.073 | 0.064 | 0.080 |
+| Opposite wall | 0.034 | 0.033 | 0.053 |
+| Opposite glass | 0.005 | 0.006 | 0.005 |
+| Entry door | — | — | 0.016 |
+| Front wall / cab opening | — | — | 0.049 / 0.100 |
+
+### Worked example (synthetic, labeled): bedroom air 67°F, front 70°F, mass nodes 0.5°F below air, RH 45%, no sun
+
+| Outdoor | Bedside glass | Wall | Jeff’s bed t_r / t_o | Sleep PMV (1.8 clo) | Dinette t_r / t_o | Dinette PMV (0.8 clo) / SET |
+| --- | --- | --- | --- | --- | --- | --- |
+| 20°F, calm | 43.6°F | 65.2°F | 64.6 / 65.8°F | −2.69 | 64.4 / 67.2°F | −1.45 / 68.8°F |
+| 20°F, 15 mph | 32.8°F | 65.2°F | 63.8 / 65.4°F | −2.77 | 63.1 / 66.5°F | −1.54 / 68.2°F |
+| 45°F, 5 mph | 53.5°F | 66.2°F | 65.6 / 66.3°F | −2.59 | 66.6 / 68.3°F | −1.28 / 70.0°F |
+
+## Findings (reported; owner decisions above)
+
+- **Glass R and the inside film.** The calibrated glass R 1.0 (calm, both films included) is smaller than the inside film (1/1.46 = 0.685) plus the calm exterior film (0.69). Applying the scope's assembly-conduction rule with it puts the inside surface below outdoor air as soon as wind blows: 9.9°F at 15 mph with 68°F inside and 20°F out (calm 35.1°F). The film series gives 44.1°F calm and 33.0°F at 15 mph. This is the same inconsistency as the v6.6.20 glass finding; the heat balance is unchanged.
+- **Sleep model bias at 1.8 clo.** Neutral sleep operative temperature: 83.3°F at 1.3 clo, 78.5°F at 1.8, 71.9°F at 2.5, 66.1°F at 3.12, 57.9°F at 4.0 (50% RH). At 1.8 clo the owner's 65–69°F sleep band reads −2.9 to −2.0. Lan et al. (2014) found the model's neutral temperatures cooler than their sleeping subjects preferred at 3.12 clo, so the bias is not only the bedding value.
+- **Verified air speeds** are a scope requirement that the data in hand can't meet; still air is the owner's interim choice.
+
+## Tests (`tests/wp12-comfort.test.cjs`, 10; `tests/logging-receiver.test.cjs`, +2)
+
+- PMV and PPD match all 16 ASHRAE 55 reference cases (largest differences 0.031 PMV, 0.04% PPD; tolerance 0.1 / 1%).
+- SET matches the 35 distinct ASHRAE 55 validation cases within the 0–1.5 clo range within 0.5°C. The two cases at 2 and 4 clo are outside the standard's applicability; the port equals pythermalcomfort there (38.1 vs the table's 37.6°C at 4 clo). The cooling effect matches the 54 reference cases within 0.051°C.
+- Operative temperature equals air temperature when every surface is at air temperature, at all three locations.
+- View factors are closed (4π), normalized, positive, and the adjacent bedside window gets more than five times the opposite window's share; no rear-wall glass in the bed views.
+- Every surface stays between room and outdoor air, glass included, at 0, 15 and 40 mph.
+- Lin & Deng neutral points: 18.5°C at 3.12 clo (within 0.6°C) and 26°C at 1.8 clo (within 0.5°C).
+- Clothing defaults by month; a saved owner value overrides; an invalid saved value is ignored.
+- Observation only: computing the metric leaves the serialized result unchanged, the rendered plan differs only by the panel, and the log record is under 2,000 characters.
+- The receiver extends a Sheet whose header is the previous column list, keeps its rows, and still rejects any other header.
+
+## Remaining uncertainty
+
+- Locations, window and door heights and the mattress height are assumptions from a drawing; furniture occlusion (the dinette table, bed sides) is not modeled.
+- Single-glazing surface temperatures neglect shades, absorbed sun and the true glass and frame construction.
+- The bedding mapping is uncalibrated and the sleep equation is reproduced from a secondary source.
+- Phase A uses the nominal condition only; no spread across the 32 conditions is shown.
+- Using the metric in any decision is WP12 Phase B and needs owner approval.
+
 # v6.6.21 — WP13 sampled ensemble and D3 severity ranking
 
 Scope v3 WP13 and owner decision D3. **Enabled (`ENSEMBLE.enabled`, owner decision November 19, 2026, after reviewing the before/after table below), with the bounded shortlist off (`ENSEMBLE.budgetHours` unlimited).** Turning the flag off restores the nine v6.6.16 cases and v6.6.20 decisions exactly (verified on every fixture run). Nothing here is fitted to any fixture.
