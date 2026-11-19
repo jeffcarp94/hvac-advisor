@@ -1,3 +1,9 @@
+# v6.6.25 — comfort metric and predictions for Leaving and Away runs (logging only)
+
+- **What was wrong.** For "Leaving the coach" and "Currently away" runs, the plan cards are summaries that don't carry the predicted temperature track. The comfort metric (`comfort_metric_json`, and the Comfort metric panel) and the 30-minute and 2-hour predictions (`prediction_30min_json`, `prediction_2h_json`, `prediction_next_action_json`) read that track, so they were blank on every Leaving/Away run since v6.6.22 (your rows 8–11 on November 19). Staying runs were not affected.
+- **The fix.** These runs now use the full plan behind the cards: the setup to use now, then the departure setup at the time you leave, then any overnight plan. It is used only when it starts with the setup the log records; otherwise the fields stay blank rather than describe a different plan. On your 5:28 PM run (reconstructed from the logged inputs) the log now gets the comfort metric for 5:28–7:28 PM and the predicted bedroom 70.3°F at 5:58 PM and 68.7°F at 7:28 PM. Leaving/Away cards now show the Comfort metric panel too.
+- **Logging only.** Recommendations, checks, ranking and timing are unchanged (identical decisions and rendered plans on the fast fixtures). No receiver redeploy is needed.
+
 # v6.6.24 — comfort runs start 0.5°F outside the band (option C)
 
 - **What changed (owner decision, November 19, 2026, reassessment option C).** A "too warm" or "too cold" run now starts 0.5°F outside the allowed range instead of exactly at its edge: the sleeping range fails only when the bedroom stays above 69.5°F for more than 30 minutes, or above 70.5°F for 15 minutes; the awake range above 73.5°F or below 67.5°F for more than 30 minutes. The 0.5°F is about the model's own calibration error (0.24–0.37°F against your garage runs), so the app no longer rejects a plan over a difference it can't predict.

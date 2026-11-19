@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.24 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.25 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -108,7 +108,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.24</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.25</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -2846,8 +2846,20 @@ function wp12Plan(result){
     const complete=result.winner?.suitable&&result.winner?.ready,current=result.stages?.current?.recommended;
     return complete?result.winner:result.current||current||result.stages?.departure?.recommended||null;
 }
+// v6.6.25 (logging and observation only): the plan whose nominal trajectory is logged (predictions) and used for the
+// comfort metric. Leaving/away stage cards are summaries without trajectories; the departure search builds
+// result.winner from the selected current setup's phases, then the departure setup and any overnight continuation,
+// so its nominal trajectory executes what the cards show. It is used only when its control at the analysis start
+// is the logged setup; otherwise nothing is logged rather than a trajectory of a different plan.
+function loggedTracePlan(result){
+    const plan=wp12Plan(result);if(!plan)return null;
+    if(plan.trials?.length)return plan;
+    const w=result.winner,start=+result.request?.start;
+    return result.stages&&w?.trials?.length&&w.phases?.length&&plan.setup&&Number.isFinite(start)&&
+        sameSetup(phaseControl(w.phases)(start),plan.setup)?w:null;
+}
 function wp12Comfort(result,envelope,request,clothing=wp12Clothing(+request.start)){
-    const plan=wp12Plan(result),trial=plan?.trials?.find(t=>t.member===0||t.member==null)||plan?.trials?.[0];
+    const plan=loggedTracePlan(result),trial=plan?.trials?.find(t=>t.member===0||t.member==null)||plan?.trials?.[0];
     if(!trial?.trace?.length)return null;
     const c=x=>(x-32)/1.8,F=x=>x*1.8+32,pAtm=sitePressurePa(envelope.elevationM),locations=wp12Locations(),rt=WP12.beddingClo*.155,step=WP12.sampleMinutes*60000;
     const periods={awake:{},sleep:{}},grow=(obj,key,value)=>{if(!Number.isFinite(value))return;const r=obj[key]??=[value,value];r[0]=Math.min(r[0],value);r[1]=Math.max(r[1],value);};
@@ -4457,7 +4469,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.24';
+const LOG_APP_VERSION='6.6.25';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
@@ -4837,7 +4849,7 @@ function recordRunLog(event,result,nextAction){
         if(plan){
             event.recommended_setup_json=JSON.stringify(complete?plan.phases:plan.setup||null);
             event.ensemble_pass_count=logEnsemblePassCount(plan,result); // v6.6.23: logging only
-            const trace=plan.trials?.[0]?.trace||[];
+            const traced=loggedTracePlan(result),trace=(traced?.trials?.find(t=>t.member===0||t.member==null)||traced?.trials?.[0])?.trace||[]; // v6.6.25
             const sample=time=>{
                 if(!trace.length||!Number.isFinite(time)||time<+trace[0].time||time>+trace.at(-1).time)return null;
                 const point=trace.find(p=>+p.time>=time);
