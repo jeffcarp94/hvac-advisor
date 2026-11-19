@@ -1541,7 +1541,14 @@ function configureSolarScenarios(envelope){
 // the decision-relevant inputs, so identical inputs give identical members. Every candidate, phase and
 // alternative in a run sees the same member draws and weather histories (common random numbers).
 // These are tested conditions, not probabilities.
-const ENSEMBLE=Object.seal({enabled:false,members:32,admit:29,algorithm:'lhs-mulberry32-v1'});
+const ENSEMBLE=Object.seal({enabled:false,members:32,admit:29,algorithm:'lhs-mulberry32-v1',
+    // WP13 Search: 'auto' prunes exactly and, over the work budget, completes a bounded shortlist of survivors
+    // ordered by severity across the screening members (nominal plus members 1–7); 'exhaustive' evaluates every
+    // member of every plan (release-gate reference).
+    search:'auto',screening:8,shortlist:Object.freeze([6,12]),budgetHours:Infinity,
+    // true: a pruned plan is completed whenever its evaluated members cannot settle a comparison, so plans that do
+    // not qualify rank exactly as with every member evaluated; false: they rank on the members evaluated.
+    exactFallback:true});
 let MEMBER_PARAMS=null;
 // Priors (scope §4 as adjusted by WP11 and the owner decisions of 11/18/2026). Uniform unless noted.
 // D2-gated items (WP6 capacities and airflow, changeover δ/h) are not sampled; heading is not sampled for
@@ -1684,6 +1691,7 @@ function memberRows(rows,member,envelope){
 }
 // Called once per plan search after configureSolarScenarios. Off: undo any earlier ensemble.
 function configureEnsemble(envelope,request){
+    Object.assign(ENSEMBLE_SEARCH,{workStart:SEARCH_WORK,pruned:0,completions:0,deferred:0,shortlists:0,cut:0,expanded:0});
     if(!ENSEMBLE.enabled){
         if(AIR_SCENARIOS.some(s=>s.ensemble)){AIR_SCENARIOS.length=0;AIR_SCENARIOS.push(...BASE_AIR_SCENARIOS.map(s=>({...s})));}
         return AIR_SCENARIOS.length;
@@ -1752,14 +1760,20 @@ function completeEnsembleTrials(trials,rerun){
     return trials.map((t,i)=>t.failureTime!=null?rerun(i):t);
 }
 // UI (scope WP13): pass fractions of tested conditions, not probabilities; the failing conditions are named.
-function ensembleResultHTML(plan){
+function ensembleSearchText(search){
+    if(!search)return '';
+    return search.exhaustive?'Search: every plan that could still qualify was checked in all '+ENSEMBLE.members+' conditions. Plans were set aside early only after failing a check that rules them out.':
+        'Bounded search: '+search.unchecked+' plan'+(search.unchecked===1?'':'s')+' that could still qualify '+(search.unchecked===1?'was':'were')+' not checked in all '+ENSEMBLE.members+' conditions because the search reached its computation limit. The best plan found is shown.';
+}
+function ensembleResultHTML(plan,search=null){
     const x=plan?.ensemble;if(!x)return '';
     const shown=x.failing.slice(0,3).map(f=>'<li>'+escapeHTML((f.index===0?'Nominal estimate':'Condition '+f.index+' ('+f.conditions+')')+': '+f.reason)+'</li>').join('');
     return '<div class="mitigation-box" data-ensemble="'+x.passes+'/'+x.members+'"><strong>Works in '+x.passes+' of '+x.members+' tested conditions</strong>'+
         escapeHTML(x.admitted?'The nominal estimate passes, and at least '+ENSEMBLE.admit+' of the '+x.members+' sampled weather and installation conditions pass every check together.':
             'A plan qualifies when the nominal estimate and at least '+ENSEMBLE.admit+' of '+x.members+' sampled conditions pass every check together'+(x.evaluated<x.members?' ('+x.evaluated+' were evaluated).':'.'))+
         (shown?'<ul class="ensemble-failing">'+shown+(x.failing.length>3?'<li>'+(x.failing.length-3)+' more conditions fail.</li>':'')+'</ul>':'')+
-        '<p class="hint">Conditions combine forecast error, front–rear airflow, heat storage, air leakage, internal gains, sun and moisture assumptions. These are tested conditions, not probabilities. Temperature ranges shown cover all '+x.evaluated+' evaluated conditions.</p></div>';
+        '<p class="hint">Conditions combine forecast error, front–rear airflow, heat storage, air leakage, internal gains, sun and moisture assumptions. These are tested conditions, not probabilities. Temperature ranges shown cover all '+x.evaluated+' evaluated conditions.</p>'+
+        (search?'<p class="hint" data-search="'+(search.exhaustive?'exhaustive':'bounded')+'">'+escapeHTML(ensembleSearchText(search))+'</p>':'')+'</div>';
 }
 function ensembleMemberText(scenario,time=null){
     const d=scenario?.ensemble?.draws,w=scenario?.ensemble?.weather;if(!d)return 'the nominal working estimate';
@@ -1859,6 +1873,7 @@ function applyRecoverySetting(setup,request,time){
 }
 function optimizePhase(plan,index,envelope,request,rows,from=+request.start,to=+planBounds(request.start,request).end,stageEvaluate=null){
     const base=plan.phases[index].setup,recovery=recoverySetting(base,request,plan.phases[index].time),values=settingValues(base).filter(v=>!recovery||(isAutoMode(base.type)?v[recovery.field]===recovery.value:v===recovery.value));if(!values.length)return plan;
+    if(ENSEMBLE.exactFallback&&plan.pruned&&index>0&&!plan.trials.some(t=>t.failureTime!=null&&t.failureTime<plan.phases[index].time))plan=fullPlan(plan); // exact check below
     if(plan.trials.some(t=>t.failureTime!=null&&t.failureTime<plan.phases[index].time))return plan;
     const field=base.type==='ac'?'cool':base.type==='maxxfan'?'fan':'heat';
     const candidates=values.filter(v=>isAutoMode(base.type)?v.heat!==base.setpoints.heat||v.cool!==base.setpoints.cool:v!==base.setpoints[field]);
@@ -1871,15 +1886,24 @@ function optimizePhase(plan,index,envelope,request,rows,from=+request.start,to=+
         Object.assign(p,targetMetrics([t],from,to));return{value,plan:p};
     }).sort((a,b)=>comparePlans(a.plan,b.plan));
     let best=plan,tested=0;
-    for(const candidate of screened.filter((c,i)=>i<3||c.plan.suitable)){
+    const listed=screened.filter((c,i)=>i<3||c.plan.suitable),done=b=>b.suitable&&(b.ready||from>=+(planBounds(request.start,request).bedtime||request.start));
+    const evaluate=(candidate,opts)=>{
         const phases=plan.phases.map((p,i)=>i===index?{...p,setup:withSetting(base,candidate.value)}:p);
-        const next=stageEvaluate?stageEvaluate(phases[index].setup):evaluatePlan(phases,envelope,request,rows);
-        if(comparePlans(next,best)<0)best=next;
+        return stageEvaluate?stageEvaluate(phases[index].setup,opts):evaluatePlan(phases,envelope,request,rows,opts);
+    };
+    if(ensembleOverBudget()){
+        // WP13 bounded search: exact pruning on every listed candidate, then a shortlist of the survivors.
+        const plans=shortlistComplete(listed.map(c=>evaluate(c,{defer:true})),p=>done(p)||done(plan));
+        for(const next of plans)best=pickPlan(next,best);
+        return best;
+    }
+    for(const candidate of listed){
+        best=pickPlan(evaluate(candidate),best);
         tested++;
         // Verify the best three plus every nominally qualified candidate until
         // a robust option is found. Grossly failed nominal controls need not
         // repeat their complete trajectory in every sensitivity scenario.
-        if(tested>=3&&best.suitable&&(best.ready||from>=+(planBounds(request.start,request).bedtime||request.start)))break;
+        if(tested>=3&&done(best))break;
     }
     return best;
 }
@@ -2397,7 +2421,9 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
         moistureTotals={...carry.moistureTotals};surfaceRun=carry.surfaceRun.slice();
         if(carry.wb!==undefined)wb=carry.wb&&carry.wb.slice();if(carry.coilWater)coilWater={...carry.coilWater};unsafe.push(...carry.unsafe);carry.warnings.forEach(w=>warnings.add(w));
     }
-    const capture=time=>{if(options.capture)checkpoints.push({time,t:t.slice(),tm:tm.slice(),w:w.slice(),wb:wb&&wb.slice(),coilWater:{...coilWater},initialCoilLb,phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,tempMissDegMin,rhExceedMin,humidFailTime,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin),...(sensor?{sensorReading}:{}),...(comparisonSettings?{comparisonHeatSource:heatSource}:{})});};
+    // Checkpoints only at whole five minutes: every grid handoff resumes from one, and any other handoff time is
+    // simulated directly (identical result, tested). This keeps cached prefixes small on a phone (WP13).
+    const capture=time=>{if(options.capture&&time%300000===0)checkpoints.push({time,t:t.slice(),tm:tm.slice(),w:w.slice(),wb:wb&&wb.slice(),coilWater:{...coilWater},initialCoilLb,phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,tempMissDegMin,rhExceedMin,humidFailTime,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin),...(sensor?{sensorReading}:{}),...(comparisonSettings?{comparisonHeatSource:heatSource}:{})});};
     record(carry?rows[0].from:start.getTime(),carry?(rows[0].from-start.getTime())/60000:0);
     // Surface estimates are output-only observations, including at the initial state.
     const moistureCheck=(weather,elapsed,dt,rh)=>{
@@ -2894,29 +2920,182 @@ function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=nul
     return{...sim,ready,bedtimeReason,atBedtime,member:scenario.ensemble?scenario.ensemble.index:null};
 }
 function planTrialReason(trial){return trial.unsafe[0]?.reason||trial.moistureReason||trial.comfortReason||trial.bedtimeReason||'';}
-function evaluatePlan(phases,envelope,request,rows){
-    const trials=AIR_SCENARIOS.map(s=>{
-        if(phases.length<2||!envelope.planCache)return simulatePlan(phases,envelope,request,s,rows);
-        const key=phases[0].setup.key+'|'+s.name+(request.occupancy==='staying'?'':'|'+(rows?.at(-1)?.to??'full'));
-        let prefix=envelope.planCache.get(key);
-        if(!prefix){
-            prefix=simulatePlan([phases[0]],envelope,request,s,rows,null,true);
-            // Keep recent complete prefixes without retaining every screened
-            // thermostat setting's full trace/checkpoints on a phone.
-            if(envelope.planCache.size>=Math.max(12,Math.ceil(12*AIR_SCENARIOS.length/9)))envelope.planCache.delete(envelope.planCache.keys().next().value);
-        }else envelope.planCache.delete(key);
-        envelope.planCache.set(key,prefix);
-        const time=phases[1].time;
-        if(prefix.failureTime!=null&&prefix.failureTime<=time)return prefix;
-        const checkpoint=prefix.checkpoints.find(p=>p.time===time);
-        if(!checkpoint){
-            // A handoff derived from a forecast boundary may not lie on the
-            // cached grid. Resolve it directly rather than reset/interpolate state.
-            return simulatePlan(phases,envelope,request,s,rows);
-        }
-        return simulatePlan(phases,envelope,request,s,rows,{time,carry:checkpoint,prefix});
-    });
+// One member's trial of a plan, reusing a cached first-phase prefix when the plan has a handoff.
+function memberTrial(phases,envelope,request,rows,i){
+    const s=AIR_SCENARIOS[i];
+    if(phases.length<2||!envelope.planCache)return simulatePlan(phases,envelope,request,s,rows);
+    // WP13: a staying plan changes setup only up to bedtime, so a cached first-phase prefix runs to bedtime, not
+    // through the night. A later handoff is simulated directly (identical result, tested).
+    const bounds=planBounds(request.start,request),cut=request.occupancy==='staying'&&bounds.bedtime?+bounds.bedtime:null;
+    if(cut!=null&&phases[1].time>cut)return simulatePlan(phases,envelope,request,s,rows);
+    const key=phases[0].setup.key+'|'+s.name+(request.occupancy==='staying'?'':'|'+(rows?.at(-1)?.to??'full'));
+    let prefix=envelope.planCache.get(key);
+    if(!prefix){
+        const prefixRows=cut==null?rows:(rows||planRows(envelope,request,.5,[phases[0].time])).filter(r=>r.to<=cut);
+        prefix=simulatePlan([phases[0]],envelope,request,s,prefixRows,null,true);
+        // Keep recent complete prefixes without retaining every screened
+        // thermostat setting's full trace/checkpoints on a phone.
+        if(envelope.planCache.size>=Math.max(12,Math.ceil(12*AIR_SCENARIOS.length/9)))envelope.planCache.delete(envelope.planCache.keys().next().value);
+    }else envelope.planCache.delete(key);
+    envelope.planCache.set(key,prefix);
+    const time=phases[1].time;
+    if(prefix.failureTime!=null&&prefix.failureTime<=time)return prefix;
+    const checkpoint=prefix.checkpoints.find(p=>p.time===time);
+    if(!checkpoint){
+        // A handoff derived from a forecast boundary may not lie on the
+        // cached grid. Resolve it directly rather than reset/interpolate state.
+        return simulatePlan(phases,envelope,request,s,rows);
+    }
+    return simulatePlan(phases,envelope,request,s,rows,{time,carry:checkpoint,prefix});
+}
+// WP13 Search (scope v3). Exhaustive: every member is simulated (the release-gate reference and the
+// ENSEMBLE.search='exhaustive' analysis mode). Otherwise members run in order and stop as soon as the plan
+// certainly cannot qualify (exact pruning, below); the plan is marked `pruned` and can be completed on demand.
+// opts.start: trials already evaluated for these phases and rows. opts.full: never prune. opts.defer: stop a
+// plan that can still qualify after the screening members and mark it `screen`, for the shortlist.
+function evaluatePlan(phases,envelope,request,rows,opts={}){
+    const n=AIR_SCENARIOS.length,screening=ensembleScreening()&&!opts.full,trials=opts.start?opts.start.slice():[];
+    let stop=null;
+    for(let i=trials.length;i<n;i++){
+        if(screening&&certainlyUnsuitable(trials)){stop='pruned';break;}
+        if(screening&&opts.defer&&i>=ENSEMBLE.screening){stop='screen';break;}
+        trials.push(memberTrial(phases,envelope,request,rows,i));
+    }
+    if(!stop&&screening&&trials.length===n&&certainlyUnsuitable(trials))stop='pruned';
+    if(stop==='pruned'){
+        ENSEMBLE_SEARCH.pruned++;
+        const plan=planFromTrials(phases,trials,envelope,request);
+        // `start` holds the members already evaluated; slimPlan clears it, and completion then starts over.
+        plan.pruned={start:trials,complete(){ENSEMBLE_SEARCH.completions++;return evaluatePlan(phases,envelope,request,rows,{full:true,start:this.start||undefined});}};
+        return plan;
+    }
+    if(stop==='screen'){
+        ENSEMBLE_SEARCH.deferred++;
+        const plan=planFromTrials(phases,trials,envelope,request);
+        plan.screen={severity:screeningSeverity(phases,envelope,request,rows,trials),start:trials,complete(){return evaluatePlan(phases,envelope,request,rows,{start:this.start||undefined});}};
+        return plan;
+    }
     return planFromTrials(phases,completeEnsembleTrials(trials,i=>simulatePlan(phases,envelope,request,AIR_SCENARIOS[i],rows,null,false,true)),envelope,request);
+}
+// Exact pruning: a plan that has failed in the nominal member, failed a hard constraint in any member, or failed
+// in more members than admission allows (32 − 29 = 3) cannot qualify, so the remaining members are not needed
+// to decide it. Its ordering among plans that do not qualify uses the members evaluated (others count as lasting
+// the horizon, as before).
+function certainlyUnsuitable(trials){
+    if(!trials.length)return false;
+    if(!trials[0].suitable)return true;
+    let failed=0;
+    for(const t of trials){if(!memberHardPass(t))return true;if(!t.suitable)failed++;}
+    return failed>AIR_SCENARIOS.length-ENSEMBLE.admit;
+}
+function ensembleScreening(){return ENSEMBLE.enabled&&ENSEMBLE.search!=='exhaustive'&&AIR_SCENARIOS.length===ENSEMBLE.members&&!!AIR_SCENARIOS[0]?.ensemble;}
+// Severity across the screening members, over the full horizon (a member that stopped at a comfort or RH
+// failure is rerun without stopping), as the shortlist order.
+function screeningSeverity(phases,envelope,request,rows,trials){
+    const full=trials.map((t,i)=>t.failureTime!=null&&memberHardPass(t)?simulatePlan(phases,envelope,request,AIR_SCENARIOS[i],rows,null,false,true):t);
+    const v=full.map(t=>t.tempMissDegMin??0),worst=v.slice().sort((a,b)=>b-a).slice(0,3),mean=x=>x.reduce((a,b)=>a+b,0)/Math.max(1,x.length);
+    return{mean:mean(v),worst3:mean(worst),rhMean:mean(full.map(t=>t.rhExceedMin??0)),passes:trials.filter(t=>t.suitable&&t.ready).length};
+}
+function compareScreening(a,b){
+    const x=a.screen.severity,y=b.screen.severity;
+    return x.mean-y.mean||x.worst3-y.worst3||x.rhMean-y.rhMean||y.passes-x.passes||(stablePlanId(a)<stablePlanId(b)?-1:stablePlanId(a)>stablePlanId(b)?1:0);
+}
+// Lazy completion keeps exact pruning exact. On every comparator key before the mean score (qualification
+// rank, how long a plan stays acceptable, recovery, front fit, target fit, natural recovery), the members a pruned
+// plan evaluated are never worse than its full evaluation: those keys are earliest failures, extremes or the
+// nominal member. So when that bound already decides a comparison, the full result is the same; otherwise the
+// pruned plan is completed first. comparePlans on full plans is unchanged.
+function comparePlanBounds(a,b){
+    const rank=c=>!c.suitable?2:!c.ready?1:0;
+    const until=p=>ensembleTrials(p.trials)?ensembleUntil(p):Math.min(...p.trials.map(t=>t.failureTime??(t.recoveryMinutes==null&&t.comfortReason?
+        +t.start+M.recoveryMinutes*60000:+t.trace.at(-1).time)));
+    const duration=!a.suitable&&!b.suitable&&a.trials&&b.trials?until(b)-until(a):0;
+    return rank(a)-rank(b)||duration||compareRecovery(a,b)||compareFront(a,b)||compareTarget(a,b)||Number(!!b.natural)-Number(!!a.natural);
+}
+function fullPlan(p){if(!p?.pruned)return p;p.pruned.full??=p.pruned.complete();return p.pruned.full;}
+// The plan comparePlans prefers between the full evaluations of a and b; b on ties (as `if(compare(a,b)<0)b=a`).
+function pickPlan(a,b){
+    if(!b)return a;if(!a)return b;
+    if(ENSEMBLE.exactFallback&&(a.pruned||b.pruned)){
+        const bound=comparePlanBounds(a,b);
+        if(bound>0&&!b.pruned)return b;
+        if(bound<0&&!a.pruned)return a;
+        a=fullPlan(a);b=fullPlan(b);
+    }
+    return comparePlans(a,b)<0?a:b;
+}
+// Daytime learning treats a stage as ready at bedtime; completions keep that.
+function readyStage(p){
+    p.ready=true;
+    for(const k of ['pruned','screen'])if(p[k]){const inner=p[k];p[k]={...inner,complete(){return readyStage(inner.complete.call(this));}};}
+    return p;
+}
+// WP13 memory: a plan kept for ranking only (search results, learned stages, period candidates) keeps each
+// member's ranking fields and final trace point, not its trajectories. Anything that later needs a trajectory
+// re-evaluates the plan from its phases (deterministic), and a pruned plan's completion starts over.
+function slimTrial(t){
+    return{member:t.member,start:t.start,failureTime:t.failureTime,firstFailureTime:t.firstFailureTime,recoveryMinutes:t.recoveryMinutes,comfortReason:t.comfortReason,
+        moistureReason:t.moistureReason,bedtimeReason:t.bedtimeReason,suitable:t.suitable,ready:t.ready,equipmentEligible:t.equipmentEligible,moistureEligible:t.moistureEligible,
+        floorBreach:t.floorBreach,floorCompliant:t.floorCompliant,unsafe:t.unsafe.slice(0,1),score:t.score,tempMissDegMin:t.tempMissDegMin,rhExceedMin:t.rhExceedMin,
+        trace:t.trace.length?[t.trace.at(-1)]:[],segments:[],slim:true};
+}
+function slimPlan(p){
+    if(!p?.trials||p.slim)return p;
+    const out={...p,trials:p.trials.map(slimTrial),slim:true};
+    for(const k of ['pruned','screen'])if(p[k])out[k]={...p[k],start:null,full:undefined};
+    return out;
+}
+// First best plan in list order, as list.sort(comparePlans)[0] (a stable sort).
+function bestPlan(list){let best=null;for(const p of list)best=best?pickPlan(p,best):p;return best;}
+// As plans.slice().sort(comparePlans) keeping the first plan of each type, in that order. The kept plans are full.
+function bestByType(plans,type=p=>p.type){
+    const groups=new Map();
+    plans.forEach((p,i)=>{const k=type(p);if(!groups.has(k))groups.set(k,[]);groups.get(k).push({p,i});});
+    const kept=[...groups.values()].map(g=>{
+        let best=g[0];
+        for(const c of g.slice(1)){const w=pickPlan(c.p,best.p);if(w===c.p||w===c.p.pruned?.full)best={p:w,i:c.i};else best={p:w,i:best.i};}
+        return{p:fullPlan(best.p),i:best.i};
+    });
+    return kept.sort((a,b)=>comparePlans(a.p,b.p)||a.i-b.i).map(k=>k.p);
+}
+// Earliest member failure before `time` (Infinity if none), exact for a pruned plan: a member that was not
+// evaluated can fail before a handoff only in its first-phase trajectory, which is shared by every handoff time.
+function earliestFailureBefore(plan,time,envelope,request,rows){
+    let m=Math.min(...plan.trials.map(t=>t.failureTime??Infinity));
+    if(ENSEMBLE.exactFallback&&plan.pruned&&plan.phases.length>1)for(let i=plan.trials.length;i<AIR_SCENARIOS.length;i++){
+        const f=prefixFailure(plan.phases[0],envelope,request,rows,i);if(f!=null&&f<m)m=f;
+    }
+    return m<time?m:Infinity;
+}
+function prefixFailure(phase,envelope,request,rows,i){
+    const s=AIR_SCENARIOS[i],key=phase.setup.key+'|'+s.name+(request.occupancy==='staying'?'':'|'+(rows?.at(-1)?.to??'full'));
+    const cached=envelope.planCache?.get(key);if(cached)return cached.failureTime;
+    envelope.prefixFailures??=new Map();
+    const bounds=planBounds(request.start,request),cut=request.occupancy==='staying'&&bounds.bedtime?+bounds.bedtime:null;
+    if(!envelope.prefixFailures.has(key))envelope.prefixFailures.set(key,simulatePlan([phase],envelope,request,s,cut==null?rows:(rows||planRows(envelope,request,.5,[phase.time])).filter(r=>r.to<=cut)).failureTime);
+    return envelope.prefixFailures.get(key);
+}
+// repairPlanFans changes the fan of these setups when any member fails an equipment check.
+function fanRepairable(plan){return plan.phases.some(p=>['ac','auto','auto_furnace'].includes(p.setup.type));}
+// Search bookkeeping for one plan search (reset by configureEnsemble).
+const ENSEMBLE_SEARCH={workStart:0,pruned:0,completions:0,deferred:0,shortlists:0,cut:0,expanded:0};
+function ensembleOverBudget(){return ensembleScreening()&&SEARCH_WORK-ENSEMBLE_SEARCH.workStart>ENSEMBLE.budgetHours;}
+// Bounded shortlist (scope v3, WP13 Search item 3), used once the search is over its work budget. plans: results
+// of evaluatePlan(..., {defer:true}); a plan marked `screen` survived exact pruning on the screening members.
+// Survivors are ordered by severity across the screening members, and the first K are completed, expanding
+// K = 6 → 12 → all survivors while none qualifies. Survivors left unevaluated are dropped and counted (disclosed).
+function shortlistComplete(plans,qualifies){
+    const out=plans.filter(p=>!p.screen),survivors=plans.filter(p=>p.screen).sort(compareScreening);
+    if(!survivors.length)return out;
+    ENSEMBLE_SEARCH.shortlists++;
+    let done=0;
+    for(const k of [...ENSEMBLE.shortlist,Infinity]){
+        while(done<Math.min(k,survivors.length))out.push(survivors[done++].screen.complete());
+        if(done>=survivors.length||out.some(qualifies))break;
+        ENSEMBLE_SEARCH.expanded++;
+    }
+    ENSEMBLE_SEARCH.cut+=survivors.length-done;
+    return out;
 }
 function screenPlan(phases,envelope,request,rows){
     // A failed nominal trajectory cannot qualify across all cases. Screen timing
@@ -3041,11 +3220,14 @@ function shortlistVents(envelope,request,sleep){
 
 function repairPlanFans(plan,envelope,request,rows){
     // Each trial always restarts at the measured state; no mid-simulation fan-speed magic.
-    if(plan.trials.every(t=>t.equipmentEligible))return plan;
+    // WP13: whether any member fails an equipment check needs every member of a pruned plan.
+    const eligible=p=>(ENSEMBLE.exactFallback&&p.pruned&&p.trials.every(t=>t.equipmentEligible)&&fanRepairable(p)?fullPlan(p):p).trials.every(t=>t.equipmentEligible);
+    if(eligible(plan))return plan;
     for(const fan of ['Medium','High']){
         const phases=plan.phases.map(p=>({time:p.time,setup:['ac','auto','auto_furnace'].includes(p.setup.type)?{...p.setup,fan,key:p.setup.key+'|'+fan}:p.setup}));
         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))continue;
-        const next=evaluatePlan(phases,envelope,request,rows);
+        let next=evaluatePlan(phases,envelope,request,rows);
+        if(ENSEMBLE.exactFallback&&next.pruned&&next.trials.every(t=>t.equipmentEligible))next=fullPlan(next);
         if(next.trials.every(t=>t.equipmentEligible))return next;
         plan=next;
     }
@@ -3061,17 +3243,17 @@ function stageSummary(plan,from,to){
         humidity:traceRange(plan,from,to,'rh'),frontRH:traceRange(plan,from,to,'midRH')};
 }
 function stageGroup(plans,from,to){
-    const modes=new Map();for(const p of plans.slice().sort(comparePlans))if(!modes.has(p.type))modes.set(p.type,stageSummary(p,from,to));
-    return [...modes.values()];
+    return bestByType(plans).map(p=>stageSummary(p,from,to));
 }
 function stagePlan(prefix,setup,from,to,envelope,request,rows){
     const original=stagePlanRaw(prefix,setup,from,to,envelope,request,rows);
-    return optimizePhase(original,original.phases.length-1,envelope,request,rows.filter(row=>row.to<=to),from,to,changed=>stagePlanRaw(prefix,changed,from,to,envelope,request,rows));
+    return optimizePhase(original,original.phases.length-1,envelope,request,rows.filter(row=>row.to<=to),from,to,(changed,opts)=>stagePlanRaw(prefix,changed,from,to,envelope,request,rows,opts));
 }
-function stagePlanRaw(prefix,setup,from,to,envelope,request,rows){
+function stagePlanRaw(prefix,setup,from,to,envelope,request,rows,opts={}){
+    const given=setup;
     if(setup!==request.actual)setup=applyRecoverySetting(setup,request,from);
     const phases=[...prefix.filter(p=>p.time<from),{time:from,setup}],stageRows=rows.filter(row=>row.to<=to);
-    const p=evaluatePlan(phases,envelope,request,stageRows),bedtimeStage=planBounds(request.start,request).bedtime&&to===+planBounds(request.start,request).bedtime;
+    const p=evaluatePlan(phases,envelope,request,stageRows,opts),bedtimeStage=planBounds(request.start,request).bedtime&&to===+planBounds(request.start,request).bedtime;
     // WP13: a stage's joint pass counts bedtime readiness only when the stage ends at bedtime.
     if(p.ensemble)p.ensemble=ensembleSummary(p.trials,{readiness:!!bedtimeStage});
     const failed=p.ensemble?(p.ensemble.admitted?p.trials.find(t=>+t.trace.at(-1).time!==to):(p.trials.find(t=>!memberHardPass(t))||p.trials.find(t=>!t.suitable)||p.trials[0])):
@@ -3079,8 +3261,12 @@ function stagePlanRaw(prefix,setup,from,to,envelope,request,rows){
     const available=request.occupancy!=='away'||setupChangeAllowed(request.actual,phases[0].setup,+request.start,request);
     const idleHeat=setup!==request.actual&&['hp','furnace'].includes(setup.type)&&p.trials.every(t=>!t.segments.some(s=>s.startMs>=from&&s.startMs<to&&['hp','furnace'].includes(s.operation)&&s.duty>0));
     const bedtime=planBounds(request.start,request).bedtime;
-    return{...p,...targetMetrics(p.trials,from,to),setup,type:setup.type,suitable:available&&!failed&&!idleHeat,ready:bedtime&&to===+bedtime?p.ready:true,
+    const out={...p,...targetMetrics(p.trials,from,to),setup,type:setup.type,suitable:available&&!failed&&!idleHeat,ready:bedtime&&to===+bedtime?p.ready:true,
         reason:!available?'This setup requires an unavailable physical adjustment while you are away.':failed?planTrialReason(failed):idleHeat?'Heating is not needed during this interval; this heating mode would remain idle.':''};
+    // WP13 Search: completing a pruned or screened stage re-derives the stage result from the full member set.
+    if(p.pruned)out.pruned={start:p.trials,complete(){ENSEMBLE_SEARCH.completions++;return stagePlanRaw(prefix,given,from,to,envelope,request,rows,{full:true,start:this.start||undefined});}};
+    if(p.screen)out.screen={severity:p.screen.severity,start:p.trials,complete(){return stagePlanRaw(prefix,given,from,to,envelope,request,rows,{start:this.start||undefined});}};
+    return out;
 }
 function* departureOvernight(prefix,nights,envelope,request,rows){
     const bounds=planBounds(request.start,request),bed=+bounds.bedtime,earliest=Math.max(+request.returnTime,+request.start);
@@ -3116,7 +3302,7 @@ function* departureOvernight(prefix,nights,envelope,request,rows){
                 if(found)break;
             }
         }
-        if(best)plans.push(optimizeSequence(best,envelope,request,rows,Math.max(+request.returnTime,+request.start)));
+        if(best)plans.push(fullPlan(optimizeSequence(best,envelope,request,rows,Math.max(+request.returnTime,+request.start))));
     }
     annotateAutoPlans(plans);plans.sort(comparePlans);
     return{winner:plans[0],plans};
@@ -3224,7 +3410,8 @@ function* searchDeparturePlans(envelope,request){
     let currents=[];
     if(departure>from){
         const currentSetups=back===+bounds.bedtime?[...days,...stageSetups(true,vents).filter(s=>s.type==='ac')]:days;
-        for(const setup of currentSetups){currents.push(stagePlan([],setup,from,departure,envelope,request,rows));yield{current:currents.length};}
+        // WP13: absence stages are short; their full ordering is used below, so pruned stages are completed.
+        for(const setup of currentSetups){currents.push(fullPlan(stagePlan([],setup,from,departure,envelope,request,rows)));yield{current:currents.length};}
         currents.sort(comparePlans);
         stages.current={from,to:departure,recommended:null,options:stageGroup(currents,from,departure)};
     }else currents=[{suitable:true,ready:true,phases:[],setup:days[0],score:0,type:days[0].type}];
@@ -3236,7 +3423,7 @@ function* searchDeparturePlans(envelope,request){
         if(current!==currents.find(p=>p.suitable)&&over()){bounded.budget=true;break;}
         const prefix=departure>from?current.phases:[],tested=[];
         for(const setup of depSetups){
-            tested.push(setup===request.actual?stagePlanRaw(prefix,setup,departure,back,envelope,request,rows):stagePlan(prefix,setup,departure,back,envelope,request,rows));
+            tested.push(fullPlan(setup===request.actual?stagePlanRaw(prefix,setup,departure,back,envelope,request,rows):stagePlan(prefix,setup,departure,back,envelope,request,rows)));
             yield{departure:tested.length};
         }
         tested.sort((a,b)=>comparePlans(a,b)||Number(sameSetup(current.setup,b.setup))-Number(sameSetup(current.setup,a.setup)));
@@ -3326,7 +3513,7 @@ function renderDeparturePlan(result){
         let out='<section class="plan-stage" data-stage="'+kind+'"><h3>'+escapeHTML(title)+'</h3><p class="plan-time">'+interval(stage.from,stage.to)+'</p>';
         if(recommended?.setup){
             const keep=kind==='departure'&&stages.current?.recommended&&sameSetup(stages.current.recommended.setup,recommended.setup);
-            out+='<div class="result-primary">'+escapeHTML(setupName(recommended.setup))+'</div>'+ensembleResultHTML(recommended);
+            out+='<div class="result-primary">'+escapeHTML(setupName(recommended.setup))+'</div>'+ensembleResultHTML(recommended,result.search);
             const hold=kind==='departure'&&request.occupancy==='away';
             const instruction=hold?(stages.remoteAction?.time===stage.from?'Apply the remote adjustment below.':'Keep your current setup'+(stages.remoteAction?' until the adjustment below.':'.')):setupInstructions(recommended.setup);
             out+='<p class="hint">'+(keep?'Keep this setup when you leave. ':'')+escapeHTML(instruction)+'</p>'+recoveryNotice(recommended.recoveryInfo)+metrics(recommended);
@@ -3372,6 +3559,8 @@ function renderDeparturePlan(result){
 
 function* searchPlans(envelope,request){
     const result=yield* searchPlansCore(envelope,request);
+    // WP13 Search disclosure: exhaustive unless the bounded shortlist left plans that could still qualify unchecked.
+    if(ENSEMBLE.enabled&&AIR_SCENARIOS[0]?.ensemble)result.search={exhaustive:ENSEMBLE_SEARCH.cut===0,unchecked:ENSEMBLE_SEARCH.cut,pruned:ENSEMBLE_SEARCH.pruned,shortlists:ENSEMBLE_SEARCH.shortlists};
     const hasCurrent=result.stages?!!result.stages.current?.recommended||!!result.stages.departure.recommended:(result.winner.suitable&&result.winner.ready)||!!result.current;
     if(!hasCurrent&&request.occupancy!=='away')result.recoveryAction=recoveryAction(envelope,request);
     result.bedtimeRecovery=bedtimeRecovery(result,envelope,request);
@@ -3407,10 +3596,11 @@ function wp7CoilAdvisory(result,envelope,request){
     // Only an evaluated, executable plan that passes the current policy (suitable and ready) and the
     // physics check in every case is offered. A plan without compressor cooling passes the physics check.
     const bounds=result.bounds||planBounds(request.start,request),start=+request.start,end=+bounds.end;
-    for(const alt of result.plans){
+    for(let alt of result.plans){
         if(alt===plan||!(alt.suitable&&alt.ready))continue;
         if(advisory.alternativesChecked>=4)break;
         advisory.alternativesChecked++;
+        if(alt.slim&&alt.rebuild)alt=alt.rebuild();
         const altCheck=wp7CoilCheck(alt,envelope,request);
         if(altCheck&&altCheck.flagged>0)continue;
         advisory.alternative={phases:alt.phases.map(p=>({time:p.time,setup:p.setup})),check:altCheck,
@@ -3563,21 +3753,20 @@ function* searchPlansCore(envelope,request){
         // every retained connected sequence is still fully verified below.
         const daytime=days.map(base=>{
             const fans=['ac','hp','auto','auto_furnace'].includes(base.type)?['Auto','Low','Medium','High']:[base.fan];
-            return fans.map(fan=>{
+            return bestPlan(fans.map(fan=>{
                 const setup={...base,fan,key:base.key+'|'+fan};
-                const original=stagePlanRaw([],setup,+request.start,+bounds.bedtime,envelope,request,rows);original.ready=true;
-                return optimizePhase(original,0,envelope,request,rows.filter(r=>r.to<=+bounds.bedtime),+request.start,+bounds.bedtime,changed=>{const p=stagePlanRaw([],changed,+request.start,+bounds.bedtime,envelope,request,rows);p.ready=true;return p;});
-            }).sort(comparePlans)[0];
+                const original=readyStage(stagePlanRaw([],setup,+request.start,+bounds.bedtime,envelope,request,rows));
+                return slimPlan(optimizePhase(original,0,envelope,request,rows.filter(r=>r.to<=+bounds.bedtime),+request.start,+bounds.bedtime,(changed,opts)=>{const p=stagePlanRaw([],changed,+request.start,+bounds.bedtime,envelope,request,rows,opts);p.ready=true;return readyStage(p);}));
+            }));
         });
         // Cache eviction must not erase a verified daytime result and trigger
         // an unnecessary exhaustive daytime-bridge search.
         daytimeCovered=daytime.some(p=>p.suitable);
         days=daytime.map(p=>p.setup);
-        const prefix=daytime.slice().sort(comparePlans)[0].phases;
+        const prefix=bestPlan(daytime).phases;
         nights=nights.map(setup=>{
             const fans=['ac','hp','auto','auto_furnace'].includes(setup.type)?['Auto','Low','Medium','High']:[setup.fan];
-            return fans.map(fan=>stagePlan(prefix,{...setup,fan,key:setup.key+'|'+fan},+bounds.bedtime,+bounds.end,envelope,request,rows))
-                .sort(comparePlans)[0].setup;
+            return bestPlan(fans.map(fan=>slimPlan(stagePlan(prefix,{...setup,fan,key:setup.key+'|'+fan},+bounds.bedtime,+bounds.end,envelope,request,rows)))).setup;
         });
         // A control that cannot start at bedtime may work when preparation
         // begins earlier, under different weather. Keep the original controls
@@ -3594,7 +3783,7 @@ function* searchPlansCore(envelope,request){
             for(const fan of fans){
                 const setup={...base,fan,key:base.key+'|'+fan};
                 const p=repairPlanFans(evaluatePlan([{time:+request.start,setup}],envelope,request,rows),envelope,request,rows);
-                results.push(optimizeSequence(p,envelope,request,rows));yield{completed:results.length};
+                results.push(slimPlan(optimizeSequence(p,envelope,request,rows)));yield{completed:results.length};
             }
         }
     }else{
@@ -3615,16 +3804,15 @@ function* searchPlansCore(envelope,request){
                 if(!setupChangeAllowed(day,night,time,request))return null;
                 const phases=time===+request.start?[{time,setup:night}]:[{time:+request.start,setup:day},{time,setup:night}];
                 if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))return null;
-                let plan=screenPlan(phases,envelope,request,rows);
-                if(plan.trials.some(t=>!t.equipmentEligible))plan=repairPlanFans(plan,envelope,request,rows);
-                if(!closest||comparePlans(plan,closest)<0)closest=plan;
+                let plan=repairPlanFans(screenPlan(phases,envelope,request,rows),envelope,request,rows);
+                closest=closest?pickPlan(plan,closest):plan;
                 return plan;
             };
             for(const time of [...times].filter(t=>t>=+request.start&&t<=+bounds.bedtime).sort((a,b)=>b-a)){
                 if(time>latestRelevant)continue;
                 const plan=attempt(time);if(!plan)continue;
                 if(plan.suitable&&plan.ready){found=plan;break;}
-                const firstFailure=Math.min(...plan.trials.map(t=>t.failureTime??Infinity));
+                const firstFailure=earliestFailureBefore(plan,time,envelope,request,rows);
                 if(firstFailure<time)latestRelevant=firstFailure;
                 yield{searching:time};
             }
@@ -3658,13 +3846,13 @@ function* searchPlansCore(envelope,request){
                             [{time:+request.start,setup:day},{time,setup:cool},{time:+bounds.bedtime,setup:night}];
                         if(request.occupancy==='away'&&!setupChangeAllowed(request.actual,phases[0].setup,+request.start,request))continue;
                         const plan=screenPlan(phases,envelope,request,rows);
-                        if(!closest||comparePlans(plan,closest)<0)closest=plan;
+                        closest=closest?pickPlan(plan,closest):plan;
                         if(plan.suitable&&plan.ready){found=plan;break;}yield{searching:time};
                     }
                     if(found)break;
                 }
             }
-            if(found||closest)results.push(found||closest);
+            if(found||closest)results.push(slimPlan(found||closest));
             yield{completed:results.length};
         }
     }
@@ -3690,43 +3878,56 @@ function* searchPlansCore(envelope,request){
                     for(let time=+bounds.bedtime;time>handoff;time-=30*60000){
                         if(!setupChangeAllowed(bridge,night,time,request))continue;
                         const phases=[{time:+request.start,setup:day},{time:handoff,setup:bridge},{time,setup:night}];
-                        let p=screenPlan(phases,envelope,request,rows);
-                        if(p.trials.some(t=>!t.equipmentEligible))p=repairPlanFans(p,envelope,request,rows);
+                        const p=repairPlanFans(screenPlan(phases,envelope,request,rows),envelope,request,rows);
                         if(p.suitable&&p.ready){recovered=p;break;}
-                        const earliest=Math.min(...p.trials.map(t=>t.failureTime??Infinity));if(earliest<time&&earliest<=handoff)break;
+                        const earliest=earliestFailureBefore(p,handoff+1,envelope,request,rows);if(earliest<time&&earliest<=handoff)break;
                         yield{searching:time};
                     }
-                    if(recovered){results.push(recovered);yield{completed:results.length};}
+                    if(recovered){results.push(slimPlan(recovered));yield{completed:results.length};}
                 }
             }
         }
     }
-    const settingsGroups=new Map();
-    for(const p of results.slice().sort(comparePlans)){const key=p.type+'|'+p.nightType;if(!settingsGroups.has(key))settingsGroups.set(key,p);}
+    const settingsGroups=bestByType(results,p=>p.type+'|'+p.nightType);
     // Restore all cases for retained results, including rejected diagnostic
     // plans, before ranking and presenting them.
-    results=[...settingsGroups.values()].map(p=>optimizeSequence(evaluatePlan(p.phases,envelope,request,rows),envelope,request,rows));
+    // WP13 memory: each final plan keeps its ranking fields and AUTO statistics; a plan that is displayed is
+    // rebuilt from its phases (the same deterministic evaluation) when its trajectories are needed.
+    results=settingsGroups.map(p=>{
+        const f=fullPlan(optimizeSequence(evaluatePlan(p.phases,envelope,request,rows),envelope,request,rows));
+        if(!ensembleTrials(f.trials))return f;
+        f.autoStats=autoStats(f);const slim=slimPlan(f),phases=f.phases;
+        slim.rebuild=()=>({...evaluatePlan(phases,envelope,request,rows,{full:true}),score:slim.score,autoExplanation:slim.autoExplanation,autoStats:slim.autoStats});
+        return slim;
+    });
     annotateAutoPlans(results);
     results.sort(comparePlans);
     if(!results.length)throw new Error('No executable setup can be evaluated with the entered physical arrangement.');
+    if(results[0].rebuild)results[0]=results[0].rebuild();
     const current=results[0].suitable&&results[0].ready?null:currentRecommendation(envelope,request,results);
     const result={winner:results[0],plans:results,bounds,envelope,request,current};
     result.comparisons=periodComparisons(result,days,nights,rows);
     return result;
+}
+// Trials in which AUTO both cooled and heated (≥ 5 min each) after preparation, and the nominal member's
+// heating minutes; read from the trajectories once (WP13 keeps final plans slim afterwards).
+function autoStats(plan){
+    const since=plan.prepareAt??+plan.request.start;
+    const both=plan.trials.filter(t=>{
+        const parts=t.segments.filter(s=>s.startMs>=since),minutes=op=>parts.filter(s=>s.operation===op).reduce((n,s)=>n+s.hours*60*s.duty,0);
+        return minutes('ac')>=5&&minutes('hp')+minutes('furnace')>=5;
+    }).length;
+    const nightHeat=plan.trials[0].segments.filter(s=>s.startMs>=since&&['hp','furnace'].includes(s.operation)).reduce((n,s)=>n+s.hours*60*s.duty,0);
+    return{both,nightHeat};
 }
 function annotateAutoPlans(plans){
     for(const plan of plans){
         if(!isAutoMode(plan.nightType))continue;
         const peers=plans.filter(p=>p.setup.type===plan.setup.type&&setupPhysicalKey(p.setup)===setupPhysicalKey(plan.setup)&&p.suitable&&p.ready);
         const ac=peers.some(p=>p.nightType==='ac'),heat=peers.some(p=>p.nightType==='hp'||p.nightType==='furnace');
-        const since=plan.prepareAt??+plan.request.start;
-        const both=plan.trials.filter(t=>{
-            const parts=t.segments.filter(s=>s.startMs>=since),minutes=op=>parts.filter(s=>s.operation===op).reduce((n,s)=>n+s.hours*60*s.duty,0);
-            return minutes('ac')>=5&&minutes('hp')+minutes('furnace')>=5;
-        }).length;
+        const {both,nightHeat}=plan.autoStats||autoStats(plan);
         const need=!ac&&!heat&&both>0;
         plan.autoExplanation=ac?'Cooling alone is acceptable; AUTO receives no benefit for reheating.':heat?'Heating alone is acceptable; both functions are not needed.':need?'Both functions prevent a single-mode shortfall in '+both+' of '+AIR_SCENARIOS.length+' sensitivity scenarios.':'A sustained need for both functions is not established.';
-        const nightHeat=plan.trials[0].segments.filter(s=>s.startMs>=since&&['hp','furnace'].includes(s.operation)).reduce((n,s)=>n+s.hours*60*s.duty,0);
         plan.score+=need?-1:ac&&nightHeat>0?1+nightHeat/30:.5;
     }
 }
@@ -3743,11 +3944,10 @@ function periodComparisons(result,days,nights,rows){
         idle:plan.trials.every(t=>!t.segments.some(s=>s.startMs>=from&&s.startMs<to&&s.duty>0&&['ac','hp','furnace'].includes(s.operation))),
         reason:plan.reason,score:plan.score,bedroom:traceRange(plan,from,to,'bedroom'),
         humidity:traceRange(plan,from,to,'rh'),front:traceRange(plan,from,to,'midCoach')});
-    const bestByMode=plans=>{
-        plans.sort(comparePlans);const grouped=new Map();
-        for(const p of plans)if(!grouped.has(p.type))grouped.set(p.type,p);
-        return [...grouped.values()];
-    };
+    // WP13 memory: each candidate is summarized while its trajectories are at hand, then kept slim; a candidate
+    // completed during ranking is summarized from its full evaluation.
+    const keep=(plan,from,to)=>{const s=slimPlan(plan);if(!plan.pruned)s.summary=summarize(plan,from,to);return s;};
+    const bestByMode=(plans,from,to)=>bestByType(plans).map(p=>p.summary&&p.slim?p.summary:summarize(p.slim&&p.rebuild?p.rebuild():p,from,to));
     if(!bounds.sleep){
         // The next displayed adjustment ends the current comparison interval. An
         // alternative must work continuously until then, not borrow an earlier
@@ -3760,15 +3960,15 @@ function periodComparisons(result,days,nights,rows){
             for(const setup of setups){
                 const available=request.occupancy!=='away'||setupChangeAllowed(request.actual,setup,+request.start,request);
                 const p=stagePlan([],setup,+request.start,end,envelope,request,dayRows);
-                candidates.push(p);
+                candidates.push(keep(p,+request.start,end));
             }
             output.day={from:+request.start,to:end,recommended:current?.setup||winner.setup,
-                options:bestByMode(candidates).map(p=>summarize(p,+request.start,end))};
+                options:bestByMode(candidates,+request.start,end)};
         }
     }
     if(bounds.sleep){
         output.night={from:+request.start,to:+bounds.end,projected:false,recommended:winner.suitable?winner.nightSetup:null,
-            options:bestByMode(result.plans.slice()).map(p=>summarize(p,+request.start,+bounds.end))};
+            options:bestByMode(result.plans.slice(),+request.start,+bounds.end)};
     }else if(winner.suitable&&winner.ready){
         const from=+bounds.bedtime,prefix=winner.phases.filter(p=>p.time<from),candidates=[];
         for(const base of nights){
@@ -3778,11 +3978,13 @@ function periodComparisons(result,days,nights,rows){
                 let plan=evaluatePlan([...prefix,{time:from,setup}],envelope,request,rows);
                 plan=optimizePhase(plan,plan.phases.length-1,envelope,request,rows,from,+bounds.end);
                 // Label/group by the overnight mode, never the common daytime mode.
-                candidates.push({...plan,setup:plan.nightSetup,type:plan.nightType});
+                const labeled={...plan,setup:plan.nightSetup,type:plan.nightType};
+                if(plan.pruned){const inner=plan.pruned;labeled.pruned={start:inner.start,complete(){const f=inner.complete.call(this);return{...f,setup:f.nightSetup,type:f.nightType};}};}
+                candidates.push(keep(labeled,from,+bounds.end));
             }
         }
         output.night={from,to:+bounds.end,projected:true,recommended:winner.nightSetup,
-            options:bestByMode(candidates).map(p=>summarize(p,from,+bounds.end))};
+            options:bestByMode(candidates,from,+bounds.end)};
     }
     return output;
 }
@@ -3848,7 +4050,7 @@ function renderPlan(result){
     const step=(title,time,body)=>'<div class="plan-step"><div class="plan-time">'+escapeHTML(time)+'</div><strong>'+escapeHTML(title)+'</strong><p>'+body+'</p></div>';
     const safe=p.suitable&&p.ready,current=!safe&&result.current;
     const badge=current?'<div class="risk-badge moderate"><div class="risk-dot moderate"></div><span>Recheck overnight</span></div>':policyBadge(safe&&p.recoveryInfo?.complete!==false,true);
-    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+badge+'</div>'+wp7CoilAdvisoryHTML(result.coilAdvisory,request)+ensembleResultHTML(p)+comfortPolicyText()+spatialModelText()+recoveryActionHTML(result.recoveryAction);
+    let html='<div class="result-card" id="planCard"><div class="result-card-header"><div class="result-card-title">Your HVAC plan</div>'+badge+'</div>'+wp7CoilAdvisoryHTML(result.coilAdvisory,request)+ensembleResultHTML(p,result.search)+comfortPolicyText()+spatialModelText()+recoveryActionHTML(result.recoveryAction);
     if(result.bedtimeRecovery?.overnight)html+=bedtimeRecoveryHTML(result.bedtimeRecovery);
     if(current){
         html+='<div class="result-primary">'+escapeHTML(setupName(current.setup))+'</div>';
@@ -3935,14 +4137,44 @@ function checkResultValidity(){
     const problem=resultContext.mode==='forecast'?forecastProblem():'';
     if(problem||Date.now()>=resultContext.expires)invalidateResults(problem||'The next action time has arrived or the plan needs refreshed readings. Build a fresh plan.');
 }
+// The plan result the Worker posts: only what the page renders and logs. Checkpoints are dropped; plans other
+// than the winner keep no trajectories. With the WP13 ensemble, each sampled member of the plans shown
+// (winner, current recommendation and its outlook, recovery action) keeps a display trace and no segments;
+// the nominal member is kept whole (plan logging reads it).
+function trimPlanResult(result){
+    delete result.envelope.planCache;delete result.envelope.prefixFailures;
+    const grouped=new Map();for(const p of result.plans)if(!grouped.has(p.type))grouped.set(p.type,p);result.plans=[...new Set([result.winner,...grouped.values()])];
+    for(const p of result.plans)for(const t of p.trials){delete t.checkpoints;if(p!==result.winner){t.trace=[];t.segments=[];}}
+    const shown=[result.winner,result.current,result.current?.outlook,result.recoveryAction].filter(p=>p?.trials);
+    // Search-only handles (functions) cannot be posted.
+    for(const p of [...result.plans,...shown])for(const k of ['rebuild','pruned','screen'])delete p[k];
+    const b=result.bounds||{},r=result.request||{};
+    const marks=new Set([r.start,b.start,b.end,b.bedtime,b.sleepFrom,r.departure,r.returnTime,result.current?.reviewAt,result.recoveryAction?.reviewAt,
+        ...shown.flatMap(p=>(p.phases||[]).map(x=>x.time))].filter(v=>v!=null).map(Number));
+    for(const p of shown)for(const t of p.trials){delete t.checkpoints;if(t.member>0){t.trace=displayTrace(t.trace,marks);t.segments=[];}}
+    return result;
+}
+// Exact values at every display boundary (marks), and between consecutive boundaries two points carrying the
+// interval's minimum and maximum of each field. Ranges and readings over windows that start and end at marks are
+// unchanged (traceRange, readingAt, frontOutlook, currentOutlook).
+function displayTrace(trace,marks){
+    const fields=['indoor','bedroom','midCoach','rh','midRH','dewPoint','midDewPoint','water'],out=[];let lo=null,hi=null;
+    for(const p of trace){
+        if(marks.has(+p.time)){if(lo)out.push(lo,hi);lo=hi=null;out.push(p);continue;}
+        if(lo&&p.sleep!==lo.sleep){out.push(lo,hi);lo=hi=null;}
+        if(!lo){lo={...p};hi={...p};continue;}
+        for(const f of fields){if(p[f]<lo[f])lo[f]=p[f];if(p[f]>hi[f])hi[f]=p[f];}
+    }
+    if(lo)out.push(lo,hi);
+    return out;
+}
 function calculateInWorker(request,envelope,onProgress,inputs={state,forecast}){
     const source=document.querySelector('script').textContent;
     const bootstrap=`(()=>{const elements=new Map();const element=id=>{if(!elements.has(id))elements.set(id,{value:'',textContent:'',innerHTML:'',style:{},classList:{add(){},remove(){},toggle(){}},replaceChildren(){},addEventListener(){}});return elements.get(id);};
 const document={getElementById:element,querySelectorAll:()=>[],addEventListener(){},hidden:false};const navigator={};const window={location:{protocol:'worker:'},addEventListener(){}};
 ${source}
 self.onmessage=event=>{try{Object.assign(state,event.data.state);forecast=event.data.forecast;forecast.timeZone=event.data.envelope.timeZone;const iterator=searchPlans(event.data.envelope,event.data.request);let step,count=0;do{step=iterator.next();if(++count%5===0)self.postMessage({progress:count});}while(!step.done);const result=step.value;delete result.envelope.planCache;
-const grouped=new Map();for(const p of result.plans)if(!grouped.has(p.type))grouped.set(p.type,p);result.plans=[...new Set([result.winner,...grouped.values()])];
-for(const p of result.plans)for(const t of p.trials){delete t.checkpoints;if(p!==result.winner){t.trace=[];t.segments=[];}}
+trimPlanResult(result);
 self.postMessage({result});}catch(error){self.postMessage({error:error.message});}};})();`;
     return new Promise((resolve,reject)=>{
         const url=URL.createObjectURL(new Blob([bootstrap],{type:'application/javascript'}));
