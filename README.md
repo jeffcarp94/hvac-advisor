@@ -1,3 +1,11 @@
+# v6.6.24 — comfort runs start 0.5°F outside the band (option C)
+
+- **What changed (owner decision, November 19, 2026, reassessment option C).** A "too warm" or "too cold" run now starts 0.5°F outside the allowed range instead of exactly at its edge: the sleeping range fails only when the bedroom stays above 69.5°F for more than 30 minutes, or above 70.5°F for 15 minutes; the awake range above 73.5°F or below 67.5°F for more than 30 minutes. The 0.5°F is about the model's own calibration error (0.24–0.37°F against your garage runs), so the app no longer rejects a plan over a difference it can't predict.
+- **What did not change.** The 65°F floor is still hard. Getting into the range after a start outside it, being in the sleeping range at 10 PM, the comfort at your return, and the ranking of plans (degree-minutes outside the range) all still use the exact range. The plan card's target text now states the tolerance, and failure messages give the threshold actually used (for example "Remains above 69.5°F for more than 30 minutes").
+- **Effect on the test fixtures.** Qualifying runs go from 5 of 19 to 8 of 19: Winterset 2025-10-01 (0 → 31 of 32), the bedtime-preparation case at E (28 → 30) and May 8 at S (0 → 30) now qualify, and the five that qualified still do. Hot ×4, May 8 at N/E/W, October, rising, falling and away-with-Wi-Fi still don't. Many recommended plans change even where qualification doesn't, because more plans are admitted and the least-severe one wins. See [the table](model-assumptions.md#v6624--comfort-run-edge-tolerance-option-c).
+- **Run time.** Mixed on these fixtures: some faster, some slower (details in the table). It was not a speed change and isn't one.
+- **Options B and E were measured, not adopted.** Adding the 30-minute bedtime window (B) would also qualify May 8 at N and W and bring October to 27 of 32; the absence rule (E) with B qualifies away-with-Wi-Fi only through a 1:55 AM remote adjustment. Neither is in this release.
+
 # v6.6.23 — log the ensemble pass count (logging only)
 
 - **What is new.** Each logged plan run now fills the `ensemble_pass_count` column, which the Sheet has had since v6.6.6 and which logged "missing" on every row until now. The value is the number the plan card shows ("Works in X of 32 tested conditions") for the plan the row records.

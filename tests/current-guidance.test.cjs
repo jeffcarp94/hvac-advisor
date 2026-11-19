@@ -41,7 +41,8 @@ test('a diagnostic continuation keeps the original comfort threshold and failure
  const a=setup();a.run(`e.points=e.points.map(p=>({...p,tOut:82,rh:40,wind:2}));ph=[{time:+r.start,setup:planSetup('passive',false)},{time:Date.parse('2026-10-24T03:00Z'),setup:planSetup('ac',true)}];
  p=simulatePlan(ph,e,r,AIR_SCENARIOS[0],null,null,false,true)`);
  assert.ok(a.run('p.comfortProblem.time')<new Date('2026-10-24T03:00Z'));
- assert.match(a.run('p.comfortProblem.reason'),/73°F|74°F/);assert.equal(a.run('p.comfortReason'),a.run('p.comfortProblem.reason'));
+ assert.match(a.run('p.comfortProblem.reason'),/73\.5°F|74\.5°F/); // v6.6.24: runs start 0.5°F past the edge
+ assert.equal(a.run('p.comfortReason'),a.run('p.comfortProblem.reason'));
  assert.ok(a.run('p.comfortProblem.time')<new Date('2026-10-24T03:00Z'));
 });
 test('current guidance ends at departure and never certifies an unvalidated absence',()=>{

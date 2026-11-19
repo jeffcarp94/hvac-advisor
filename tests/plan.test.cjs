@@ -118,7 +118,7 @@ test('form times preserve their actual instant when NWS changes the location tim
 });
 test('a physically unchanged thermostat is still judged against overnight comfort after 10 PM',()=>{
  const a=scenario();a.run(`r.initial.temperature=[72,72];state.temp=72;e=makeEnvelope(r.start,planBounds(r.start).end,'Test',300000);p=simulatePlan([{time:+r.start,setup:planSetup('ac',false)}],e,r)`);
- assert.equal(a.run('p.suitable'),false);assert.match(a.run('p.comfortReason'),/69°F|70°F/);
+ assert.equal(a.run('p.suitable'),false);assert.match(a.run('p.comfortReason'),/69\.5°F|70\.5°F/); // v6.6.24: runs start 0.5°F past the edge
 });
 test('currently-away instructions never prescribe manual window or roof-fan adjustments',()=>{
  const a=scenario();a.run(`r.occupancy='away';r.departure=r.start;r.returnTime=new Date(+r.start+3600000);r.remote=true;phase={time:+r.start,setup:planSetup('ac',false)};text=planActionText(phase,r)`);

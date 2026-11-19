@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.23 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.24 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -108,7 +108,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.23</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.24</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -394,6 +394,10 @@ const M={volumeFt3:GEOMETRY.volume,fraction:GEOMETRY.fraction,mixCFM:60,ductMixC
     discharge:.6,screenFactor:.65,fanShutoffPa:40,interzoneArea:.8,
     surfaceFactor:.8,dewpointMargin:2,surfaceRHLimit:80,surfaceMinutes:30,
     humidLimit:65,humidMinutes:30,recoveryMinutes:30,warmMinutes:30,
+    // v6.6.24 (owner decision, November 19, 2026, reassessment option C): the warm, cold and severe-warm runs start
+    // 0.5°F outside the band edge (about the model's calibration RMSE, 0.24–0.37°F). The 65°F floor, recovery entry,
+    // bedtime readiness, return comfort and the D3 severity keep the exact band.
+    comfortRunEdgeF:.5,
     severeWarmMinutes:15,moistureLbPerPint:1.043,latentBTUPerLb:1060,
     occupantGramsSleep:40,occupantGramsAwake:55,bodyAreaM2:1.8,sleepMet:.7,awakeMet:1,baseACH:.25};
 function occupantLoad(sleeping,people=2){
@@ -2600,11 +2604,11 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
         score+=dt*(2*Math.max(0,comfortT-band.high)+Math.max(0,band.low-coldT));
         tempMissDegMin+=dt*60*(2*Math.max(0,comfortT-band.high)+Math.max(0,band.low-coldT));
         const humidityPenalty=Math.max(...now.rh.map(h=>h<=55?0:h<=60?.4:h<=65?1.9:3.4));score+=dt*humidityPenalty;
-        if(elapsed>(activeRecovery?(recovery??Infinity):M.recoveryMinutes)){warmRun=comfortT>band.high?warmRun+dt*60:0;warmMax=Math.max(warmMax,warmRun);coldRun=coldT<band.low?coldRun+dt*60:0;coldMax=Math.max(coldMax,coldRun);severeRun=comfortT>band.high+1?severeRun+dt*60:0;severeMax=Math.max(severeMax,severeRun);}
+        if(elapsed>(activeRecovery?(recovery??Infinity):M.recoveryMinutes)){warmRun=comfortT>band.high+M.comfortRunEdgeF?warmRun+dt*60:0;warmMax=Math.max(warmMax,warmRun);coldRun=coldT<band.low-M.comfortRunEdgeF?coldRun+dt*60:0;coldMax=Math.max(coldMax,coldRun);severeRun=comfortT>band.high+1+M.comfortRunEdgeF?severeRun+dt*60:0;severeMax=Math.max(severeMax,severeRun);}
         if(recovery===null&&comfortT<=band.high&&coldT>=band.low)recovery=elapsed;
         if(activeRecovery&&recovery!==null&&t[0]<floor-1e-6)recoveryFloorBreach=true;
         if(!comfortProblem){
-            const reason=t[0]<floor-1e-6&&(!activeRecovery||recovery!==null)?'Predicted bed-area temperature falls below 65°F.':!activeRecovery&&elapsed>=M.recoveryMinutes&&recovery===null?'Does not reach acceptable temperature within 30 minutes.':coldRun>M.warmMinutes?'Remains below '+band.low+'°F for more than 30 minutes.':warmRun>M.warmMinutes?'Remains above '+band.high+'°F for more than 30 minutes.':severeRun>=M.severeWarmMinutes?'Remains above '+(band.high+1)+'°F for at least 15 minutes.':'';
+            const reason=t[0]<floor-1e-6&&(!activeRecovery||recovery!==null)?'Predicted bed-area temperature falls below 65°F.':!activeRecovery&&elapsed>=M.recoveryMinutes&&recovery===null?'Does not reach acceptable temperature within 30 minutes.':coldRun>M.warmMinutes?'Remains below '+(band.low-M.comfortRunEdgeF)+'°F for more than 30 minutes.':warmRun>M.warmMinutes?'Remains above '+(band.high+M.comfortRunEdgeF)+'°F for more than 30 minutes.':severeRun>=M.severeWarmMinutes?'Remains above '+(band.high+1+M.comfortRunEdgeF)+'°F for at least 15 minutes.':'';
             if(reason)comfortProblem={time:new Date(row.to),reason,low:band.low,high:band.high};
         }
         if(config&&isOvernight){const bedside=air.flows.reduce((a,v,i)=>a+(WINDOW_SECTIONS[i].bed?Math.max(0,v):0),0);
@@ -3763,7 +3767,7 @@ function* searchDeparturePlans(envelope,request){
     if(bounded.overnightSkipped||bounded.remoteSkipped||bounded.budget)stages.boundedSearch=bounded;
     return{winner,plans,bounds,envelope,request,current:null,stages,comparisons:{day:null,night:stages.night}};
 }
-function comfortPolicyText(){const s=COMFORT.sleeping,a=COMFORT.nonSleeping;return '<p class="hint">Indoor targets: sleeping '+s.target+'°F (allowed '+s.low+'–'+s.high+'°F); awake or unoccupied '+a.target+'°F (allowed '+a.low+'–'+a.high+'°F). Within ±'+COMFORT.tolerance+'°F is preferred. For misses, heating, cooling and ventilation favor the cooler side. Closer to target on that side ranks better. Equipment and moisture checks must pass first.</p>';}
+function comfortPolicyText(){const s=COMFORT.sleeping,a=COMFORT.nonSleeping;return '<p class="hint">Indoor targets: sleeping '+s.target+'°F (allowed '+s.low+'–'+s.high+'°F); awake or unoccupied '+a.target+'°F (allowed '+a.low+'–'+a.high+'°F). Within ±'+COMFORT.tolerance+'°F is preferred. A comfort failure needs the bedroom more than '+M.comfortRunEdgeF+'°F outside the allowed range for over 30 minutes, or more than '+(1+M.comfortRunEdgeF)+'°F above it for 15 minutes; 65°F remains a hard floor. For misses, heating, cooling and ventilation favor the cooler side. Closer to target on that side ranks better. Equipment and moisture checks must pass first.</p>';}
 function setpointSummary(){return 'Bed-area targets: awake/away '+COMFORT.nonSleeping.target+'°F ('+COMFORT.nonSleeping.low+'–'+COMFORT.nonSleeping.high+'°F); sleeping '+COMFORT.sleeping.target+'°F ('+COMFORT.sleeping.low+'–'+COMFORT.sleeping.high+'°F). Thermostat settings are selected in your plan.';}
 function renderDeparturePlan(result){
     const {stages,bounds,request,winner}=result;
@@ -4453,7 +4457,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.23';
+const LOG_APP_VERSION='6.6.24';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
