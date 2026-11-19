@@ -178,3 +178,72 @@ test('worker messages carry simulation inputs only, never logging credentials',(
     assert.equal(text.includes(token),false);assert.equal(text.includes('script.google.com'),false);
     assert.deepEqual(Object.keys(payload).sort(),['envelope','forecast','request','state']);
 });
+// v6.6.23 (logging only): ensemble_pass_count is the logged plan's joint pass count, logged only when the page shows
+// that plan's ensemble box ("Works in X of 32 tested conditions"), so the log and the card cannot disagree.
+// Labeled synthetic weather. Each result goes through the Worker's trim and structured clone, as on the page.
+const H=3600000;
+function loggedRun(a,setup){
+    a.ctx.structuredClone=structuredClone;
+    a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;${setup}
+        result=structuredClone(trimPlanResult(runUnifiedPlan(r,e)));html=renderPlan(result);
+        complete=result.winner.suitable&&result.winner.ready;
+        logged=complete?result.winner:result.current||result.stages?.current?.recommended||result.stages?.departure?.recommended;
+        cards=[...html.matchAll(/data-ensemble="([0-9]+)[/]([0-9]+)"/g)].map(m=>m[1]+'/'+m[2]);
+        finishRunLog(prepareRunLog(r,null),result,Infinity);ev=readLogQueue().at(-1).event;`);
+}
+function overnight(temps,enabled=true){
+    const start=Date.parse('2026-11-12T04:00:00Z');
+    return `ENSEMBLE.enabled=${enabled};
+        r={occupancy:'staying',start:new Date(${start}),reading:new Date(${start}),initial:{temperature:[67,66],rh:[45,45]}};
+        points=${JSON.stringify(temps)}.map((tOut,i)=>({time:new Date(${start}+i*${H}),tOut,rh:45,cloud:1,wind:4,precip:'none'}));
+        e={windowStart:r.start,windowEnd:new Date(${start}+${temps.length}*${H}),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,points,cloud:1,wind:4,precip:'none'};`;
+}
+function assertLoggedCountShown(a){
+    assert.equal(a.run('ev.event_type'),'plan');
+    assert.equal(a.run('logged.ensemble.evaluated'),32,'every member evaluated for the logged plan');
+    const count=a.run('ev.ensemble_pass_count');
+    assert.ok(Number.isInteger(count)&&count>=0&&count<=32,'integer 0–32: '+count);
+    assert.equal(count,a.run('logged.ensemble.passes'));
+    assert.ok(a.run(`cards.includes('${count}/32')`),'the rendered plan shows "Works in '+count+' of 32"');
+    assert.match(a.run('ensembleResultHTML(logged)'),new RegExp('Works in '+count+' of 32 tested conditions'));
+}
+test('a complete plan logs the pass count its plan card shows',()=>{
+    const a=loggingApp();loggedRun(a,overnight([55,55,55,55,55]));
+    assert.equal(a.run('complete'),true);
+    assertLoggedCountShown(a);
+});
+test('a complete departure plan logs the winner count shown in its overnight box',()=>{
+    const a=loggingApp();
+    loggedRun(a,`state.temp=50;state.rh=25;state.wind=2;state.cloud=0;
+        r={start:new Date('2026-10-24T04:00Z'),reading:new Date('2026-10-24T04:00Z'),initial:{temperature:[69,69],rh:[35,35]},occupancy:'leaving',remote:true,departure:new Date('2026-10-24T04:10Z'),returnTime:new Date('2026-10-24T04:30Z')};
+        e=makeEnvelope(r.start,planBounds(r.start,r).end,'Synthetic clear 50F night',300000);shortlistVents=()=>[];
+        planSetups=sleep=>['passive','ac','hp','furnace','auto'].map(type=>planSetup(type,sleep));`);
+    assert.equal(a.run('complete&&!!result.stages'),true);
+    assertLoggedCountShown(a);
+});
+test('partial-run current guidance, whose count the page does not show, logs null (owner decision)',()=>{
+    const a=loggingApp();loggedRun(a,overnight([47,46,45,45,44]));
+    assert.equal(a.run('complete'),false);
+    assert.equal(a.run('logged===result.current'),true);
+    assert.equal(a.run('ev.run_status'),'partial');
+    assert.equal(a.run('logged.ensemble.evaluated'),32);
+    assert.equal(a.run('ensembleDisplayedPlans(result).some(p=>p.ensemble===logged.ensemble)'),false,'the card shows the full-sequence winner only');
+    assert.equal(a.run('ev.ensemble_pass_count'),null);
+});
+test('with the nine-case policy (ensemble off) or a partial summary, ensemble_pass_count is null',()=>{
+    const a=loggingApp();loggedRun(a,overnight([55,55,55,55,55],false));
+    assert.ok(a.run('!!logged'));
+    assert.equal(a.run('logged.ensemble??null'),null);
+    assert.equal(a.run('ev.ensemble_pass_count'),null);
+    // A summary that does not cover all 32 members is never logged as if it were out of 32.
+    assert.equal(a.run('logEnsemblePassCount({ensemble:{passes:7,evaluated:9,members:32}})'),null);
+    assert.equal(a.run('logEnsemblePassCount({ensemble:{passes:30,evaluated:32,members:32}})'),30);
+    assert.equal(a.run('logEnsemblePassCount(null)'),null);
+});
+test('readings-only events do not set ensemble_pass_count',()=>{
+    const a=loggingApp();
+    for(const [id,v] of [['bedTemp','68'],['frontTemp','69'],['bedRH','50'],['frontRH','48']])a.element(id).value=v;
+    a.run('logReadingsOnly()');
+    assert.equal(a.run('readLogQueue()[0].event.event_type'),'readings_only');
+    assert.equal(a.run("'ensemble_pass_count' in readLogQueue()[0].event"),false);
+});

@@ -265,12 +265,12 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.6.22'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.6.23'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
   await oldContext.close();}
-  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.6.22','6.0.0 → 6.6.22'],errors},null,2));
+  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.6.23','6.0.0 → 6.6.23'],errors},null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
 

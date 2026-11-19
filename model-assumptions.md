@@ -1,3 +1,8 @@
+# v6.6.23 — `ensemble_pass_count` logging (logging only)
+
+**Logging only:** no model, eligibility, ranking, recommendation or timing change. `recordRunLog` sets `ensemble_pass_count` to `plan.ensemble.passes` for the plan the row records (`recommended_setup_json`), but only when (a) that summary covers every member (`evaluated === ENSEMBLE.members`) and (b) the page renders that same summary in an ensemble box (`ensembleDisplayedPlans`, which mirrors the `ensembleResultHTML` calls in `renderPlan` and `renderDeparturePlan`). Otherwise it is null, which the receiver writes as "missing". The overnight box of a departure plan renders the winner's own summary object, so the match is on the summary, not the plan wrapper.
+Owner decision, November 19, 2026: a partial run's current guidance (`result.current`) is logged, but the card's box describes the full-sequence winner, so its count logs as missing rather than as a number the page does not show.
+
 # v6.6.22 — WP12 Phase A comfort metric (observation only)
 
 Scope v3 WP12 Phase A. **Observation only:** the page computes the metric after the plan is fixed, from the nominal member (member 0) of the plan it displays and logs (the same plan `recordRunLog` samples). No planner function reads it, so eligibility, ranking, recommendations and timing, including remote and sleep cases, are unchanged (acceptance item 3, verified on every fixture below). The only change on the planner path is that trace points of the nominal condition (member 0) also carry the two WP11 slow-storage temperatures (`bedMass`, `midMass`); the other 31 members' traces are unchanged, so peak memory is unchanged within measurement.

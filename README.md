@@ -1,3 +1,9 @@
+# v6.6.23 — log the ensemble pass count (logging only)
+
+- **What is new.** Each logged plan run now fills the `ensemble_pass_count` column, which the Sheet has had since v6.6.6 and which logged "missing" on every row until now. The value is the number the plan card shows ("Works in X of 32 tested conditions") for the plan the row records.
+- **When it stays "missing".** If the page shows no "Works in X of 32" box for the logged plan, the column logs "missing". That covers a partial run's current guidance (the card's box describes the full-sequence plan, which does not qualify) (owner decision, November 19, 2026). It also stays "missing" with the nine-case policy (ensemble off), or if fewer than all 32 conditions were evaluated, so a partial count is never logged as out of 32. Readings-only rows don't use the column.
+- **Logging only.** Nothing the planner reads changed: eligibility, ranking, recommendations and timing are the same as v6.6.22. The log receiver needs no redeploy; the column already exists.
+
 # v6.6.22 — WP12 Phase A comfort metric (observation only)
 
 - **What is new.** The plan card has a **Comfort metric (observation only)** panel, and each logged run has a `comfort_metric_json` field. For the plan shown, it estimates how warm or cool it feels at **Jeff’s bed, Kim’s bed and the dinette**, not just the air temperature:
