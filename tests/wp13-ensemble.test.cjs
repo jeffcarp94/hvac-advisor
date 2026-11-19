@@ -34,24 +34,32 @@ test('32 members, member 0 is the nominal working case, and the draws are determ
  assert.notEqual(a.run('ensembleSeed(e,r)'),seed,'a decision-relevant input changes the seed');
 });
 
-test('Latin hypercube: each sampled dimension puts one member in each of 31 strata, within its bounds',()=>{
+test('Latin hypercube: each dimension puts one member in each of 31 strata; draws stay within bounds',()=>{
  const a=app();scene(a);members(a);
- const strata=JSON.parse(a.run(`const P=ENSEMBLE_PRIORS,m=members.slice(1).map(x=>x.ensemble.draws);
-  const s=(v,r)=>Math.floor((v-r[0])/(r[1]-r[0])*31);
-  JSON.stringify({ach:m.map(d=>s(d.infiltrationACH,P.infiltrationACH)),air:m.map(d=>s(d.storage.airTotal,P.storage.airTotal)),
-   ret:m.map(d=>s(d.dehumReturn,P.dehumReturn)),cab:m.map(d=>s(d.cabFactor,P.cabFactor)),flow:m.map(d=>s(d.airflow,P.airflow)),
-   multi:m.map(d=>s(d.gains.multiPlusStandby,P.gains.multiPlusStandby)),sky:m.map(d=>s(d.skyOffset,[-P.skyPoints,P.skyPoints]))})`));
- for(const [k,v] of Object.entries(strata))assert.deepEqual(v.slice().sort((x,y)=>x-y),Array.from({length:31},(_,i)=>i),k);
+ const strata=JSON.parse(a.run(`JSON.stringify(ENSEMBLE_DIMENSIONS.map(k=>members.slice(1).map(m=>Math.floor(m.ensemble.draws.u[k]*31))))`));
+ for(const v of strata)assert.deepEqual(v.slice().sort((x,y)=>x-y),Array.from({length:31},(_,i)=>i));
+ const P=JSON.parse(a.run('JSON.stringify(ENSEMBLE_PRIORS)')),d=JSON.parse(a.run('JSON.stringify(members.slice(1).map(m=>m.ensemble.draws))'));
+ const within=(v,r)=>v>=r[0]-1e-12&&v<=r[1]+1e-12;
+ for(const x of d){
+  assert.ok(within(x.infiltrationACH,P.infiltrationACH)&&within(x.dehumReturn,P.dehumReturn)&&within(x.cabFactor,P.cabFactor)&&within(x.coilColdDeltaF,P.coilColdDeltaF));
+  assert.ok(within(x.gains.multiPlusStandby,P.gains.multiPlusStandby)&&within(x.gains.cerboAndDisplay,P.gains.cerboAndDisplay)&&within(x.gains.sleepPhoneCharging,P.gains.sleepPhoneCharging));
+  assert.ok(Math.hypot(x.airflow,x.storagePosition)<=1+1e-12,'airflow and storage drawn on the unit disk');
+  for(const k of ['airTotal','massTotal','massTauHours'])assert.ok(within(x.storage[k],[P.storage.low[k],P.storage.high[k]]),k);
+ }
  const bodies=JSON.parse(a.run('JSON.stringify(["nominal","reduced","stronger"].map(id=>members.slice(1).filter(m=>m.bodyCase.id===id).length))'));
  assert.deepEqual(bodies,[11,10,10],'body cases take whole strata');
+ // The concentric map is area-preserving: equal-area halves of the disk get about half the points (many seeds).
+ const half=+a.run('(()=>{let n=0,t=0;for(let k=0;k<30;k++)for(const m of buildEnsembleMembers(500+k,0,9).slice(1)){t++;if(Math.hypot(m.ensemble.draws.airflow,m.ensemble.draws.storagePosition)<Math.SQRT1_2)n++;}return n/t;})()');
+ assert.ok(Math.abs(half-.5)<.05,'inner half-area disk share '+half);
  // Airflow family endpoints are the v6.6.16 data-supported sets; the middle is the calibrated working case.
  assert.deepEqual(JSON.parse(a.run('JSON.stringify(interpolateAirflow(0))')),JSON.parse(a.run('JSON.stringify({mix:1,ductRear:DUCT.rearFraction,furnaceRear:FURNACE.rearFraction,widthFt:INTERZONE.widthFt})')));
  for(const [s,i] of [[-1,1],[1,2]]){const f=JSON.parse(a.run(`JSON.stringify(interpolateAirflow(${s}))`)),c=JSON.parse(a.run(`JSON.stringify(AIR_WEATHER_CASES[${i}])`));
   for(const k of ['mix','ductRear','furnaceRear','widthFt'])assert.ok(Math.abs(f[k]-c[k])<1e-12,k);}
+ assert.deepEqual(JSON.parse(a.run('JSON.stringify(interpolateStorage(0))')),JSON.parse(a.run('JSON.stringify({solarToMass:STORAGE.solarToMass,airTotal:STORAGE.airTotal,massTotal:STORAGE.massTotal,massTauHours:STORAGE.massTauHours})')));
  // Furnace rear share stays within the owner-decided 0.52–0.65.
  assert.equal(a.run('members.every(m=>(m.furnaceRear??FURNACE.rearFraction)>=.52-1e-12&&(m.furnaceRear??FURNACE.rearFraction)<=.65+1e-12)'),true);
- // D2-gated items are not sampled.
- assert.equal(a.run('members.every(m=>!("capacityComparison" in m)&&!m.ensemble.params||!("capacity" in m.ensemble.params))'),true);
+ // D2-gated items are not sampled: capacities, WP6 airflow and changeover stay at their live values.
+ assert.equal(a.run('members.every(m=>!m.ensemble.params||["capacity","changeover","furnaceOutput"].every(k=>!(k in m.ensemble.params)))'),true);
 });
 
 test('forecast error: σ schedule by lead time and AR(1) correlation over about 6 hours',()=>{

@@ -1553,12 +1553,15 @@ const ENSEMBLE_PRIORS=Object.freeze({
     // correlation, independent of the temperature error (engineering assumption; the scope gives no
     // dew-point σ). RH is derived from the perturbed temperature and dew point.
     tauHours:6,dewSigmaScale:1,skyPoints:20,windScale:[.7,1.3],
-    // Airflow (v6.6.16 Task A): one position s ∈ [−1, 1] along restricted (−1) ↔ working (0) ↔ greater (+1),
-    // so mixing, rooftop and furnace rear shares and buoyant width move together as in the garage-supported
-    // sets (furnace rear 0.52–0.65, nominal 0.57; owner decision 5). mix interpolates in log space.
+    // Airflow and storage (Task A method, owner decisions 4 and 5; reports/wp13-priors.md). Each is one family
+    // position in [−1, 1], with every other parameter at the v6.6.15 fit:
+    // - airflow: restricted (−1) ↔ working (0) ↔ greater (+1) v6.6.16 sets, so mixing (log space), rooftop and
+    //   furnace rear shares (0.52–0.57–0.65) and buoyant width move together;
+    // - storage: low (−1) ↔ fitted (0) ↔ high (+1) data-supported sets of air node, mass node and coupling.
+    // Every family point reproduces both garage runs within the v6.6.15 residual ⊕ 0.3°F, but the square's
+    // corners do not, so the pair is drawn uniformly on the unit disk (Shirley–Chiu concentric map).
     airflow:[-1,1],
-    // Storage (WP11): garage profile-likelihood ranges (owner decision 4; see reports/wp13-priors.md).
-    storage:Object.freeze({airTotal:[250,330],massTotal:[470,700],massTauHours:[.75,1.25]}),
+    storage:Object.freeze({low:Object.freeze({airTotal:295,massTotal:540,massTauHours:.85}),high:Object.freeze({airTotal:305,massTotal:630,massTauHours:1.2})}),
     gains:Object.freeze({multiPlusStandby:[8,30],cerboAndDisplay:[4,7],sleepPhoneCharging:[20,60]}),
     treeBlockedScale:[.5,1.5],albedo:[.1,.3],absorptance:[.3,.7],
     bufferGramsPerRH:[15,50],bufferTauHours:[2,6],dehumReturn:[0,.4],
@@ -1593,7 +1596,7 @@ function latinHypercube(n,d,rand){
     }
     return out;
 }
-const ENSEMBLE_DIMENSIONS=Object.freeze(['temperatureError','dewPointError','skyOffset','windScale','airflow','storageAir','storageMass','storageTau',
+const ENSEMBLE_DIMENSIONS=Object.freeze(['temperatureError','dewPointError','skyOffset','windScale','airflow','storage',
     'multiPlus','cerbo','phones','treeBlockedScale','albedo','absorptance','bufferCapacity','bufferTau','dehumReturn','infiltrationACH','coilColdDelta',
     'bodyCase','cabFactor','flow','windSign','rhOffset','surfaceFactor','heading']);
 function ensembleSeed(envelope,request){
@@ -1609,6 +1612,17 @@ function interpolateAirflow(s){
     const base={mix:w.mix,ductRear:DUCT.rearFraction,furnaceRear:FURNACE.rearFraction,widthFt:INTERZONE.widthFt};
     const lin=(a,b)=>a+(b-a)*f;
     return{mix:Math.exp(lin(Math.log(base.mix),Math.log(end.mix))),ductRear:lin(base.ductRear,end.ductRear),furnaceRear:lin(base.furnaceRear,end.furnaceRear),widthFt:lin(base.widthFt,end.widthFt)};
+}
+function interpolateStorage(s){
+    const e=s<0?ENSEMBLE_PRIORS.storage.low:ENSEMBLE_PRIORS.storage.high,f=Math.abs(s),out={solarToMass:STORAGE.solarToMass};
+    for(const k of ['airTotal','massTotal','massTauHours'])out[k]=STORAGE[k]+(e[k]-STORAGE[k])*f;
+    return out;
+}
+// Area-preserving map of the square [−1, 1]² onto the unit disk (Shirley & Chiu 1997).
+function concentricDisk(a,b){
+    if(a===0&&b===0)return[0,0];
+    const [r,phi]=Math.abs(a)>Math.abs(b)?[a,Math.PI/4*(b/a)]:[b,Math.PI/2-Math.PI/4*(a/b)];
+    return[r*Math.cos(phi),r*Math.sin(phi)];
 }
 function ar1Series(z0,knots,tauHours,rand){
     const phi=Math.exp(-1/tauHours),k=Math.sqrt(1-phi*phi),out=[z0];
@@ -1629,11 +1643,11 @@ function buildEnsembleMembers(seed,origin,horizonHours,headingUnknown=false){
         const temp=zT.map((z,h)=>z*forecastSigmaF(h)),dew=zD.map((z,h)=>z*forecastSigmaF(h)*P.dewSigmaScale);
         // Categories take whole strata, so each category gets an equal share (11/10/10 of 31; 8/8/8/7 for headings).
         const category=(v,k)=>Math.min(k-1,Math.floor(Math.floor(v*n)*k/n));
-        const s=range(P.airflow,u.airflow),airflow=interpolateAirflow(s),bodyIndex=category(u.bodyCase,3);
+        const [s,storagePosition]=concentricDisk(2*u.airflow-1,2*u.storage-1),airflow=interpolateAirflow(s),bodyIndex=category(u.bodyCase,3);
         const solar={albedo:range(P.albedo,u.albedo),absorptance:range(P.absorptance,u.absorptance),treeScale:range(P.treeBlockedScale,u.treeBlockedScale)};
         solar.key='m'+(i+1)+':'+seed;
-        const draws={airflow:s,bodyCase:BODY_CASES[bodyIndex].id,cabFactor:range(P.cabFactor,u.cabFactor),infiltrationACH:range(P.infiltrationACH,u.infiltrationACH),
-            storage:{airTotal:range(P.storage.airTotal,u.storageAir),massTotal:range(P.storage.massTotal,u.storageMass),massTauHours:range(P.storage.massTauHours,u.storageTau),solarToMass:STORAGE.solarToMass},
+        const draws={u:Object.freeze(u),airflow:s,storagePosition,bodyCase:BODY_CASES[bodyIndex].id,cabFactor:range(P.cabFactor,u.cabFactor),infiltrationACH:range(P.infiltrationACH,u.infiltrationACH),
+            storage:interpolateStorage(storagePosition),
             gains:{...GAIN_WATTS,multiPlusStandby:range(P.gains.multiPlusStandby,u.multiPlus),cerboAndDisplay:range(P.gains.cerboAndDisplay,u.cerbo),sleepPhoneCharging:range(P.gains.sleepPhoneCharging,u.phones)},
             bufferGramsPerRH:range(P.bufferGramsPerRH,u.bufferCapacity),bufferTauHours:range(P.bufferTauHours,u.bufferTau),dehumReturn:range(P.dehumReturn,u.dehumReturn),
             coilColdDeltaF:range(P.coilColdDeltaF,u.coilColdDelta),skyOffset:range([-P.skyPoints,P.skyPoints],u.skyOffset),windScale:range(P.windScale,u.windScale),solar,
