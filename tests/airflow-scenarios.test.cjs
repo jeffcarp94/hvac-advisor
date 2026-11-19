@@ -33,7 +33,9 @@ test('null airflow fields reproduce the calibrated constants exactly (nominal un
   ph=[{time:+r.start,setup:withSetting(planSetup('furnace',true),63)}];
   implicit=simulatePlan(ph,e,r,AIR_SCENARIOS[0],null,null,false,true);
   explicit=simulatePlan(ph,e,r,{...AIR_SCENARIOS[0],ductRear:DUCT.rearFraction,furnaceRear:FURNACE.rearFraction,widthFt:INTERZONE.widthFt},null,null,false,true);`);
- assert.equal(a.run('JSON.stringify(implicit.trace)'),a.run('JSON.stringify(explicit.trace)'));
+ // v6.6.22: only the nominal scenario object's trace carries the WP12 slow-storage fields; compare trajectories without them.
+ a.run("noWp12=(k,v)=>k==='bedMass'||k==='midMass'?undefined:v");
+ assert.equal(a.run('JSON.stringify(implicit.trace,noWp12)'),a.run('JSON.stringify(explicit.trace,noWp12)'));
  assert.equal(a.run('JSON.stringify(implicit.finalZones)'),a.run('JSON.stringify(explicit.finalZones)'));
 });
 

@@ -92,7 +92,7 @@ test('the nominal member reproduces the working-case trial exactly; member conte
  const a=app();scene(a);members(a);
  a.run(`ph=[{time:+r.start,setup:withSetting(planSetup('furnace',true),66)}];rows=planRows(e,r);
   legacy=simulatePlan(ph,e,r,BASE_AIR_SCENARIOS[0],rows,null,false,true);nominal=simulatePlan(ph,e,r,members[0],rows,null,false,true);
-  strip=t=>JSON.stringify({...t,member:undefined});`);
+  strip=t=>JSON.stringify({...t,member:undefined},(k,v)=>k==='bedMass'||k==='midMass'?undefined:v);`); // v6.6.22: WP12 fields are kept for one scenario object only
  assert.equal(a.run('strip(legacy)===strip(nominal)'),true);
  assert.equal(a.run('nominal.member'),0);
  a.run('other=simulatePlan(ph,e,r,members[7],rows,null,false,true)');
