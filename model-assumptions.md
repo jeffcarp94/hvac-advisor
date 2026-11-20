@@ -1,3 +1,118 @@
+# v6.6.27 — realistic capacities (D2), garage refit (R1), bedtime window (B), absence rule (E), comfort metric removed
+
+Owner decisions, November 19, 2026 (review of open items, 18:52–19:17 CST): Item 1 "switch now" with **R1** (refit the existing garage runs; no new field test) and **N** (no new uncertainty dimensions in the 32 conditions); Item 2 adopt **B** and **E** (F not now, hot nights accepted, no search shortcut); Item 6 **remove the comfort metric**.
+
+## D2: live capacities
+
+`LIVE_CAPACITY` (nominal WP6 settings) is now the default capacity model of `zoneProfileCore`; the v6.6.13 comparison path is the live path. `legacyCapacity:true` on an envelope restores the pre-v6.6.27 capacities for analysis and before/after only.
+
+| Quantity | Legacy (≤ v6.6.26) | Live (v6.6.27) | Source tier |
+| --- | --- | --- | --- |
+| Heat pump, 44.6°F outdoor, High fan | 13,800 BTU/h | 9,629 BTU/h | OEM-proxy (B59196 ISO 5151 H1, 2,822 W) + EnergyPlus `HPACHeatCapFT` shape (Ref) |
+| Heat pump, 55°F / 65°F, High | 15,000 / 15,000 | 11,461 / 13,400 | same |
+| Heat pump, 35°F / 20°F (members with propane disabled only; live dispatch uses propane below 42°F) | — | 8,071 / 5,815 | same |
+| AC sensible, 80°F/50% in, 95°F out, High | 11,250 | 9,565 (total 15,142) | 15,000 BTU/h ISO T1 gross (OEM-exact class) + EnergyPlus DX curves and ADP/BF (Ref), 280 CFM High (OEM-proxy) |
+| AC sensible, 72°F/45% in, 75°F out, High | 11,250 | 10,595 | same |
+| Fan dependence | none | Medium 0.82, Low 0.68 of High airflow; AUTO staged per CCC2 | Eng |
+| Changeover | forecast < 42°F → propane | modeled rooftop reading ≤ `C.heatPumpMinTemp` (42°F) → propane, > 42°F → heat pump (δ = h = 0, carried as state) | Owner configuration; δ/h not sampled (decision N). At exactly 42°F the live model uses propane (WP6 scope rule "≤ 42 + δ"); the plan text says "below 42°F". EasyTouch behavior at equality is undocumented |
+| AC moisture removal | fixed latent (C.acCapacity − sensible) | coil model `waterLbHr`; WP9 coil re-evaporation uses the rated SHR | Ref |
+
+Eligibility is unchanged: `coolingPolicy` (coil screen and High-fan rule) stays the only cooling check; the physics coil model stays advisory (D1) and, by owner decision, keeps the legacy capacities (see below). Furnace output is the R1 refit value below.
+
+## R1: refit of the two garage runs
+
+`tools/analysis/joint-fit.cjs` (Nelder–Mead, three seeds, all converged to the same point; `u` = 1 and `shp` = 1 fixed as in v6.6.15; `shp` now scales `LIVE_CAPACITY.heatScale`).
+
+| Parameter | v6.6.15 (legacy heat pump) | v6.6.27 |
+| --- | --- | --- |
+| Air / mass storage | 297 / 574 BTU/°F | 229 / 402 BTU/°F |
+| Mass coupling time constant | 0.98 h | 0.92 h |
+| Ducted rear share | 0.38 | 0.36 |
+| Buoyant effective width | 0.58 ft | 0.61 ft |
+| Furnace rear share / to mass | 0.57 / 0.49 | 0.58 / 0.50 |
+| Furnace delivered | 11,550 BTU/h | 9,075 BTU/h (0.605 × 15,000) |
+| RMSE heat-pump run, front / rear / gap | 0.24 / 0.26 / 0.34°F | 0.29 / 0.31 / 0.47°F |
+| RMSE furnace run | 0.37 / 0.35 / 0.38°F | 0.34 / 0.33 / 0.36°F |
+
+The v6.6.15 values with the WP6 heat pump reproduce the heat-pump run at 1.91 / 1.67°F (front / rear), which is why R1 was needed. Storage and delivered furnace output trade off in the furnace run: with less stored heat, the fit needs less delivered furnace heat to match the observed warm-up. The fitted furnace output is heat delivered to the living space, absorbing duct and cabinet losses; it is not an appliance measurement.
+
+## Uncertainty ranges re-centered on the refit (no new dimensions)
+
+Same method as `reports/wp13-priors.md` (v6.6.21): every family point must reproduce both garage runs within the fit residual combined in quadrature with the 0.3°F digitizing tolerance (now heat pump 0.418 / 0.429 / 0.559°F, furnace 0.456 / 0.443 / 0.470°F).
+
+- **Airflow ends** (`airflow-extremes.cjs`, floors width ≥ 0.25 ft, mix ≥ 0.5): restricted mix 0.92, rooftop rear 0.387, furnace rear 0.568 (optimizer end 0.569, moved inward 0.001 because the 3-decimal rounding put the furnace gap 0.2% over its limit), width 0.25 ft; greater 1.805 / 0.336 / 0.683 / 1.481 ft (v6.6.16: 0.5 / 0.40 / 0.52 / 0.28 and 2.8 / 0.35 / 0.65 / 0.30). They are the most and least rear-isolating supported sets on the reconstructed 30°F and 45°F nights.
+- **Storage ends** (`wp13-prior-checks.cjs grid`: 115 of 4,095 grid points supported, air 215–240, mass 370–440, coupling 0.75–1.15 h): low 227 / 390 / 0.86 h, high 232 / 418 / 1.02 h (v6.6.21: 295 / 540 / 0.85 and 305 / 630 / 1.2). Wider storage ends (225 / 380 / 0.80, 235 / 430 / 1.10) pass alone but the joint unit-circle draw then exceeds the limit by up to 6%, so the ends were pulled in.
+- **Checks** (`wp13-prior-checks.cjs`, final values): storage family 9 / 9 quarter-steps pass (worst 0.858); airflow family 9 / 9 (worst 0.996); joint unit circle 16 / 16 (worst 0.996). With the optimizer's 0.569 the restricted end was 0.2% over (8 / 9, circle 15 / 16); rounding it inward to 0.568 is the only change. Square corners still fail (1.04–1.31), so the unit-disk draw stays.
+- The nine-case policy (`AIR_WEATHER_CASES`) uses the same new airflow ends.
+
+## B: bedtime readiness window
+
+`M.readinessWindowMinutes` = 30. A plan is ready when the bedroom is in 65–69°F at any trace point from bedtime through bedtime + 30 min. A trace that ends inside that window (a daytime stage that ends at bedtime) is provisionally ready; the plan that continues past bedtime decides. The warm, cold and severe-warm run rules are unchanged, so a bedroom that stays above 70.5°F for 15 minutes after bedtime still fails. The failure text now reads "… at 10 PM and does not enter the 65–69°F sleeping band (target 67°F) within 30 minutes."
+
+## E: absence rule
+
+On unoccupied rows the warm, cold and severe-warm runs do not accumulate. When an absence begins before the 30-minute recovery deadline, the deadline moves to the return; the bedroom at the return instant counts as recovery when it is in the band that applies after the return, and a stage that ends at the return has not missed its deadline. The 65°F floor, equipment and moisture checks, and the existing return-comfort check (`returnComfort`, D3 `returnAt`) still apply. The longest-acceptable ordering of plans that do not qualify still uses the 30-minute deadline for a case that never recovers. A miss at the return reads "Bedroom is outside its comfort range at the return."
+
+The v6.6.24 counterfactual for E understated it: when the away plan's trace ends at the return, it still applied the 30-minute rule (fixed here, `deadlinePending`).
+
+## Comfort metric removed (WP12 Phase A)
+
+The Comfort metric panel, the "Awake clothing" setting and the PMV/PPD/SET/operative-temperature computations are removed, as are the nominal-trace slow-storage fields they needed. `comfort_metric_json` is no longer filled (the Sheet column stays and logs "missing"; no receiver change). The optional comfort vote fields remain. WP12 Phase B is dropped. `loggedTracePlan` (v6.6.25) still feeds the predictions.
+
+## Owner decisions during the build (November 19, 2026, about 21:30 CST)
+
+CI on the first build failed 13 tests. Ten were pinned old values or defects (below); three needed owner decisions.
+
+- **Coil-icing advisory keeps the legacy capacities.** With the live coil model's latent removal (D2), the coach air in the model dries to about 30% RH within 25 minutes on a hot afternoon (synthetic 95°F / 40% RH, COOL 72 High; legacy stayed 46–54%), because the WP9 moisture buffer (30 g/%RH, 4 h; Nordtest-class transfer, low confidence) barely resists it. The drier return air lowers the apparatus dew point and the WP7 check then flagged High fan in 9 of 9 cases (coldest coil 27.4°F; legacy 34.1°F). Decision: `wp7CoilCheck` runs on `legacyCapacity` until the moisture-buffer assumption is reviewed as a separate item. Plans themselves use the live capacities. The model's RH swings in cooling (about 30% on, 60% off with a fixed fan) are a known open question and feed the moisture checks.
+- **Bedtime-recovery card.** When the current setup can cool and the bedroom is at or above 67°F inside the 9:30–10 PM window, the card replaced a qualified plan using the default night setting (AUTO 66/70), which breached 65°F in 9 of 32 conditions on a 48°F test night and read "A reliable time for reaching sleeping comfort is unavailable" while the plan itself (AUTO 67/71 overnight) passed. Decision: with a qualified plan the card uses the plan's own setting in effect at bedtime, and if its check still fails the normal plan is shown. Without a qualified plan the card is unchanged.
+- **Re-derived ranges confirmed** (section above). The v6.6.16 ends no longer reproduce the heat-pump garage run (restricted gap 0.61°F against a 0.56°F limit).
+
+## Defects found by CI and fixed
+
+- **Departure inside the first 30 minutes.** The current stage of a departure plan ends at the departure; when that was under 30 minutes and the bedroom was still short of the band, the stage failed "Does not reach acceptable temperature within 30 minutes" although the run ended first. Under E the absence moves the deadline to the return, so such a run now has a pending deadline (`deadlineMoved`, carried in checkpoints). The same flag replaces the `recoveryDeadline > 30` test, so an absence that ends exactly at minute 30 also counts. `recoveryInfo.complete` and the stall check keep their reached-the-band meaning.
+- **Changeover threshold.** `wp6HeatSource` used a literal 42°F; it now reads `C.heatPumpMinTemp` (same value).
+- **Restricted furnace rear share** 0.569 → 0.568 (rounding; see above).
+
+## Reconstructed test inputs re-chosen (labeled)
+
+- `current-guidance` "chooses OFF when natural recovery matches": the synthetic morning is now 76°F (was 86°F). The refit coach warms faster, so 86°F overshoots and cooling wins; 74–82°F were scanned and only 76°F reproduces the tie the test is about.
+- `period-comparisons` "projected alternatives": the synthetic 48°F night now starts at 9:20 PM (was 9:50 PM). The plan now holds AUTO before bed, and inside the 9:30 PM window that shows the bedtime card instead of the plan card the test examines.
+
+## Effect on the test fixtures
+
+`reports/v6627-fixtures.jsonl` (final build, `wp13-search-gate.cjs` MODE=auto) against the v6.6.24 option-C rows. The B + C + E column is the v6.6.24 counterfactual of B and E alone, without D2 and R1 (not all fixtures were run then). Hot, rising, falling, away and preparation are synthetic inputs.
+
+| Fixture | v6.6.24 (C) | B + C + E counterfactual | v6.6.27 | Plan changed | v6.6.27 plan | Main remaining failure | Time v6.6.24 → v6.6.27 (s) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Surface (synthetic) | 32/32 **qualifies** | 32/32 **qualifies** | 32/32 **qualifies** | no | 10:30 maxxfan 66 Auto |  | 7 → 9 |
+| March (historical) | 31/32 **qualifies** | not run | 30/32 **qualifies** | yes | 02:00 passive Auto; 02:50 auto 67/71 High |  | 244 → 1142 |
+| Preparation (synthetic) N | 29/32 **qualifies** | not run | 29/32 **qualifies** | yes | 02:00 maxxfan 72 Auto; 02:25 ac 67 Medium; 03:00 hp 67 Low |  | 830 → 1464 |
+| Preparation (synthetic) E | 30/32 **qualifies** | 32/32 **qualifies** | 30/32 **qualifies** | yes | 02:00 maxxfan 72 Auto; 02:25 ac 67 Medium; 03:00 hp 67 Medium |  | 854 → 1503 |
+| Preparation (synthetic) S | 30/32 **qualifies** | not run | 30/32 **qualifies** | yes | 02:00 passive Auto; 02:10 ac 66 High; 03:00 hp 67 Auto |  | 621 → 1583 |
+| Preparation (synthetic) W | 30/32 **qualifies** | not run | 29/32 **qualifies** | yes | 02:00 maxxfan 72 Auto; 02:25 ac 67 Medium; 03:00 hp 67 Low |  | 1076 → 1538 |
+| Winterset 2025-10-01 | 31/32 **qualifies** | 31/32 **qualifies** | 31/32 no | yes | 02:00 ac 70 High; 02:55 auto 62/66 Auto (current: Air Conditioner {"heat":70,"cool":70,"fan":72} Auto) | Predicted temperature falls below 65°F. | 159 → 413 |
+| October (saved forecast) | 1/32 no | 27/32 no | 28/32 no | yes | 23:48 maxxfan 72 Auto; 02:40 auto 63/67 High (current: Air Conditioner {"heat":70,"cool":70,"fan":72} Auto) | Predicted temperature falls below 65°F. | 873 → 761 |
+| Hot (synthetic) N | 0/32 no | 0/32 no | 32/32 **qualifies** | yes | 18:00 auto 64/72 High; 03:00 auto_furnace 62/67 Medium |  | 236 → 833 |
+| Hot (synthetic) E | 0/32 no | 0/32 no | 32/32 **qualifies** | yes | 18:00 auto 64/72 High; 03:00 auto_furnace 60/66 High |  | 230 → 1066 |
+| Hot (synthetic) S | 0/32 no | 0/32 no | 1/32 no | yes | 18:00 auto 66/72 High; 03:00 ac 68 High (current: Air Conditioner {"heat":70,"cool":72,"fan":72} High) | Remains above 69.5°F for more than 30 minutes. | 228 → 455 |
+| Hot (synthetic) W | 0/32 no | 0/32 no | 32/32 **qualifies** | yes | 18:00 auto 64/72 High; 03:00 auto_furnace 62/67 High |  | 209 → 577 |
+| May 8 N | 0/32 no | 29/32 **qualifies** | 30/32 **qualifies** | yes | 02:00 hp 73 High; 02:30 ac 66 High; 03:00 hp 67 Low |  | 214 → 536 |
+| May 8 E | 0/32 no | 0/32 no | 0/32 no | yes | 02:00 furnace 72 Auto; 03:00 ac 66 Low (current: Bedroom MaxxFan {"heat":70,"cool":72,"fan":71} Auto) | Predicted temperature falls below 65°F. | 143 → 406 |
+| May 8 S | 30/32 **qualifies** | 31/32 **qualifies** | 30/32 **qualifies** | yes | 02:00 maxxfan 71 Auto; 02:05 ac 66 High; 03:00 hp 67 Auto |  | 312 → 462 |
+| May 8 W | 0/32 no | 29/32 **qualifies** | 29/32 **qualifies** | yes | 02:00 ac 70 Auto; 02:30 ac 67 High; 03:00 hp 67 Low |  | 195 → 487 |
+| Rising (synthetic) | 0/32 no | 0/32 no | 0/32 no | yes | 04:00 auto 66/70 High (current: Heat Pump {"heat":66,"cool":68,"fan":68} High) | Remains above 70.5°F for at least 15 minutes. | 12 → 16 |
+| Falling (synthetic) | 0/32 no | 0/32 no | 0/32 no | yes | 04:00 auto 67/71 Medium (current: Heat Pump {"heat":66,"cool":68,"fan":68} Auto) | Remains above 70.5°F for at least 15 minutes. | 18 → 26 |
+| Away, Wi-Fi (synthetic) | 22/32 no | 30/32 **qualifies** | 30/32 **qualifies** | yes | 06:00 hp 67 Low; 08:00 auto 66/70 Auto |  | 3 → 46 |
+
+Qualifying: v6.6.24 8/19, B+C+E 7/15 run, v6.6.27 13/19 run
+
+- **Qualifying: 8 → 13 of 19.** New: Hot N, E and W, which come from D2 and R1 because B + C + E alone gave 0 of 32; May 8 N and W, and away-with-Wi-Fi, which B + C + E alone already qualified, so B and E are the likely reasons. Hot S reaches 1 of 32 (bedroom above 69.5°F for 30 minutes).
+- **Lost: Winterset 2025-10-01** (mild night, 61–70°F outdoors). The best plan works in 31 of 32 conditions but one dips to 64.7°F, and the 65°F floor is hard in every condition. The v6.6.24 plan (AUTO 64/69, then AUTO FURNACE 62/67 High) now keeps the bedroom above 69.5°F for more than 30 minutes. Under the refit model no setting found passes both on this night; which of the D2 or R1 changes is responsible was not isolated. A finding, not a reason to change either model.
+- **October** goes from 1 to 28 of 32 but still fails on one 64.x°F condition; **May 8 E** still fails (floor).
+- **Every recommended plan except Surface changes** (column "Plan changed").
+- **Server run times rose** on most fixtures, roughly 1.3–5×, most on the slow ones (March 244 → 1,142 s, hot E 230 → 1,066 s). More plans now qualify and must be checked in all 32 conditions. Speed is no longer tracked (owner decision, Item 3); a timed phone run is the real check.
+
+
 # v6.6.26 — defect fixes (site elevation; WP3 no-chatter test)
 
 **Site elevation (WP5 defect).** `gridElevation` accepted only `field.uom`. The gridpoint `elevation` is an NWS QuantitativeValue whose unit field is `unitCode` (grid series such as `temperature` use `uom`), so live forecasts always fell back to sea-level pressure from v6.6.12 to v6.6.25 (all 12 logged rows: `elevation_m` missing; plan text "Sea-level pressure assumed"). The test mocks used the same wrong shape, which is why the suite passed. It now reads `unitCode ?? uom` and accepts `wmoUnit:m` or `unit:m`; the retrieval test's mock uses the NWS shape and fails on v6.6.25. Planner fixtures carry no NWS elevation, so their decisions are unchanged by construction. Live effect, Sheet row 11 reconstruction (logged inputs; elevation 340 m assumed, not the NWS grid value): identical stage setups and pass counts (32/32, 32/32); bedroom at +30 min 70.34°F in both; at +2 h 68.66 → 68.67°F; peak RH 49.5% in both. At a few hundred meters the effect is small; at higher sites it grows (about 11% lower pressure at 1,000 m).
