@@ -1,3 +1,50 @@
+# v6.6.28 — WP14 refrigeration-cycle model, coil-ice advisory, fast moisture layer
+
+Owner direction and approvals, November 20, 2026: one model for plan capacity and the coil advisory, with real (thermodynamically defensible) icing flags; WP14 scope approved with airflows from the best available estimate; critique of the cycle model against the Gulf Shores ground truth; step 1 (moisture balance) approved; Gulf Shores handled as a historical validation; Reference updated.
+
+## Cycle model (WP14)
+
+| Item | Value | Tier / source |
+| --- | --- | --- |
+| Rating anchor | 4,396 W (15,000 BTU/h) cooling at 27/19°C indoor, 35°C outdoor; 1,725 W input; 280 CFM High | OEM-proxy (Dometic Brisk II heat pump B59196, ISO 5151 T1; retailer airflow) |
+| Compressor input at rating | 1,475 W (1,725 W less about 250 W fan) | Eng |
+| Rated evaporating / condensing, superheat / subcooling | 42°F / 118°F, 10°F / 10°F | Eng (typical R-410A) |
+| Fan speeds | Medium 0.909, Low 0.818 of High; blower and condenser fan share one motor | Eng (replacement motor 1650/1500/1350 rpm) |
+| Metering | capillary tube, choked flow ∝ P_cond^0.5 at fixed subcooling | Eng; checked with a homogeneous-equilibrium R-410A capillary model (`tools/analysis/capillary-hem.py`, CoolProp, Churchill friction, McAdams viscosity): exponent 0.50–0.55 for 1–2 tubes sized to the rated flow |
+| Coil | Braun–Klein–Mitchell wet-coil effectiveness; refrigerant/air conductance 3:1; air-side ∝ airflow^0.6; superheat on a parallel dry fraction | Ref (ASHRAE Trans. 95(2), 1989) + Eng |
+| Compressor | volumetric efficiency 1 − 0.04((Pc/Pe)^(1/1.15) − 1); isentropic efficiency fitted at the rating | Eng |
+| Condenser inlet | outdoor + 2°F × solar fraction | Eng (Wray & Akbari 2008 measured 0.3°C on a platform unit) |
+
+Plan capacity changes from v6.6.27 are small: 15,117 vs 15,142 BTU/h total (80°F/50% in, 95°F out, High); 14,527 vs 14,843 (72°F/45%, 75°F, High); 12,548 vs 12,478 (72°F/50%, 95°F, Low); moisture removal 2–7% lower.
+
+## Coil-ice advisory
+
+| Item | Value | Tier |
+| --- | --- | --- |
+| Coldest region | 25% of face area at 40% of mean face velocity (air maldistribution); its surface sits within about 0.3°F of the evaporating temperature for any velocity ratio ≤ 0.6 | Eng |
+| Ice sources | condensate draining across the region while it is below 32°F (fraction 0.5); direct frost (Hayashi density 650·e^(0.227·Ts°C)); WP9 retained coil water in the region freezes at compressor start | Eng; Dometic places its freeze sensor 1 in. above the bottom of the fins |
+| Melting | running fan: local forced convection; AUTO off-cycle: natural convection 5 W/m²K | Eng |
+| Feedback | ice narrows fin gaps on the region; blower curve settles at lower airflow; advisory state only | Eng (PSC fan, 0.8 in. total static, Dometic 0.55–1.10 in.) |
+| Flag | 0.43 mm (half of a 1.7 mm fin gap at 14 fins/in.) | Eng |
+
+Critique items tested and not adopted: a stronger capillary pressure dependence (unphysical per the capillary model above); a compressor start-up dip (R-410A capillary tests settle within about 90 s, Kim & Bullard 2001 as cited); a narrow bottom ice band (flags hot afternoons).
+
+Validation, not calibration:
+- **Gulf Shores (historical, condition no longer present).** Owner account: the CCC2 never saw COOL 72 satisfied; the compressor ran continuously with the coach at about 66–68°F. With return air 66–68°F, KJKA outdoor air and an assumed 45–55°F indoor dew point, the advisory flags within about 47–85 minutes on March 3, 4 and 5 at Low, Medium and High (exception: March 4 at a 55°F dew point on Medium/High, 1.8–6.9 h or none). With an accurate thermostat the same day cycles (about 8-minute runs, 40–140 minutes off) and the ice melts between runs (peak about 0.08 mm, no flag). An assumption sweep (heading/shade, internal gains +0–800 W, absorptance, start temperature, infiltration 1–8×, airflow 50–100%, melting rate, departure time, morning showers) left that cycling peak at 0.08–0.09 mm; only an uninterrupted run produced icing.
+- **Hot afternoons.** 95°F/40%, 100°F/30%, 90°F/70%, 85°F/50% and 78°F/60%, 6 hours, all nine cases: no flag at any fan speed (worst peak 0.37 mm, Low and AUTO in the reduced-insulation, restricted-airflow case).
+
+## Fast moisture layer
+
+`MOISTURE_BUFFER.fastGramsPerRH` 17 g/%RH (about three times the coach air), coupling 3 minutes, in addition to the existing 30 g/%RH, 4-hour layer (Eng). Basis: textiles about 30 m² × 0.33 g/(m²·%RH) (cotton isotherm slope × 300 g/m²) plus other hygroscopic surfaces at the penetration depth of a 20-minute cycle; EnergyPlus EMPD practice sizes the surface layer by the period of the humidity swing (Woods, Winkler & Christensen, NREL/TP-5500-57441). Effect: on a 95°F afternoon at Low, in-cycle RH ranges about 35–60% instead of 30–65%. Open: on long hot AUTO runs the coach still dries to about 24–30% RH because the modeled moisture sources (occupants and infiltration) are small; the advisory does not flag those runs.
+
+## Thermostat sensing
+
+The live model senses front air exactly. The EasyTouch has the −4°F Temperature Reading Adjustment (confirmed November 20, 2026) and the insulated mount (foam-plugged opening, 6 mm PVC panel, ½ in. K-Flex). Garage tests with that mount read 6.6–7.7°F above the front YoLink before the adjustment. How much a sun-heated exterior wall behind the cabinet void adds is open (engineering estimate +3 to +8°F with a hot void); sunny-day log readings will settle it.
+
+## Fixtures
+
+FIXTURE_TABLE
+
 # v6.6.27 — realistic capacities (D2), garage refit (R1), bedtime window (B), absence rule (E), comfort metric removed
 
 Owner decisions, November 19, 2026 (review of open items, 18:52–19:17 CST): Item 1 "switch now" with **R1** (refit the existing garage runs; no new field test) and **N** (no new uncertainty dimensions in the 32 conditions); Item 2 adopt **B** and **E** (F not now, hot nights accepted, no search shortcut); Item 6 **remove the comfort metric**.

@@ -49,7 +49,7 @@ for(const day of ['2025-03-03','2025-03-04','2025-03-05']){
          // v6.6.28: owner recollection (November 20, 2026): parked facing north, trees shading the west and south sides in the
          // afternoon: HEADING=N COVER='{"tree_driver":"Full","tree_rear":"Full"}' (Full is an assumed level).
          e.site={heading:'${process.env.HEADING||'S'}',confirmed:true,cover:${process.env.COVER||'{}'}};
-         base={start:new Date(${start}),reading:new Date(${start}),initial:{temperature:[72,72],rh:[55,55]},remote:false};
+         base={start:new Date(${start}),reading:new Date(${start}),initial:{temperature:[72,72],rh:[${+(process.env.INIT_RH||55)},${+(process.env.INIT_RH||55)}]},remote:false}; // INIT_RH: analysis only (e.g. morning showers)
          away={...base,occupancy:'leaving',departure:new Date(${start}),returnTime:new Date(${ret})};
          occupied={...base,occupancy:'staying'};
          rows=planRows(e,away,.5,[${ret}]).filter(r=>r.to<=${ret});`);

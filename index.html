@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.27 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.28 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -107,7 +107,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.27</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.28</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -2104,7 +2104,8 @@ const WP7_COIL=Object.freeze({
 // - Fan speeds (Eng): one 3-speed motor drives the evaporator blower and the condenser fan (dual-shaft Dometic motor;
 //   replacement Brisk II motor 3315332.005 / Genteq F48AF70A61 listed at 1650/1500/1350 rpm), so both airflows
 //   scale with speed (fan law): Medium 0.909, Low 0.818. Condenser airflow 1,000 CFM at High (Eng).
-// - Metering: capillary tube (Eng; typical of RV rooftop units, not verified for B59186). Choked flow, m ∝ Pcond^0.5,
+// - Metering: capillary tube (Eng; typical of RV rooftop units, not verified for B59186). Choked flow, m ∝ Pcond^0.5
+//   (checked v6.6.28 with a homogeneous-equilibrium R-410A capillary model, tools/analysis/capillary-hem.py: 0.50–0.55),
 //   10 °F subcooling; when the capillary passes less than the compressor can pump the evaporator is starved
 //   (superheat rises, suction pressure falls); otherwise it floods (no superheat).
 // - Coil: Braun–Klein–Mitchell wet-coil effectiveness with an infinite refrigerant capacity rate (ASHRAE Trans.
@@ -2140,8 +2141,10 @@ const CYCLE=Object.freeze({
         staticInWC:.8,coilInWC:.2,shutoffInWC:1.4,
         // Ice from condensate (v6.6.28 revision): water condensed on the coil drains down the fins; where it crosses the
         // below-freezing coldest region it freezes (a 0.1 mm film freezes in about 0.1 s at 5 K subcooling). drainFreeze is the
-        // fraction of the coil's condensate that drains across that region: not published, calibrated to the Gulf Shores
-        // icing (owner field observation, March 2025). Retained coil water (WP9) in that region freezes at compressor start.
+        // fraction of the coil's condensate that drains across that region (Eng, not fitted: 0.5; Dometic places its freeze
+        // sensor 1 in. above the bottom of the fins). Retained coil water (WP9) in that region freezes at compressor start.
+        // Validation (not calibration): the Gulf Shores icing, a continuous CCC2 call with the coach at 66–68°F, flags
+        // within about an hour on every fan speed; hot synthetic afternoons do not flag (tests/coil-advisory.test.cjs).
         iceDensity:917,drainFreeze:.5}
 });
 const CY_CFM=.00047194745;
@@ -3934,10 +3937,10 @@ function wp7CoilAdvisoryHTML(advisory,request){
     if(!advisory?.flagged)return '';
     const c=advisory.check,f=c.first;
     let html='<div class="mitigation-box" id="coilAdvisory"><strong>Coil-icing advisory (experimental; this recommendation is unchanged)</strong>'+
-        '<p>The coil model predicts frost building up on the cooling coil at this fan setting. The current cooling check permits this setup.</p>'+
+        '<p>The coil model predicts ice building up on the cooling coil at this fan setting. The current cooling check permits this setup.</p>'+
         '<p class="hint">Flagged in '+c.flagged+' of '+c.cases+' tested conditions'+(f?', first at '+escapeHTML(formatTime(new Date(f.time)))+' ('+escapeHTML(f.fan)+' fan'+
         (f.fan==='Auto'?', assessed at '+escapeHTML(f.assessedFan):'')+'; coldest coil surface '+f.minSurfaceF.toFixed(1)+'°F, return air '+f.returnF.toFixed(1)+'°F, outdoor '+f.outdoorF.toFixed(1)+'°F)':'')+
-        '. The model follows the refrigeration cycle (coil, compressor, capillary tube and condenser), grows frost only where the coil surface is below 32°F and the air\'s dew point, melts it between compressor runs, and flags when it reaches '+CYCLE.frost.flagMm+' mm, enough to start blocking airflow between the fins. A little frost that melts between runs is not flagged. A flag is not an observation of ice.</p>';
+        '. The model follows the refrigeration cycle (coil, compressor, capillary tube and condenser). While the coldest part of the coil is below 32°F, condensate draining across it freezes and frost forms; between compressor runs the ice melts. It flags when the ice reaches '+CYCLE.frost.flagMm+' mm, enough to start blocking airflow between the fins. Ice that melts between runs is not flagged. A flag is not an observation of ice.</p>';
     if(c.autoAssumed)html+='<p class="hint">With the AUTO fan, the flag assumes the fan can run at Low while the compressor runs. Micro-Air does not document the speed thresholds. With the CCC2 staging the app otherwise uses, it flags in '+c.stagedFlagged+' of '+c.cases+'.</p>';
     const alt=advisory.alternative;
     if(alt){
@@ -4514,7 +4517,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.27';
+const LOG_APP_VERSION='6.6.28';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
