@@ -6,9 +6,9 @@ const close=(a,b,tol=1e-8,msg='')=>assert.ok(Math.abs(a-b)<=tol,`${msg} ${a} != 
 
 test('calibrated storage values split by served volume',()=>{
  const a=app();const s=a.run('zoneStorage()');
- close(s.air[0]+s.air[1],297);close(s.mass[0]+s.mass[1],574);
+ close(s.air[0]+s.air[1],229);close(s.mass[0]+s.mass[1],402); // v6.6.27 refit (R1)
  close(s.air[0]/(s.air[0]+s.air[1]),a.run('M.fraction[0]'));
- for(let z=0;z<2;z++)close(s.mass[z]/s.coupling[z],.98,1e-12,'mass time constant');
+ for(let z=0;z<2;z++)close(s.mass[z]/s.coupling[z],.92,1e-12,'mass time constant');
 });
 
 test('buoyant exchange is zero at equal temperature, symmetric and grows with the difference',()=>{
@@ -18,7 +18,7 @@ test('buoyant exchange is zero at equal temperature, symmetric and grows with th
  const q1=a.run('buoyantExchangeCFM(70,71)'),q2=a.run('buoyantExchangeCFM(70,72)'),q4=a.run('buoyantExchangeCFM(70,74)');
  assert.ok(q1<q2&&q2<q4);close(q4/q1,2,0.01,'square-root law');
  // Hand check: (0.6/3)·W·6.33·√(32.174·6.33·2/530.67)·60 ≈ 66.6 CFM per foot of effective width at 2°F.
- close(a.run('buoyantExchangeCFM(70,72,3.5)'),233,2,'magnitude at 3.5 ft');close(q2,66.6*.58,1,'magnitude at calibrated 0.58 ft');
+ close(a.run('buoyantExchangeCFM(70,72,3.5)'),233,2,'magnitude at 3.5 ft');close(q2,66.6*.61,1,'magnitude at calibrated 0.61 ft (v6.6.27)');
 });
 
 test('one implicit step conserves energy across both zones and both nodes',()=>{
@@ -39,9 +39,9 @@ test('isolated nodes relax to the capacity-weighted temperature',()=>{
 
 test('ducted delivery uses the calibrated rear fraction; furnace keeps its outlet layout',()=>{
  const a=app();
- close(a.run('ductRearFraction()'),.38);
- for(const op of ['hp','ac','defrost']){const g=a.run(`zoneHeatGains([0,0],0,10000,'${op}')`);close(g[0],3800,1e-9,op);close(g[0]+g[1],10000,1e-9);}
- const f=a.run("zoneHeatGains([0,0],0,10000,'furnace')");close(f[0],5700,1e-9);
+ close(a.run('ductRearFraction()'),.36); // v6.6.27 refit
+ for(const op of ['hp','ac','defrost']){const g=a.run(`zoneHeatGains([0,0],0,10000,'${op}')`);close(g[0],3600,1e-9,op);close(g[0]+g[1],10000,1e-9);}
+ const f=a.run("zoneHeatGains([0,0],0,10000,'furnace')");close(f[0],5800,1e-9); // furnace rear .58 (v6.6.27)
 });
 
 function steadyNight(a,setup,temp=45,step=.5){

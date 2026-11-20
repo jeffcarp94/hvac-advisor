@@ -7,8 +7,10 @@ const {app}=require('./helpers.cjs');
 
 const AIRFLOW={
  working:{flow:1,windSign:0,mix:1,ductRear:null,furnaceRear:null,widthFt:null},
- restricted:{flow:.7,windSign:1,mix:.5,ductRear:.40,furnaceRear:.52,widthFt:.28},
- greater:{flow:1.2,windSign:-1,mix:2.8,ductRear:.35,furnaceRear:.65,widthFt:.30}};
+ // v6.6.27 (R1): re-centered on the refit; ends from tools/analysis/airflow-extremes.cjs (restricted
+ // furnace rear rounded inward to .568 so the 3-decimal value stays within the garage-run limit).
+ restricted:{flow:.7,windSign:1,mix:.92,ductRear:.387,furnaceRear:.568,widthFt:.25},
+ greater:{flow:1.2,windSign:-1,mix:1.805,ductRear:.336,furnaceRear:.683,widthFt:1.481}};
 // Not airflow terms: unchanged from v6.6.15 pending a separate owner decision.
 const OTHER={
  working:{rhOffset:0,tempOffset:0,surfaceFactor:.8,cabFactor:3},
@@ -71,15 +73,15 @@ function garageRMSE(fixture,mode,on,off,airflow){
  return{front:Math.sqrt(sf/n),rear:Math.sqrt(sr/n),gap:Math.sqrt(sg/n)};
 }
 test('each sensitivity airflow set still reproduces both owner garage runs within the stated tolerance',()=>{
- // Limit = v6.6.15 fit residual (HP .24/.26/.34, furnace .37/.35/.38 °F) combined in quadrature with
- // the 0.3°F digitizing tolerance. Non-airflow values stay at their v6.6.15 calibration.
+ // Limit = v6.6.27 refit residual (HP .291/.307/.472, furnace .344/.326/.362 °F) combined in quadrature
+ // with the 0.3°F digitizing tolerance. Non-airflow values stay at their v6.6.27 calibration.
  const limit=r=>Math.hypot(r,.3);
  for(const k of ['restricted','greater']){
   const {mix,ductRear,furnaceRear,widthFt}=AIRFLOW[k],set={mix,ductRear,furnaceRear,widthFt};
   const hp=garageRMSE('garage-heat-pump-2026-11-16.json','hp',20,44,set);
   const fu=garageRMSE('garage-furnace-2026-11-17.json','furnace',10,53,set);
-  assert.ok(hp.front<=limit(.24)&&hp.rear<=limit(.26)&&hp.gap<=limit(.34),`${k} heat pump ${JSON.stringify(hp)}`);
-  assert.ok(fu.front<=limit(.37)&&fu.rear<=limit(.35)&&fu.gap<=limit(.38),`${k} furnace ${JSON.stringify(fu)}`);
+  assert.ok(hp.front<=limit(.291)&&hp.rear<=limit(.307)&&hp.gap<=limit(.472),`${k} heat pump ${JSON.stringify(hp)}`);
+  assert.ok(fu.front<=limit(.344)&&fu.rear<=limit(.326)&&fu.gap<=limit(.362),`${k} furnace ${JSON.stringify(fu)}`);
  }
 });
 

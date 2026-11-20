@@ -9,8 +9,8 @@
 const repo=process.argv[2],sense=process.argv[3]==='min'?-1:1,start=JSON.parse(process.argv[4]),evals=+(process.argv[5]||240);
 process.argv=process.argv.slice(0,3);
 const {errors}=require(repo+'/tools/analysis/joint-fit.cjs');const {app}=require(repo+'/tests/helpers.cjs');
-const base={ca:297,cm:574,tau:.98,sf:.77,fm:.49,shp:1,u:1};
-const residual={hp:{front:.24,rear:.26,gap:.34},furnace:{front:.37,rear:.35,gap:.38}};
+const base={ca:229,cm:402,tau:.92,sf:.605,fm:.50,shp:1,u:1}; // v6.6.27 refit (WP6 heat pump)
+const residual={hp:{front:.291,rear:.307,gap:.472},furnace:{front:.344,rear:.326,gap:.362}}; // v6.6.27 refit
 // TOL (env, default 0.3°F) is the digitizing tolerance; WMIN (env, default 0.02 ft) the buoyant-width floor;
 // MXMIN (env, default 0) the forced-mix scale floor.
 const tol=+(process.env.TOL||.3),wMin=+(process.env.WMIN||.02),mxMin=+(process.env.MXMIN||0);

@@ -1,3 +1,31 @@
+# v6.6.27 — realistic equipment capacities, garage refit, 30-minute bedtime window, absence rule, comfort metric removed
+
+- **Realistic capacities are now live (your D2 decision).** The planner now uses the WP6 equipment model instead of the old fixed numbers:
+  - **Heat pump:** about 9,600 BTU/h at 45°F (was 13,800).
+  - **AC:** about 9,600 BTU/h sensible on a 95°F afternoon (was a fixed 11,250).
+  - **Moisture removal:** comes from the coil model instead of a fixed allowance.
+  - **Fan speed:** it now changes the output.
+  - **Gas changeover:** follows your 42°F setting. In the model, propane takes over at 42°F and below; the plan text still says "below 42°F", and what the EasyTouch does at exactly 42°F isn't documented.
+- **Garage runs refit (R1).** Your 11/16 and 11/17 garage runs were refit on the new heat-pump model:
+  - **Storage:** air 229, mass 402 BTU/°F (was 297 / 574).
+  - **Furnace:** 9,075 BTU/h delivered to the living space (was 11,550). This is a fitted delivery figure, not an appliance measurement.
+  - **Splits:** furnace 58% rear, ducted air 36% rear.
+  - **Fit:** within 0.29–0.47°F of both runs. The old values were 1.7–1.9°F off on the new heat pump, which is why the refit was needed.
+- **Uncertainty ranges re-centered (your confirmation).** The "restricted" and "greater airflow" ends and the storage range were re-derived around the refit with the same method as before; for example, furnace rear share is now 0.568–0.683 (was 0.52–0.65). No new uncertainty dimensions were added (your N decision).
+- **Bedtime readiness gets 30 minutes (B).** A plan is ready if the bedroom is in 65–69°F at 10 PM or gets there by 10:30 PM. The warm-run rules after bedtime are unchanged.
+- **Absence rule (E).** While you're away, only protection applies: 65°F floor, equipment and moisture. Comfort is judged at your return. A departure inside the first 30 minutes moves the 30-minute deadline to your return.
+- **Comfort metric removed (your Item 6 decision).** The Comfort metric panel and the "Awake clothing" setting are gone. `comfort_metric_json` now logs "missing", and the vote fields stay. No receiver change.
+- **Decisions made during the build:**
+  - **Coil-icing advisory stays on the old equipment model** until the coach's moisture buffering is reviewed. With the new model, the AC dries the modeled coach to about 30% RH, and the advisory would flag even High fan on ordinary hot afternoons.
+  - **"Recovery before bed" card fixed.** With a qualified plan, the card now uses that plan's own night setting. If its check fails, you see the normal plan instead of "A reliable time … is unavailable".
+- **Effect on the test fixtures.** Qualifying runs go from 8 of 19 to 13 of 19:
+  - **Now qualify:** hot synthetic N, E and W (from the new capacities and refit), May 8 N and W, and away-with-Wi-Fi.
+  - **Now fails:** Winterset 2025-10-01, a mild night. One of 32 conditions dips to 64.7°F, and the 65°F floor is hard.
+  - **Still fail, but closer:** October now works in 28 of 32 conditions (was 1).
+  - **Plans:** every recommended plan except one changes.
+  - **Run time:** server run times rose about 1.3–5×. You chose to stop tracking speed, but time one run on the phone after this release.
+  - [Full table](model-assumptions.md#v6627--realistic-capacities-d2-garage-refit-r1-bedtime-window-b-absence-rule-e-comfort-metric-removed).
+
 # v6.6.26 — defect fixes: site elevation, WP3 no-chatter test
 
 - **Site elevation was never used (fixed).** Since v6.6.12 the app was meant to use the NWS grid elevation for air pressure (humidity and air-density math). It looked for the elevation's unit under the wrong field name, so every live forecast fell back to sea-level pressure ("Sea-level pressure assumed" on the plan, `elevation_m` "missing" in every logged row). It now reads the NWS field correctly. Effect on your 5:28 PM run, rebuilt at an assumed 340 m: the same recommendations and pass counts, predictions within 0.01°F. Your next plan should say "NWS grid elevation … m" and log `elevation_m`.

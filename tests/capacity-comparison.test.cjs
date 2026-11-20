@@ -59,7 +59,8 @@ test('comparison heat-source memory carries through cached simulation and leaves
  assert.equal(a.run("JSON.parse(before).segments[0].operation"),'hp');
 });
 
-test('nominal cooling and heating capacity comparisons change only the experimental trajectories',()=>{
+// v6.6.27 (D2): the WP6 models are live; legacyCapacity:true gives the pre-v6.6.27 capacities for comparison.
+test('live WP6 capacities differ from the legacy capacities in the expected direction',()=>{
  const a=app();
  a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=false;
     r={start:new Date('2026-10-21T17:00Z'),initial:{temperature:[78,80],rh:[49,50]},occupancy:'staying'};
@@ -70,7 +71,7 @@ test('nominal cooling and heating capacity comparisons change only the experimen
         const rows=planRows(e,r).filter(row=>row.to<=end);
         const setup=planSetup(mode,false,null,'High');
         const phases=[{time:+r.start,setup}];
-        return [e,{...e,capacityComparison:{}}].map(env=>simulatePlan(phases,env,r,AIR_SCENARIOS[0],rows,null,false,true));
+        return [{...e,legacyCapacity:true},e].map(env=>simulatePlan(phases,env,r,AIR_SCENARIOS[0],rows,null,false,true));
     }
     hot=trials('ac',98,[78,80]);mild=trials('hp',44.6,[58,58]);`);
  assert.ok(a.run('hot.every(t=>t.didCool&&t.moisture.totals.ac>0)'));
