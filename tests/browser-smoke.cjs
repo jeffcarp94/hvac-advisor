@@ -154,7 +154,7 @@ function weather(url){
   await page.evaluate(()=>{step('temp',-18);step('rh',-45);step('wind',-3);state.cloud=0;freshReadings();});
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:PLAN_WAIT});
   assert.match(await page.locator('#setpointDisplay').innerText(),/Bed-area targets: awake\/away 71°F/);
-  assert.equal(await page.evaluate(()=>!lastPlan.winner.suitable||lastPlan.winner.trials.every(t=>t.trace.every(p=>p.bedroom>=65-1e-6))),true,'accepted plans enforce the temperature floor at every point');
+  assert.equal(await page.evaluate(()=>!lastPlan.winner.suitable||lastPlan.winner.trials.every(t=>t.trace.every(p=>p.bedroom>=64-1e-6))),true,'accepted plans enforce the 64°F floor (65°F less the v6.6.28 1°F allowance) at every point');
   // v6.6.15: with the calibrated storage this evening can instead show the computed
   // bedtime-recovery card (a timed preparation with the predicted 10 PM bedroom).
   const text=await page.locator('#results').innerText();assert.match(text,/Next action|No suitable current setup|Recovery before bed[\s\S]*bedroom is projected to be [0-9.–]+°F at 10 PM/i);assert.doesNotMatch(text,/Preparing for Sleep from 9|Not chosen|weighted/);

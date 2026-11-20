@@ -75,14 +75,14 @@ test('cached preparation trials preserve continuous heat, water, comfort and moi
 });
 test('morning natural recovery outranks a small active-heating score advantage only when viable',()=>{
  // v6.6.15 storage slows natural warming; an 86F synthetic morning keeps recovery within 30 min.
- const a=scenario('2026-10-23T12:30Z');a.run(`r.initial.temperature=[67,67];e.points[0].tOut=86;ph=[{time:+r.start,setup:planSetup('passive',false)}];p=simulatePlan(ph,e,r);recovery=naturalRecovery([p,p,p],r,ph[0].setup)`);
+ const a=scenario('2026-10-23T12:30Z');a.run(`r.initial.temperature=[66,66];e.points[0].tOut=86;ph=[{time:+r.start,setup:planSetup('passive',false)}];p=simulatePlan(ph,e,r);recovery=naturalRecovery([p,p,p],r,ph[0].setup)`);
  assert.ok(a.run('recovery.minutes')>0);assert.ok(a.run('recovery.minutes')<=30);
  a.run(`plans=[{suitable:true,ready:true,natural:null,score:0,type:'hp'},{suitable:true,ready:true,natural:recovery,score:.2,type:'passive'}];plans.sort(comparePlans)`);
  assert.equal(a.run('plans[0].type'),'passive');
  a.run('plans[0].suitable=false;plans.sort(comparePlans)');assert.equal(a.run('plans[0].type'),'hp');
 });
 test('bedtime eligibility is separate from sustained overnight comfort and reports missed deadlines',()=>{
- const a=scenario('2026-10-24T02:59Z');a.run(`r.initial.temperature=[70,70];p=simulatePlan([{time:+r.start,setup:planSetup('furnace',true)}],e,r)`);
+ const a=scenario('2026-10-24T02:59Z');a.run(`r.initial.temperature=[71,71];p=simulatePlan([{time:+r.start,setup:planSetup('furnace',true)}],e,r)`); // v6.6.28: 71°F (70°F is within the 1°F allowance)
  assert.equal(a.run('p.ready'),false);assert.match(a.run('p.bedtimeReason'),/10 PM/);
  assert.equal(a.run('p.atBedtime.time.toISOString()'),'2026-10-24T03:00:00.000Z');
 });
@@ -118,7 +118,7 @@ test('form times preserve their actual instant when NWS changes the location tim
 });
 test('a physically unchanged thermostat is still judged against overnight comfort after 10 PM',()=>{
  const a=scenario();a.run(`r.initial.temperature=[72,72];state.temp=72;e=makeEnvelope(r.start,planBounds(r.start).end,'Test',300000);p=simulatePlan([{time:+r.start,setup:planSetup('ac',false)}],e,r)`);
- assert.equal(a.run('p.suitable'),false);assert.match(a.run('p.comfortReason'),/69\.5°F|70\.5°F/); // v6.6.24: runs start 0.5°F past the edge
+ assert.equal(a.run('p.suitable'),false);assert.match(a.run('p.comfortReason'),/ 70°F| 71°F/); // v6.6.28: runs start 1°F past the edge
 });
 test('currently-away instructions never prescribe manual window or roof-fan adjustments',()=>{
  const a=scenario();a.run(`r.occupancy='away';r.departure=r.start;r.returnTime=new Date(+r.start+3600000);r.remote=true;phase={time:+r.start,setup:planSetup('ac',false)};text=planActionText(phase,r)`);

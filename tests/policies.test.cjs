@@ -117,10 +117,11 @@ test('all Daytime candidates use the same desired comfort band',()=>{
 });
 
 test('comfort tolerance and floor use unrounded temperatures',()=>{
-    const a=app();a.run('s={trace:[{indoor:65}],finalIndoor:69}');
-    assert.equal(a.run('simulationComfort(s,true).endInBand'),true);
-    a.run('s.finalIndoor=69.0001');assert.equal(a.run('simulationComfort(s,true).endInBand'),false);
-    a.run('s.trace[0].indoor=64.9999');assert.equal(a.run('simulationComfort(s,true).floorCompliant'),false);
+    // v6.6.28: 1°F allowance (sleeping band 65–69°F passes 64–70°F; floor 64°F).
+    const a=app();a.run('s={trace:[{indoor:64}],finalIndoor:70}');
+    assert.equal(a.run('simulationComfort(s,true).endInBand'),true);assert.equal(a.run('simulationComfort(s,true).floorCompliant'),true);
+    a.run('s.finalIndoor=70.0001');assert.equal(a.run('simulationComfort(s,true).endInBand'),false);
+    a.run('s.trace[0].indoor=63.9999');assert.equal(a.run('simulationComfort(s,true).floorCompliant'),false);
 });
 
 test('Current must finish in band even if it first reached target earlier',()=>{
