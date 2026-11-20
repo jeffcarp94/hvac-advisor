@@ -2130,10 +2130,19 @@ const CYCLE=Object.freeze({
     fanRatio:{High:1,Medium:1500/1650,Low:1350/1650},
     kappa:3,kappaVapor:1,airExponent:.6,clearance:.04,polytropic:1.15,capillaryExponent:.5,
     superheatC:5.556,fitSuperheatC:5.556,roofSolarF:2,
+    // Coldest region (Eng): a quarter of the face area with 40% of the mean face velocity (air maldistribution across a
+    // blower-fed slab coil). Low local airflow puts its surface within about 0.3 °F of the evaporating temperature for any
+    // velocity ratio ≤ 0.6, so the result is insensitive to the exact values.
+    cold:{areaFraction:.25,velocityRatio:.4},
     frost:{hOutside:60,finEfficiency:.85,naturalH:5,flagMm:.43,fusionJPerKg:333500,finGapMm:1.7,
         // Blower against the duct system (frost feedback): Dometic gives 0.55–1.10 in. W.C. total static at High with filter and
         // grille (installation manual, Table C); 0.8 in. used, 0.2 in. of it across the wet coil, PSC shut-off 1.4 in. at High (Eng).
-        staticInWC:.8,coilInWC:.2,shutoffInWC:1.4}
+        staticInWC:.8,coilInWC:.2,shutoffInWC:1.4,
+        // Ice from condensate (v6.6.28 revision): water condensed on the coil drains down the fins; where it crosses the
+        // below-freezing coldest region it freezes (a 0.1 mm film freezes in about 0.1 s at 5 K subcooling). drainFreeze is the
+        // fraction of the coil's condensate that drains across that region: not published, calibrated to the Gulf Shores
+        // icing (owner field observation, March 2025). Retained coil water (WP9) in that region freezes at compressor start.
+        iceDensity:917,drainFreeze:.5}
 });
 const CY_CFM=.00047194745;
 function cyPoly(c,x){let a=0;for(const k of c)a=a*x+k;return a;}
@@ -2192,7 +2201,8 @@ function cyWithSuperheat(inC,w,pressure,m,te,UAo,UAi,mr,hliq){
 }
 let CYCLE_CAL=null;
 // Analysis only (tools/analysis): airflow scale for sensitivity runs (e.g. a loaded filter); clear CYCLE_GRID after changing.
-const CYCLE_ANALYSIS={airflowScale:1};
+const CYCLE_ANALYSIS={airflowScale:1,capillaryExponent:null,drainFreeze:null};
+function cyCapExp(){return CYCLE_ANALYSIS.capillaryExponent??CYCLE.capillaryExponent;}
 function cycleCalibration(){
     if(CYCLE_CAL)return CYCLE_CAL;
     const R=CYCLE.rated,p=SEA_LEVEL_PA,ws=cySatW(R.wbC,p);
@@ -2204,7 +2214,7 @@ function cycleCalibration(){
     const mc=R.condCfm*CY_CFM*cyAirDensity(R.ambC,.01,p),Cc=mc*1.02,eps=(R.coolKW+R.compKW)/(Cc*(R.tcC-R.ambC)),UAc=-Cc*Math.log(1-eps);
     const UAo=cyBisect(u=>{const e=cyWithSuperheat(R.inC,w,p,m,R.teC,u,CYCLE.kappa*u,mr,hl);return !e||e.flooded?-1:e.sh-CYCLE.superheatC;},.05,20,40);
     const A=UAo*1000/(CYCLE.frost.hOutside*CYCLE.frost.finEfficiency);
-    return CYCLE_CAL=Object.freeze({w,m,mr,disp,etaIs,mc,UAc,UAo,UAi:CYCLE.kappa*UAo,kCap:mr/Math.pow(cyPsat(R.tcC),CYCLE.capillaryExponent),areaM2:A});
+    return CYCLE_CAL=Object.freeze({w,m,mr,disp,etaIs,mc,UAc,UAo,UAi:CYCLE.kappa*UAo,kCap:mr/Math.pow(cyPsat(R.tcC),cyCapExp()),areaM2:A});
 }
 function cyCompressor(te,tc,sh){const K=cycleCalibration(),mr=cyEtaV(te,tc)*cyRho(te,sh)*K.disp;return {mr,w:mr*cyDhIs(te,tc,sh)/K.etaIs};}
 // Exact solution (kW internally). Returns BTU/h, °F and lb/h.
@@ -2217,7 +2227,7 @@ function cycleSolve(inF,w,condF,pressure,fan,airflowScale=1){
     const Cc=mc*1.02,eps=1-Math.exp(-K.UAc*Math.pow(mc/K.mc,CYCLE.airExponent)/Cc);
     let tc=ambC+15,te=5,sh=CYCLE.superheatC,ev=null,mode='starved',work=0;
     for(let outer=0;outer<12;outer++){
-        const hl=cyHLiq(tc),mcap=K.kCap*Math.pow(cyPsat(tc),CYCLE.capillaryExponent);
+        const hl=cyHLiq(tc),mcap=K.kCap*Math.pow(cyPsat(tc),cyCapExp());
         let shS=sh,teS=te,evS=null;
         for(let k=0;k<5;k++){
             teS=cyBisect(t=>cyCompressor(t,tc,shS).mr-mcap,-40,inC-.2,26);
@@ -2235,15 +2245,18 @@ function cycleSolve(inF,w,condF,pressure,fan,airflowScale=1){
         if(Math.abs(next-tc)<.02){tc=next;break;}
         tc=(tc+next)/2;
     }
-    const prof=cyEvaporator(inC,w,pressure,m,te,UAo,UAi,true),phi=ev.phi??1;
+    const prof=cyEvaporator(inC,w,pressure,m,te,UAo,UAi,true),phi=ev.phi??1,cs=CYCLE.cold;
+    // Coldest region: low-velocity section of the two-phase part at the same evaporating temperature.
+    const cold=cyEvaporator(inC,w,pressure,m*cs.areaFraction*cs.velocityRatio,te,cs.areaFraction*K.UAo*Math.pow(m*cs.velocityRatio/K.m,CYCLE.airExponent),cs.areaFraction*UAi,true);
     return {total:ev.q*3412.142,sensible:ev.sensible*3412.142,latent:ev.latent*3412.142,waterLbHr:m*(w-ev.wout)*7936.641,
         shr:ev.q>0?ev.sensible/ev.q:1,teF:wp6Fahrenheit(te),tcF:wp6Fahrenheit(tc),superheatF:sh*1.8,mode,wet:ev.wet,compressorKW:work,
         minSurfaceF:wp6Fahrenheit(prof.minSurfaceC),frostRateKgS:phi*prof.frostRate,frostAreaM2:phi*prof.frostFraction*K.areaM2,
+        coldSurfaceF:wp6Fahrenheit(cold.minSurfaceC),coldDepositKgS:cold.frostRate,
         cfm:CYCLE.rated.highCfm*r,clamped:false};
 }
 // Lazily filled grid (return air 2 °F, return dew point 2.5 °F, condenser inlet 5 °F; per fan and 500 Pa pressure
 // band) with trilinear interpolation, so the cycle is solved only at the grid corners a run touches.
-const CYCLE_GRID=new Map(),CYCLE_KEYS=['total','sensible','latent','waterLbHr','teF','tcF','superheatF','minSurfaceF','frostRateKgS','frostAreaM2'];
+const CYCLE_GRID=new Map(),CYCLE_KEYS=['total','sensible','latent','waterLbHr','teF','tcF','superheatF','minSurfaceF','frostRateKgS','frostAreaM2','coldSurfaceF','coldDepositKgS'];
 function cycleCorner(i,j,k,fan,pBand,f=20){
     const key=fan+'|'+pBand+'|'+f+'|'+i+'|'+j+'|'+k;let v=CYCLE_GRID.get(key);
     if(!v){const inF=i*2,dew=Math.min(j*2.5,inF),pressure=pBand*500;
@@ -2265,7 +2278,7 @@ function cycleCoolingOutput(inF,w,condF,pressure,fan,airflowScale=1){
     }
     const r=Object.fromEntries(CYCLE_KEYS.map((n,idx)=>[n,out[idx]]));
     r.total=Math.max(0,r.total);r.sensible=Math.max(0,Math.min(r.total,r.sensible));r.latent=Math.max(0,r.total-r.sensible);r.waterLbHr=Math.max(0,r.waterLbHr);
-    r.shr=r.total>0?r.sensible/r.total:1;r.frostRateKgS=Math.max(0,r.frostRateKgS);r.frostAreaM2=Math.max(0,r.frostAreaM2);
+    r.shr=r.total>0?r.sensible/r.total:1;r.frostRateKgS=Math.max(0,r.frostRateKgS);r.frostAreaM2=Math.max(0,r.frostAreaM2);r.coldDepositKgS=Math.max(0,r.coldDepositKgS);
     r.cfm=CYCLE.rated.highCfm*CYCLE.fanRatio[fan]*airflowScale;r.clamped=inF<40||inF>110||dew< -20||condF<0||condF>150;
     return r;
 }
@@ -2278,27 +2291,34 @@ function cycleFrostAirflow(frostMm,frostFraction,fan){
     const flow=b=>cyBisect(q=>s*s*F.shutoffInWC*(1-(q/(s*qmax))**2)-((F.staticInWC-F.coilInWC)*q*q+F.coilInWC*Math.pow(q,1.5)*b),0,s*qmax,30);
     return frostMm>0?flow(blockage)/flow(1):1;
 }
-// Frost on the coil (advisory): mass per area on the frosted part, density from the deposition temperature.
-function cycleFrostStep(state,coil,minutes,returnF,fanRunning,fan){
-    const F=CYCLE.frost,s=state||{kgM2:0,density:0,peakMm:0,fraction:0},seconds=minutes*60;
-    const hO=F.hOutside*Math.pow(CYCLE.fanRatio[fan]??1,CYCLE.airExponent);
+// Ice and frost on the coil (advisory), held on the coldest region (CYCLE.cold): refrozen condensate (ice density) plus
+// direct deposition (Hayashi density). Grows while the compressor runs with that region below 32 °F; melts by
+// convection otherwise (local face velocity with a running fan, natural convection when an AUTO fan stops).
+function cycleDrainFreeze(){return CYCLE_ANALYSIS.drainFreeze??CYCLE.frost.drainFreeze;}
+function cycleFrostStep(state,coil,minutes,returnF,fanRunning,fan,heldWaterLb=0){
+    const F=CYCLE.frost,cs=CYCLE.cold,s=state||{kgM2:0,density:0,peakMm:0,fraction:0,running:false},seconds=minutes*60;
+    const area=cs.areaFraction*cycleCalibration().areaM2,hO=F.hOutside*Math.pow((CYCLE.fanRatio[fan]??1)*cs.velocityRatio,CYCLE.airExponent);
+    const add=(kg,rho)=>{if(kg<=0)return;s.density=s.kgM2>0?(s.kgM2*s.density+kg*rho)/(s.kgM2+kg):rho;s.kgM2+=kg;};
     if(coil){ // compressor running
-        if(coil.frostAreaM2>1e-6&&coil.frostRateKgS>0){
-            const tsC=Math.min(0,wp6Celsius(coil.minSurfaceF)),rho=650*Math.exp(.227*Math.max(-25,tsC)),add=coil.frostRateKgS/coil.frostAreaM2*seconds;
-            s.density=s.kgM2+add>0?(s.kgM2*s.density+add*rho)/(s.kgM2+add):rho;s.kgM2+=add;
-            s.fraction=Math.max(s.fraction,coil.frostAreaM2/cycleCalibration().areaM2);
-        }else if(s.kgM2>0)s.kgM2=Math.max(0,s.kgM2-hO*Math.max(0,wp6Celsius(coil.minSurfaceF))*seconds/F.fusionJPerKg);
+        const tsC=wp6Celsius(coil.coldSurfaceF);
+        if(tsC<0){
+            if(!s.running)add(heldWaterLb*.45359237/cycleCalibration().areaM2,F.iceDensity); // retained water in the region freezes
+            const deposit=Math.max(0,coil.coldDepositKgS),drained=Math.max(0,coil.waterLbHr/7936.641-deposit)*cycleDrainFreeze();
+            add(drained*seconds/area,F.iceDensity);
+            add(deposit*seconds/area,650*Math.exp(.227*Math.max(-25,tsC)));
+        }else if(s.kgM2>0)s.kgM2=Math.max(0,s.kgM2-hO*tsC*seconds/F.fusionJPerKg);
     }else if(s.kgM2>0){
         const h=fanRunning?hO:F.naturalH;
         s.kgM2=Math.max(0,s.kgM2-h*Math.max(0,wp6Celsius(returnF))*seconds/F.fusionJPerKg);
     }
-    s.mm=s.kgM2>0&&s.density>0?s.kgM2/s.density*1000:0;if(!s.mm)s.fraction=0;s.peakMm=Math.max(s.peakMm,s.mm);
+    s.running=!!coil;
+    s.mm=s.kgM2>0&&s.density>0?s.kgM2/s.density*1000:0;s.fraction=s.mm?cs.areaFraction:0;s.peakMm=Math.max(s.peakMm,s.mm);
     s.airflow=cycleFrostAirflow(s.mm,s.fraction,fan);
     return s;
 }
 function wp7CoilState(returnF,w,condF,pressure,fan,airflowScale=1){
     const c=cycleCoolingOutput(returnF,w,condF,pressure,fan,airflowScale);
-    return{fan,minSurfaceF:c.minSurfaceF,teF:c.teF,superheatF:c.superheatF,frostRateKgS:c.frostRateKgS,frostAreaM2:c.frostAreaM2,coil:c,clamped:c.clamped};
+    return{fan,minSurfaceF:c.coldSurfaceF,meanMinSurfaceF:c.minSurfaceF,teF:c.teF,superheatF:c.superheatF,coldSurfaceF:c.coldSurfaceF,coldDepositKgS:c.coldDepositKgS,waterLbHr:c.waterLbHr,coil:c,clamped:c.clamped};
 }
 // WP10 (v6.6.20): wind and infiltration. Pinned sources:
 // - Local wind: ASHRAE power law as in the EnergyPlus Engineering Reference ("Outside Surface Heat
@@ -2801,13 +2821,13 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
                 // Frost feedback acts on the coil state only; plan capacity and the trajectory are unchanged (advisory).
                 const assessed=wp7CoilState(t[1],sharedW,condF,pressure,assessedFan,coilLog.frost?.airflow??1),
                     staged=auto?wp7CoilState(t[1],sharedW,condF,pressure,stagedFan,coilLog.stagedFrost?.airflow??1):assessed;
-                coilLog.frost=cycleFrostStep(coilLog.frost,assessed,minutes,t[1],true,assessedFan);
-                coilLog.stagedFrost=auto?cycleFrostStep(coilLog.stagedFrost,staged,minutes,t[1],true,stagedFan):coilLog.frost;
+                coilLog.frost=cycleFrostStep(coilLog.frost,assessed,minutes,t[1],true,assessedFan,coilWater.water);
+                coilLog.stagedFrost=auto?cycleFrostStep(coilLog.stagedFrost,staged,minutes,t[1],true,stagedFan,coilWater.water):coilLog.frost;
                 coilLog.coolingMinutes+=minutes;coilLog.autoAssumed||=auto;coilLog.clamped||=assessed.clamped;
                 coilLog.minSurfaceF=Math.min(coilLog.minSurfaceF??Infinity,assessed.minSurfaceF);
                 if(coilLog.frost.mm>=CYCLE.frost.flagMm&&!coilLog.first)coilLog.first={time:row.to,mode,setpoint:sp.cool,fan:maxFan,assessedFan,
                     minSurfaceF:assessed.minSurfaceF,frostMm:coilLog.frost.mm,returnF:t[1],outdoorF:roofF,condenserF:condF,indoorDewPointF:dpFromRatio(sharedW,pressure)};
-            }else if(coilLog.frost?.kgM2>0||coilLog.stagedFrost?.kgM2>0){
+            }else if(coilLog.frost||coilLog.stagedFrost){
                 coilLog.frost=cycleFrostStep(coilLog.frost,null,minutes,t[1],fanRunning,maxFan);
                 coilLog.stagedFrost=auto?cycleFrostStep(coilLog.stagedFrost,null,minutes,t[1],false,maxFan):coilLog.frost;
             }

@@ -37,7 +37,11 @@ for(const day of ['2025-03-03','2025-03-04','2025-03-05']){
     // DEHUM=both adds the dehumidifier-off states.
     for(const dehum of process.env.DEHUM==='both'?[true,false]:[true]){
         const a=app();a.ctx.structuredClone=structuredClone;a.setNow(new Date(start).toISOString());a.ctx.pts=points;
-        a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=${dehum};CYCLE_ANALYSIS.airflowScale=${+(process.env.AIRFLOW||1)};CYCLE_GRID.clear();
+        a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=${dehum};CYCLE_ANALYSIS.airflowScale=${+(process.env.AIRFLOW||1)};CYCLE_ANALYSIS.drainFreeze=${process.env.DRAIN_FREEZE?+process.env.DRAIN_FREEZE:null};CYCLE_GRID.clear();
+         // Owner recollection (November 20, 2026): a smaller 11-pint/day dehumidifier was used at Gulf Shores (DEHUM_PINTS=11).
+         DEHUM.ratedPintsDay=${+(process.env.DEHUM_PINTS||20)};
+         // Analysis only: INFIL scales the infiltration leakage area (as a WP13 member draw does).
+         MEMBER_PARAMS=${process.env.INFIL?`{infiltrationScale:${+process.env.INFIL}}`:'null'};
          pts=pts.map(p=>({...p,time:new Date(p.time)}));
          e={windowStart:new Date(${start}),windowEnd:new Date(${ret+3600000}),timeZone:'America/Chicago',lat:30.2905,lon:-87.6718,elevationM:5,singlePoint:false,
             points:pts,cloud:pts[0].cloud,wind:pts[0].wind,precip:'none'};
