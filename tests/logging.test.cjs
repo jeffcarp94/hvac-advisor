@@ -222,7 +222,7 @@ test('a complete departure plan logs the winner count shown in its overnight box
     assertLoggedCountShown(a);
 });
 test('partial-run current guidance, whose count the page does not show, logs null (owner decision)',()=>{
-    const a=loggingApp();loggedRun(a,overnight([47,46,45,45,44]));
+    const a=loggingApp();loggedRun(a,overnight([40,39,38,38,37])); // v6.6.28: colder night keeps it partial with the 1°F allowance
     assert.equal(a.run('complete'),false);
     assert.equal(a.run('logged===result.current'),true);
     assert.equal(a.run('ev.run_status'),'partial');
@@ -259,7 +259,7 @@ test('a partial away plan logs predictions from the plan behind its cards',()=>{
     loggedRun(a,`ENSEMBLE.enabled=true;const s=Date.parse('2026-11-12T06:00:00Z');
         r={occupancy:'away',remote:true,start:new Date(s),reading:new Date(s),departure:new Date(s),returnTime:new Date('2026-11-12T08:00:00Z'),actualConfirmed:true,initial:{temperature:[68,68],rh:[30,30]}};
         r.actual=withSetting(planSetup('hp',false,null,'Low'),67);
-        points=[35,35,35,35,35,35,35].map((tOut,i)=> // v6.6.27: 35°F keeps this away plan partial
+        points=[25,25,25,25,25,25,25].map((tOut,i)=> // v6.6.28: 25°F keeps this away plan partial with the 1°F allowance (35°F before)
             ({time:new Date(s+i*${H}),tOut,rh:35,cloud:1,wind:4,precip:'none'}));
         e={windowStart:r.start,windowEnd:new Date(s+7*${H}),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,points,cloud:1,wind:4,precip:'none'};`);
     assert.equal(a.run('complete'),false);assert.equal(a.run('!!result.stages'),true);

@@ -41,7 +41,7 @@ test('a diagnostic continuation keeps the original comfort threshold and failure
  const a=setup();a.run(`e.points=e.points.map(p=>({...p,tOut:82,rh:40,wind:2}));ph=[{time:+r.start,setup:planSetup('passive',false)},{time:Date.parse('2026-10-24T03:00Z'),setup:planSetup('ac',true)}];
  p=simulatePlan(ph,e,r,AIR_SCENARIOS[0],null,null,false,true)`);
  assert.ok(a.run('p.comfortProblem.time')<new Date('2026-10-24T03:00Z'));
- assert.match(a.run('p.comfortProblem.reason'),/73\.5°F|74\.5°F/); // v6.6.24: runs start 0.5°F past the edge
+ assert.match(a.run('p.comfortProblem.reason'),/ 74°F| 75°F/); // v6.6.28: runs start 1°F past the edge
  assert.equal(a.run('p.comfortReason'),a.run('p.comfortProblem.reason'));
  assert.ok(a.run('p.comfortProblem.time')<new Date('2026-10-24T03:00Z'));
 });
@@ -67,7 +67,7 @@ test('current guidance chooses OFF when natural recovery matches the best target
  assert.equal(a.run('c.trials.every(t=>!t.didHeat)'),true);
 });
 test('current guidance warms an initially cold bedroom with a warmer front sensor',()=>{
- const a=setup();a.run('r.initial.temperature=[64,72];c=currentRecommendation(e,r,[])');
+ const a=setup();a.run('r.initial.temperature=[63,72];c=currentRecommendation(e,r,[])'); // v6.6.28: 63°F (64°F is within the 1°F allowance of the 65°F sleeping low)
  assert.ok(a.run('c'));assert.equal(a.run('c.recoveryInfo.direction'),'heating');
  assert.equal(a.run('c.trials.every(t=>t.equipmentEligible&&t.moistureEligible&&t.finalIndoor>64)'),true);
  assert.equal(a.run('c.reviewAt'),a.run('+r.start+30*60000'));
