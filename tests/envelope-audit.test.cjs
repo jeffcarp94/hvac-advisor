@@ -83,6 +83,6 @@ test('timing screening never promotes a nominal-only pass to an all-case qualifi
  // storage rides through the former +80F perturbation for this one-hour window).
  a.run('AIR_SCENARIOS[1].tempOffset=-60;p=screenPlan(ph,e,r,rows)');
  assert.equal(a.run('p.suitable'),false);assert.equal(a.run('p.trials.length'),9);
- a.run('r.initial.temperature=[64,64];p=screenPlan(ph,e,r,rows)');
+ a.run('r.initial.temperature=[63,63];p=screenPlan(ph,e,r,rows)'); // v6.6.28: below the 64°F floor (65°F less the allowance)
  assert.equal(a.run('p.suitable'),false);assert.equal(a.run('p.trials.length'),1);
 });

@@ -1,4 +1,4 @@
-# v6.6.28 — WP14 refrigeration-cycle model, coil-ice advisory, fast moisture layer
+# v6.6.28 — WP14 refrigeration-cycle model, coil-ice advisory, fast moisture layer, 1°F comfort allowance
 
 Owner direction and approvals, November 20, 2026: one model for plan capacity and the coil advisory, with real (thermodynamically defensible) icing flags; WP14 scope approved with airflows from the best available estimate; critique of the cycle model against the Gulf Shores ground truth; step 1 (moisture balance) approved; Gulf Shores handled as a historical validation; Reference updated.
 
@@ -36,6 +36,10 @@ Validation, not calibration:
 ## Fast moisture layer
 
 `MOISTURE_BUFFER.fastGramsPerRH` 17 g/%RH (about three times the coach air), coupling 3 minutes, in addition to the existing 30 g/%RH, 4-hour layer (Eng). Basis: textiles about 30 m² × 0.33 g/(m²·%RH) (cotton isotherm slope × 300 g/m²) plus other hygroscopic surfaces at the penetration depth of a 20-minute cycle; EnergyPlus EMPD practice sizes the surface layer by the period of the humidity swing (Woods, Winkler & Christensen, NREL/TP-5500-57441). Effect: on a 95°F afternoon at Low, in-cycle RH ranges about 35–60% instead of 30–65%. Open: on long hot AUTO runs the coach still dries to about 24–30% RH because the modeled moisture sources (occupants and infiltration) are small; the advisory does not flag those runs.
+
+## 1°F comfort allowance (owner decision, November 20, 2026)
+
+"A few tenths of a degree should never cause a case failure. The granularity of our assumptions is not that tight." `M.comfortAllowanceF` = 1°F applies to every comfort pass/fail check: bedtime readiness, recovery (including the return state), return comfort, the 30-minute natural-recovery check, recovery-direction and recovery-card triggers, `simulationComfort`, and the 65°F floor (hard floor 64°F; owner choice). `M.comfortRunEdgeF` = 1°F (was 0.5°F, v6.6.24 option C), so warm and cold runs start 1°F outside the band and severe-warm runs 2°F above it. Unchanged and exact: ranking (D3 severity, target distance, `hoursOut`, score), thermostat triggers, the 42°F changeover, the 32°F coil physics and the informational dinette outlook text.
 
 ## Thermostat sensing
 

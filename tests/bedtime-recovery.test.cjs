@@ -43,10 +43,13 @@ for(const [type,initial,setting] of [['furnace',58,66],['ac',77,68]]){
     });
 }
 
-test('a rerun at 9:45 PM can recommend switching immediately with fresh readings',()=>{
-    const a=fixture(67,'21','45','furnace','');
-    assert.equal(a.run('outcome.switchAt'),a.run('+request.start'));
-    assert.match(a.run('bedtimeRecoveryHTML(outcome)'),/Now/);
+test('a rerun at 9:45 PM: 67°F is within the 1°F allowance (no card); 66°F switches when the sleep target is reached',()=>{
+    // v6.6.28 (owner decision): 67°F is within 1°F of the 68°F awake low, so no recovery is prescribed. Before v6.6.28
+    // this case switched immediately; with the allowance an immediate switch would need a reading at or above the 67°F
+    // sleep target that is still more than 1°F below the awake low, which cannot occur with these bands.
+    assert.equal(fixture(67,'21','45','furnace','').run('outcome'),null);
+    const a=fixture(66,'21','45','furnace','');
+    assert.equal(a.run('outcome.switchAt'),a.run("+clockAt('22:00')"));
 });
 
 test('late recovery shows a conditional overnight ETA and a 9:30 PM rerun prompt',()=>{

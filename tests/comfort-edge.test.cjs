@@ -1,5 +1,6 @@
 // v6.6.24 (owner decision, November 19, 2026, reassessment option C): the warm, cold and severe-warm runs start
-// 0.5°F outside the band edge; the 65°F floor and the exact band elsewhere are unchanged.
+// outside the band edge. v6.6.28 (owner decision, November 20, 2026): the edge is 1°F, and every comfort pass/fail
+// check and the 65°F floor carry the same 1°F allowance (hard floor 64°F).
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {app}=require('./helpers.cjs');
@@ -27,30 +28,28 @@ function reference(trace,band,edge){
 }
 const band={low:68,high:73};
 
-test('the run edge tolerance is 0.5°F',()=>{assert.equal(app().run('M.comfortRunEdgeF'),.5);});
+test('the run edge and the comfort allowance are 1°F',()=>{const a=app();assert.equal(a.run('M.comfortRunEdgeF'),1);assert.equal(a.run('M.comfortAllowanceF'),1);});
 
-test('warm runs start 0.5°F above the band and fail later than at the exact edge',()=>{
-    const a=app(),tol=drift(a,78,72.6,.5),exact=drift(a,78,72.6,0);
-    assert.ok(tol.trace.at(-1).b>74,'the trial must warm well past the tolerance');
-    assert.deepEqual(tol.problem,reference(tol.trace,band,.5));
+test('warm runs start 1°F above the band and fail later than at the exact edge',()=>{
+    const a=app(),tol=drift(a,80,72.6,1),exact=drift(a,80,72.6,0);
+    assert.ok(tol.trace.at(-1).b>75,'the trial must warm well past the tolerance');
+    assert.deepEqual(tol.problem,reference(tol.trace,band,1));
     assert.deepEqual(exact.problem,reference(exact.trace,band,0));
-    assert.equal(tol.problem.reason,'Remains above 73.5°F for more than 30 minutes.');
+    assert.match(tol.problem.reason,/^Remains above 7[45]°F /);
     assert.ok(tol.problem.time>exact.problem.time);
 });
 
-test('cold runs start 0.5°F below the band; the 65°F floor is unchanged',()=>{
-    const a=app(),tol=drift(a,60,68.4,.5),exact=drift(a,60,68.4,0);
-    assert.deepEqual(tol.problem,reference(tol.trace,band,.5));
+test('cold runs start 1°F below the band; the floor is 65°F less the 1°F allowance',()=>{
+    const a=app(),tol=drift(a,58,68.4,1),exact=drift(a,58,68.4,0);
+    assert.deepEqual(tol.problem,reference(tol.trace,band,1));
     assert.deepEqual(exact.problem,reference(exact.trace,band,0));
-    assert.equal(tol.problem.reason,'Remains below 67.5°F for more than 30 minutes.');
+    assert.equal(tol.problem.reason,'Remains below 67°F for more than 30 minutes.');
     assert.ok(tol.problem.time>exact.problem.time);
-    // Floor: a trial that reaches 65°F fails it at the same time with or without the tolerance.
-    const deep=drift(a,35,66,.5),deepExact=drift(a,35,66,0);
-    assert.equal(deep.floor,true);assert.equal(deepExact.floor,true);
-    const below=x=>x.trace.find(p=>p.b<65-1e-6).t;assert.equal(below(deep),below(deepExact));
+    // Floor: a trial that dips to 64.5°F passes the floor; one that goes below 64°F fails it.
+    const deep=drift(a,30,66,1);assert.equal(deep.floor,true);assert.ok(deep.trace.some(p=>p.b<64-1e-6));
 });
 
 test('the comfort policy text states the tolerance and the hard floor',()=>{
     const text=app().run('comfortPolicyText()');
-    assert.match(text,/more than 0\.5°F outside the allowed range for over 30 minutes, or more than 1\.5°F above it for 15 minutes; 65°F remains a hard floor/);
+    assert.match(text,/Checks pass within 1°F of each limit\. A comfort failure needs the bedroom more than 1°F outside the allowed range for over 30 minutes, or more than 2°F above it for 15 minutes; the hard floor is 64°F \(65°F less the allowance\)/);
 });

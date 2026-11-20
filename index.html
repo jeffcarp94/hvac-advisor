@@ -395,7 +395,14 @@ const M={volumeFt3:GEOMETRY.volume,fraction:GEOMETRY.fraction,mixCFM:60,ductMixC
     // v6.6.24 (owner decision, November 19, 2026, reassessment option C): the warm, cold and severe-warm runs start
     // 0.5°F outside the band edge (about the model's calibration RMSE, 0.24–0.37°F). The 65°F floor, recovery entry,
     // bedtime readiness, return comfort and the D3 severity keep the exact band.
-    comfortRunEdgeF:.5,
+    comfortRunEdgeF:1,
+    // v6.6.28 (owner decision, November 20, 2026): a 1°F allowance on every comfort pass/fail check and on the 65°F floor
+    // ("the granularity of our assumptions is not that tight"): bedtime readiness, recovery, return comfort, the 30-minute
+    // check and the floor pass within 1°F of their limits, and the warm, cold and severe-warm runs start 1°F outside the
+    // band (replacing the v6.6.24 0.5°F edge). Ranking (severity, target distance) stays exact, so a plan closer to target
+    // still ranks better. Thermostat triggers, the 42°F changeover and the 32°F coil physics are equipment behavior, not
+    // allowances, and stay exact.
+    comfortAllowanceF:1,
     // v6.6.27 (owner decision, November 19, 2026, reassessment option B): bedtime readiness is met when the bedroom enters
     // the sleeping band at any point from bedtime through bedtime + 30 minutes.
     readinessWindowMinutes:30,
@@ -1064,8 +1071,8 @@ function equipmentSafeAt(candidateType,tOut,rh,wind,cf,isDay,meta,setpoints,isOv
 function simulationComfort(sim,isOvernight,current=false){
     const {low,high}=comfortPolicy(isOvernight);
     const min=Math.min(...sim.trace.map(p=>p.indoor));
-    const floorCompliant=min>=C.comfortFloor-1e-8;
-    const endInBand=sim.finalIndoor>=low-1e-8&&sim.finalIndoor<=high+1e-8;
+    const floorCompliant=aboveComfortFloor(min);
+    const endInBand=inComfortBand(sim.finalIndoor,{low,high});
     return{floorCompliant,endInBand,comfortLow:low,comfortHigh:high,
         comfortReason:!floorCompliant?'Predicted below the '+C.comfortFloor+'°F comfort floor':!endInBand?'Finishes outside the '+low+'–'+high+'°F band':''};
 }
@@ -1729,7 +1736,7 @@ function memberHardPass(t){return t.equipmentEligible&&!t.floorBreach;}
 // opts.returnAt {time, band}: count return comfort too (remote planning).
 function ensembleSummary(trials,opts={}){
     const readiness=opts.readiness!==false,ret=opts.returnAt;
-    const returnOK=t=>!ret||t.trace.some(p=>+p.time===ret.time&&p.bedroom>=ret.band.low-1e-6&&p.bedroom<=ret.band.high+1e-6);
+    const returnOK=t=>!ret||t.trace.some(p=>+p.time===ret.time&&inComfortBand(p.bedroom,ret.band));
     const joint=t=>t.suitable&&(!readiness||t.ready)&&returnOK(t);
     const complete=trials.length===ENSEMBLE.members&&trials.every((t,i)=>t.member===i),nominal=trials[0];
     const passes=trials.filter(joint).length,hard=trials.every(memberHardPass);
@@ -1738,7 +1745,7 @@ function ensembleSummary(trials,opts={}){
     const severities=trials.map(t=>t.tempMissDegMin??0),worst=severities.slice().sort((a,b)=>b-a).slice(0,3);
     const mean=v=>v.reduce((a,b)=>a+b,0)/Math.max(1,v.length);
     const failing=trials.map((t,i)=>joint(t)&&memberHardPass(t)?null:{index:t.member??i,reason:memberHardPass(t)?planTrialReason(t)||(!t.ready?t.bedtimeReason:'')||'Misses return comfort.':
-        (t.unsafe[0]?.reason||'Predicted temperature falls below 65°F.'),time:t.firstFailureTime,conditions:ensembleMemberText(AIR_SCENARIOS[t.member??i],t.firstFailureTime)}).filter(Boolean);
+        (t.unsafe[0]?.reason||'Predicted temperature falls more than 1°F below 65°F.'),time:t.firstFailureTime,conditions:ensembleMemberText(AIR_SCENARIOS[t.member??i],t.firstFailureTime)}).filter(Boolean);
     return{members:ENSEMBLE.members,evaluated:trials.length,passes,hard,nominalPass:!!nominal&&joint(nominal),admitted,complete,fullHorizon:full,
         severity:{mean:mean(severities),worst3:mean(worst),rhMean:mean(trials.map(t=>t.rhExceedMin??0))},failing,
         nominal:nominal?{...targetMetrics([nominal]),recoveryInfo:recoverySummary([nominal]),score:nominal.score}:null};
@@ -1804,6 +1811,8 @@ const COMFORT=Object.freeze({tolerance:.5,
     sleeping:Object.freeze({low:65,high:69,target:67}),
     nonSleeping:Object.freeze({low:68,high:73,target:71})});
 function comfortPolicy(sleeping){return sleeping?COMFORT.sleeping:COMFORT.nonSleeping;}
+function inComfortBand(t,band){return t>=band.low-M.comfortAllowanceF-1e-6&&t<=band.high+M.comfortAllowanceF+1e-6;}
+function aboveComfortFloor(t,floor=C.comfortFloor){return t>=floor-M.comfortAllowanceF-1e-6;}
 function targetPenalty(temperature,sleeping,mode,operation='off'){
     const p=comfortPolicy(sleeping),delta=temperature-p.target,miss=Math.max(0,Math.abs(delta)-COMFORT.tolerance);
     if(miss<=1e-9)return 0;
@@ -2661,7 +2670,7 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
     // Recovery is tied to the measured start, never restarted at a phase boundary.
     const initialBand=comfortPolicy(options.sleepAt?options.sleepAt(start.getTime()):isOvernight);
     const initialTemperature=options.initialZones?.temperature[0]??startIndoor;
-    const recoveryDirection=initialTemperature<initialBand.low?'heating':initialTemperature>initialBand.high?'cooling':null;
+    const recoveryDirection=initialTemperature<initialBand.low-M.comfortAllowanceF?'heating':initialTemperature>initialBand.high+M.comfortAllowanceF?'cooling':null;
     const recoveryMode=recoveryDirection==='heating'?['hp','furnace','auto','auto_furnace'].includes(mode):recoveryDirection==='cooling'?['ac','auto','auto_furnace'].includes(mode):false;
     const activeRecovery=options.carry?.activeRecovery??recoveryMode;
     let recoveryFloorBreach=options.carry?.recoveryFloorBreach??false;
@@ -2884,11 +2893,11 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
         // The return state (end of the absence, before the first occupied step) counts as recovery when it is in the band
         // that applies after the return.
         if(recovery===null&&!unoccupied&&(row.from-start.getTime())/60000<=recoveryDeadline+1e-6&&deadlineMoved&&
-            previousZones[0]<=band.high&&previousZones[0]>=band.low)recovery=(row.from-start.getTime())/60000;
-        if(recovery===null&&comfortT<=band.high&&coldT>=band.low)recovery=elapsed;
-        if(activeRecovery&&recovery!==null&&t[0]<floor-1e-6)recoveryFloorBreach=true;
+            inComfortBand(previousZones[0],band))recovery=(row.from-start.getTime())/60000;
+        if(recovery===null&&comfortT<=band.high+M.comfortAllowanceF+1e-6&&coldT>=band.low-M.comfortAllowanceF-1e-6)recovery=elapsed;
+        if(activeRecovery&&recovery!==null&&!aboveComfortFloor(t[0],floor))recoveryFloorBreach=true;
         if(!comfortProblem){
-            const reason=t[0]<floor-1e-6&&(!activeRecovery||recovery!==null)?'Predicted bed-area temperature falls below 65°F.':!activeRecovery&&elapsed>=recoveryDeadline&&!unoccupied&&recovery===null?(deadlineMoved?'Bedroom is outside its comfort range at the return.':'Does not reach acceptable temperature within 30 minutes.'):coldRun>M.warmMinutes?'Remains below '+(band.low-M.comfortRunEdgeF)+'°F for more than 30 minutes.':warmRun>M.warmMinutes?'Remains above '+(band.high+M.comfortRunEdgeF)+'°F for more than 30 minutes.':severeRun>=M.severeWarmMinutes?'Remains above '+(band.high+1+M.comfortRunEdgeF)+'°F for at least 15 minutes.':'';
+            const reason=!aboveComfortFloor(t[0],floor)&&(!activeRecovery||recovery!==null)?'Predicted bed-area temperature falls more than 1°F below 65°F.':!activeRecovery&&elapsed>=recoveryDeadline&&!unoccupied&&recovery===null?(deadlineMoved?'Bedroom is outside its comfort range at the return.':'Does not reach acceptable temperature within 30 minutes.'):coldRun>M.warmMinutes?'Remains below '+(band.low-M.comfortRunEdgeF)+'°F for more than 30 minutes.':warmRun>M.warmMinutes?'Remains above '+(band.high+M.comfortRunEdgeF)+'°F for more than 30 minutes.':severeRun>=M.severeWarmMinutes?'Remains above '+(band.high+1+M.comfortRunEdgeF)+'°F for at least 15 minutes.':'';
             if(reason)comfortProblem={time:new Date(row.to),reason,low:band.low,high:band.high};
         }
         if(config&&isOvernight){const bedside=air.flows.reduce((a,v,i)=>a+(WINDOW_SECTIONS[i].bed?Math.max(0,v):0),0);
@@ -2930,19 +2939,19 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
     const recovered=recovery!==null&&(activeRecovery||recovery<=recoveryDeadline),deadlineMet=recovered||deadlinePending;
     const recoveryProgress=recoveryDirection==='heating'?finalIndoor-initialTemperature:initialTemperature-finalIndoor;
     const recoveryStalled=activeRecovery&&!recovered&&recoveryProgress<=0;
-    const comfortReason=(activeRecovery?recoveryFloorBreach:min<floor-1e-6)?'Predicted temperature falls below 65°F.':comfortProblem?.reason||(recoveryStalled?'Available HVAC does not restore comfort in this interval.':!activeRecovery&&!deadlineMet?'Does not reach acceptable temperature within 30 minutes.':'');
+    const comfortReason=(activeRecovery?recoveryFloorBreach:!aboveComfortFloor(min,floor))?'Predicted temperature falls more than 1°F below 65°F.':comfortProblem?.reason||(recoveryStalled?'Available HVAC does not restore comfort in this interval.':!activeRecovery&&!deadlineMet?'Does not reach acceptable temperature within 30 minutes.':'');
     const recoveryInfo=activeRecovery?{direction:recoveryDirection,initial:initialTemperature,minutes:recovery,
         complete:recovered,final:finalIndoor,progress:recoveryProgress,through:trace.at(-1).time}:null;
     const comfortEligible=!comfortReason,moistureEligible=!moistureReason,equipmentEligible=!unsafe.length;
     // WP13: the 65°F floor with current recovery semantics (a hard constraint in every member), and the first
     // time any check fails (for the longest-acceptable ordering when the run did not stop at it).
-    const floorBreach=activeRecovery?recoveryFloorBreach:min<floor-1e-6;
+    const floorBreach=activeRecovery?recoveryFloorBreach:!aboveComfortFloor(min,floor);
     const failTimes=[unsafe[0]?.time?.getTime(),comfortProblem?.time?.getTime(),humidFailTime].filter(Number.isFinite);
     const firstFailureTime=failTimes.length?Math.min(...failTimes):null;
     const suitable=equipmentEligible&&comfortEligible&&moistureEligible;
     return{start,end,trace,segments,unsafe,maxFan,freezeRisk,isOvernight,recoveryInfo,coil:coilLog,warnings:[...warnings],score:score+draftScore,draftScore,hoursOut,didCool,didHeat,heatMinutes,coolMinutes,
-        finalIndoor,capacityCool,capacityHeat,heatingFloorLimited,defrostMinutes,config,comfortLow:band.low,comfortHigh:band.high,floorCompliant:min>=floor-1e-6,
-        endInBand:finalIndoor>=floor&&finalIndoor<=band.high,comfortEligible,comfortReason,moistureEligible,moistureReason,equipmentEligible,suitable,
+        finalIndoor,capacityCool,capacityHeat,heatingFloorLimited,defrostMinutes,config,comfortLow:band.low,comfortHigh:band.high,floorCompliant:aboveComfortFloor(min,floor),
+        endInBand:aboveComfortFloor(finalIndoor,floor)&&finalIndoor<=band.high+M.comfortAllowanceF+1e-6,comfortEligible,comfortReason,moistureEligible,moistureReason,equipmentEligible,suitable,
         moisture:moistureLedger(),surfaceWarning,surfaceConcern,condensationConcern,comfortProblem,recoveryMinutes:recovery,floorBreach,firstFailureTime,tempMissDegMin,rhExceedMin,finalZones:{temperature:t.slice(),mass:tm.slice(),water:w.slice(),buffer:wb&&wb.slice(),coil:{...coilWater}},comfortRuns:{coldMax,warmMax,severeMax},failureTime,checkpoints};
 }
 // The plan the row records and shows (as recordRunLog).
@@ -3232,7 +3241,7 @@ function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=nul
     // v6.6.27 (option B): ready when the bedroom is in the sleeping band at any trace point from bedtime through bedtime +
     // M.readinessWindowMinutes. A trace that ends inside that window (a stage that ends at bedtime) is provisionally ready;
     // the plan that continues past bedtime decides.
-    const inSleepBand=p=>p.bedroom>=sleepPolicy.low-1e-6&&p.bedroom<=sleepPolicy.high+1e-6,bed=+bounds.bedtime,windowEnd=bed+M.readinessWindowMinutes*60000;
+    const inSleepBand=p=>inComfortBand(p.bedroom,sleepPolicy),bed=+bounds.bedtime,windowEnd=bed+M.readinessWindowMinutes*60000;
     const ready=!bounds.bedtime||!!atBedtime&&(inSleepBand(atBedtime)||+sim.trace.at(-1).time<windowEnd||sim.trace.some(p=>+p.time>=bed&&+p.time<=windowEnd&&inSleepBand(p)));
     const unavailable=phases.find((p,i)=>i>0&&!setupChangeAllowed(phases[i-1].setup,p.setup,p.time,request));
     if(unavailable){sim.unsafe.push({time:new Date(unavailable.time),reason:'This setup change requires an unavailable action during sleep or absence.',issueCode:'unavailable-action'});sim.suitable=false;sim.equipmentEligible=false;}
@@ -3463,7 +3472,7 @@ function planFromTrials(phases,trials,envelope,request){
 function naturalRecovery(trials,request,setup){
     if(planBounds(request.start,request).sleep||!['passive','ac'].includes(setup.type)||setup.config)return null;
     const times=trials.map(t=>{
-        const point=t.trace.find(p=>p.elapsedMin<=30&&Math.min(p.bedroom,p.midCoach)>=COMFORT.nonSleeping.low&&Math.max(p.bedroom,p.midCoach)<=COMFORT.nonSleeping.high);
+        const point=t.trace.find(p=>p.elapsedMin<=30&&inComfortBand(Math.min(p.bedroom,p.midCoach),COMFORT.nonSleeping)&&inComfortBand(Math.max(p.bedroom,p.midCoach),COMFORT.nonSleeping));
         if(!point)return null;
         if(t.segments.some(s=>s.startMs<+point.time&&(s.operation==='hp'||s.operation==='furnace')))return null;
         if(t.segments.some(s=>s.startMs<+point.time&&s.operation==='ac'&&s.duty>0))return null;
@@ -3632,10 +3641,10 @@ function returnComfort(plan,bounds,request,joint=true){
     // WP13: return comfort is part of each member's joint pass (joint); the fixed-setup trigger counts it alone.
     if(ensembleTrials(plan.trials)){
         if(joint)return ensembleSummary(plan.trials,{returnAt:{time:back,band}}).admitted;
-        const ok=t=>t.trace.some(p=>+p.time===back&&p.bedroom>=band.low-1e-6&&p.bedroom<=band.high+1e-6);
+        const ok=t=>t.trace.some(p=>+p.time===back&&inComfortBand(p.bedroom,band));
         return ok(plan.trials[0])&&plan.trials.filter(ok).length>=ENSEMBLE.admit;
     }
-    return plan.trials.every(t=>t.trace.some(p=>+p.time===back&&p.bedroom>=band.low-1e-6&&p.bedroom<=band.high+1e-6));
+    return plan.trials.every(t=>t.trace.some(p=>+p.time===back&&inComfortBand(p.bedroom,band)));
 }
 function missesSleepComfort(overnight,back){
     const miss=t=>(t.comfortProblem&&+t.comfortProblem.time>=back)||(t.atBedtime&&!t.ready);
@@ -3819,7 +3828,7 @@ function* searchDeparturePlans(envelope,request){
     if(bounded.overnightSkipped||bounded.remoteSkipped||bounded.budget)stages.boundedSearch=bounded;
     return{winner,plans,bounds,envelope,request,current:null,stages,comparisons:{day:null,night:stages.night}};
 }
-function comfortPolicyText(){const s=COMFORT.sleeping,a=COMFORT.nonSleeping;return '<p class="hint">Indoor targets: sleeping '+s.target+'°F (allowed '+s.low+'–'+s.high+'°F); awake or unoccupied '+a.target+'°F (allowed '+a.low+'–'+a.high+'°F). Within ±'+COMFORT.tolerance+'°F is preferred. A comfort failure needs the bedroom more than '+M.comfortRunEdgeF+'°F outside the allowed range for over 30 minutes, or more than '+(1+M.comfortRunEdgeF)+'°F above it for 15 minutes; 65°F remains a hard floor. For misses, heating, cooling and ventilation favor the cooler side. Closer to target on that side ranks better. Equipment and moisture checks must pass first.</p>';}
+function comfortPolicyText(){const s=COMFORT.sleeping,a=COMFORT.nonSleeping;return '<p class="hint">Indoor targets: sleeping '+s.target+'°F (allowed '+s.low+'–'+s.high+'°F); awake or unoccupied '+a.target+'°F (allowed '+a.low+'–'+a.high+'°F). Within ±'+COMFORT.tolerance+'°F is preferred. Checks pass within '+M.comfortAllowanceF+'°F of each limit. A comfort failure needs the bedroom more than '+M.comfortRunEdgeF+'°F outside the allowed range for over 30 minutes, or more than '+(1+M.comfortRunEdgeF)+'°F above it for 15 minutes; the hard floor is '+(C.comfortFloor-M.comfortAllowanceF)+'°F (65°F less the allowance). For misses, heating, cooling and ventilation favor the cooler side. Closer to target on that side ranks better. Equipment and moisture checks must pass first.</p>';}
 function setpointSummary(){return 'Bed-area targets: awake/away '+COMFORT.nonSleeping.target+'°F ('+COMFORT.nonSleeping.low+'–'+COMFORT.nonSleeping.high+'°F); sleeping '+COMFORT.sleeping.target+'°F ('+COMFORT.sleeping.low+'–'+COMFORT.sleeping.high+'°F). Thermostat settings are selected in your plan.';}
 function renderDeparturePlan(result){
     const {stages,bounds,request,winner}=result;
@@ -3961,13 +3970,13 @@ function bedtimeRecovery(result,envelope,request){
     const heat=['hp','furnace','auto','auto_furnace'].includes(setup.type);
     const cool=['ac','auto','auto_furnace'].includes(setup.type);
     const inWindow=bedtime&&start>=transition;
-    const direction=heat&&(initial<awake.low&&(bedtime||initial<sleep.low))?'heat':
-        cool&&(initial>awake.high||(inWindow&&initial>=sleep.target)||(bounds.sleep&&initial>sleep.high))?'cool':null;
+    const direction=heat&&(initial<awake.low-M.comfortAllowanceF&&(bedtime||initial<sleep.low-M.comfortAllowanceF))?'heat':
+        cool&&(initial>awake.high+M.comfortAllowanceF||(inWindow&&initial>=sleep.target)||(bounds.sleep&&initial>sleep.high+M.comfortAllowanceF))?'cool':null;
     if(!direction||!bedtime&&!bounds.sleep)return null;
     const action=current||limited;
     if(!action&&!(winner.suitable&&winner.ready))return null;
     const reached=point=>direction==='heat'?point.bedroom>=sleep.target:point.bedroom<=sleep.target;
-    const inSleepBand=point=>point.bedroom>=sleep.low-1e-6&&point.bedroom<=sleep.high+1e-6;
+    const inSleepBand=point=>inComfortBand(point.bedroom,sleep);
     const verify=phases=>AIR_SCENARIOS.map(scenario=>simulatePlan(phases,envelope,request,scenario,null,null,false,true));
     const safe=trials=>casesPass(trials,trial=>trial.moistureEligible,trial=>trial.equipmentEligible);
     const summarize=(trials,from)=>{
@@ -3976,7 +3985,7 @@ function bedtimeRecovery(result,envelope,request){
         return {earliest:times.length?Math.min(...times):null,latest:times.length===hits.length?Math.max(...times):null};
     };
     if(!bedtime){
-        if(!bounds.sleep||!(initial<sleep.low||initial>sleep.high))return null;
+        if(!bounds.sleep||inComfortBand(initial,sleep))return null;
         const trials=verify([{time:start,setup}]);
         return {overnight:true,eta:safe(trials)?summarize(trials,start):null};
     }
@@ -4037,7 +4046,7 @@ function bedtimeRecoveryHTML(recovery){
 }
 function recoveryAction(envelope,request){
     const bounds=planBounds(request.start,request),band=comfortPolicy(bounds.sleep),initial=request.initial.temperature[0];
-    const cold=initial<band.low,hot=initial>band.high;if(!cold&&!hot)return null;
+    const cold=initial<band.low-M.comfortAllowanceF,hot=initial>band.high+M.comfortAllowanceF;if(!cold&&!hot)return null;
     const reviewAt=Math.min(+request.start+30*60000,+bounds.end,request.occupancy==='leaving'?+request.departure:Infinity);
     if(reviewAt<=+request.start)return null;
     const rows=planRows(envelope,request,.5,[reviewAt]).filter(row=>row.to<=reviewAt);

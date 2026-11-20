@@ -18,7 +18,7 @@ test('natural daytime recovery is checked after 10 AM and after 7 PM',()=>{
  const a=scenario();
  for(const time of ['09:00','12:00','19:30']){
   a.run(`r.start=parseLocalInput('2026-10-23T${time}','test');
-  trials=[{trace:[{time:r.start,elapsedMin:0,bedroom:67,midCoach:67},{time:new Date(+r.start+600000),elapsedMin:10,bedroom:68,midCoach:68}],segments:[]}];
+  trials=[{trace:[{time:r.start,elapsedMin:0,bedroom:66,midCoach:66},{time:new Date(+r.start+600000),elapsedMin:10,bedroom:67,midCoach:67}],segments:[]}]; // v6.6.28: 66°F start, 67°F is within the 1°F allowance
   recovery=naturalRecovery(trials,r,planSetup('passive',false))`);
   assert.equal(a.run('recovery.minutes'),10,time);
  }
