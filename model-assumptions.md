@@ -47,7 +47,31 @@ The live model senses front air exactly. The EasyTouch has the −4°F Temperatu
 
 ## Fixtures
 
-FIXTURE_TABLE
+| Fixture | v6.6.27 | v6.6.28 | Plan |
+|---|---|---|---|
+| surface-synthetic | qualifies (32/32) | qualifies (32/32) | changed |
+| rising-synthetic | fails (0/32) | qualifies (29/32) | changed |
+| falling-synthetic | fails (0/32) | fails (24/32) | changed |
+| away-return-wifi | qualifies (30/32) | qualifies (32/32) | changed |
+| winterset-2025-10-01 | fails (31/32) | qualifies (32/32) | changed |
+| october-saved | fails (28/32) | fails (29/32) | changed |
+| hot-synthetic N | qualifies (32/32) | fails (0/32) | changed |
+| hot-synthetic S | fails (1/32) | qualifies (32/32) | changed |
+| hot-synthetic E | qualifies (32/32) | fails (8/32) | changed |
+| winterset-2026-05-08 N | qualifies (30/32) | qualifies (32/32) | changed |
+| hot-synthetic W | qualifies (32/32) | qualifies (32/32) | changed |
+| winterset-2026-05-08 S | qualifies (30/32) | qualifies (32/32) | changed |
+| winterset-2026-05-08 E | fails (0/32) | qualifies (29/32) | changed |
+| winterset-2026-05-08 W | qualifies (29/32) | qualifies (32/32) | changed |
+| preparation-synthetic E | qualifies (30/32) | qualifies (31/32) | changed |
+| march-historical | qualifies (30/32) | qualifies (32/32) | changed |
+| preparation-synthetic N | qualifies (29/32) | qualifies (32/32) | changed |
+| preparation-synthetic S | qualifies (30/32) | qualifies (32/32) | changed |
+| preparation-synthetic W | qualifies (29/32) | qualifies (31/32) | changed |
+
+Search mode `auto` (`tools/analysis/wp13-search-gate.cjs`), conditions passed out of 32 in parentheses; `reports/v6628-fixtures.jsonl` (v6.6.27: `reports/v6627-fixtures.jsonl`). Qualifying fixtures: 13 → 15 of 19. Without the fast moisture layer and the 1°F allowance (intermediate run), hot E, May 8 S and preparation S failed; rerunning each with only the fast layer removed restored the v6.6.27 plan and pass count, so the layer was the cause. With the allowance they qualify again.
+
+Hot synthetic N and E now fail (0/32 and 8/32) although a qualifying plan exists: the v6.6.27 winner (AUTO 64/72 High, then Auto Furnace 60/66 High at 3 AM) passes on hot N under v6.6.28 when evaluated directly. The setting search optimizes one phase at a time; with the allowance, 66/72 ranks ahead of 64/72 for the evening phase while the night phase is still unoptimized, and no night setting then rescues 66/72. This is a search-path limitation, not a physics or allowance result; a fix is proposed separately.
 
 # v6.6.27 — realistic capacities (D2), garage refit (R1), bedtime window (B), absence rule (E), comfort metric removed
 

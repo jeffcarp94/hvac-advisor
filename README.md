@@ -8,7 +8,11 @@
 - **1°F allowance on every comfort check (your decision).** A prediction within 1°F of a limit now passes: bedtime readiness (64–70°F counts for the 65–69°F sleeping band), recovery, the bedroom at your return, the 30-minute check, and the warm, cold and severe-warm runs (now 1°F outside the band, was 0.5°F). The 65°F floor carries the same allowance, so a plan fails only below 64°F. Ranking still prefers the plan closer to target. Thermostat settings, the 42°F propane changeover and the 32°F coil physics stay exact.
 - **Example.** A bedroom readiness of 69.0–70.0°F at 10 PM no longer fails the plan, and a reading of 67°F at 9:45 PM no longer triggers a recovery card.
 - **Log.** The `coil_advisory` JSON now carries `min_surface_f` (coldest coil region) and `peak_frost_mm`, replacing `min_coldest_f`. Same column; no receiver change.
-- **Effect on the test fixtures:** FIXTURE_SUMMARY
+- **Effect on the test fixtures.** Qualifying fixtures go from 13 of 19 to 15 of 19:
+  - **Now qualify:** rising-synthetic, Winterset 2025-10-01, hot synthetic S, May 8 E.
+  - **Now fail:** hot synthetic N and E. A qualifying plan exists (the v6.6.27 plan passes when checked directly), but the one-phase-at-a-time setting search now steers to a different evening setting that no night setting can rescue. That's a search limitation, flagged for your decision.
+  - **Pass counts** rise on most other fixtures (for example May 8 N 30 → 32, preparation N 29 → 32).
+  - [Full table](model-assumptions.md).
 - **Open questions recorded:** how much sun on the exterior wall behind the thermostat cabinet still adds to the EasyTouch reading (sunny-day logs will show it); the indoor moisture sources on long hot AUTO runs; the size of the coldest coil region.
 
 # v6.6.27 — realistic equipment capacities, garage refit, 30-minute bedtime window, absence rule, comfort metric removed
