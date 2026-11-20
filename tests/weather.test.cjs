@@ -154,7 +154,7 @@ test('complete ZIP retrieval uses discovered grid endpoint and records location/
         else if(url.includes('/forecast-fixture'))body={properties:{updateTime:'2026-10-21T16:00Z',periods:[{name:'Fixture',startTime:'2026-10-21T00:00Z',endTime:'2026-10-24T00:00Z',isDaytime:true,temperature:50,temperatureUnit:'F',windSpeed:'5 mph',shortForecast:'Clear',probabilityOfPrecipitation:{value:0}}]}};
         else{
             const field=(uom,value)=>({uom,values:[{validTime:'2026-10-21T00:00Z/P3D',value}]});
-            body={properties:{updateTime:'2026-10-21T16:00Z',elevation:{uom:'wmoUnit:m',value:1000},
+            body={properties:{updateTime:'2026-10-21T16:00Z',elevation:{unitCode:'wmoUnit:m',value:1000}, // NWS QuantitativeValue shape (v6.6.26)
                 temperature:field('wmoUnit:degC',10),relativeHumidity:field('wmoUnit:percent',50),
                 windSpeed:field('wmoUnit:km_h-1',16.09344),windGust:field('wmoUnit:km_h-1',24.14016),
                 skyCover:field('wmoUnit:percent',40)}};
@@ -210,6 +210,10 @@ test('grid wind, gust and sky preserve zero, units, gaps and unrounded changeove
     assert.equal(a.run('e.points[2].cloud'),.595);
     assert.match(a.run('weatherProvenance(e)'),/unrounded/);
     assert.equal(a.run('gridElevation({uom:"wmoUnit:m",value:null})'),null);
+    // v6.6.26: the NWS gridpoint elevation is a QuantitativeValue ({unitCode, value}); other units are rejected.
+    assert.equal(a.run('gridElevation({unitCode:"wmoUnit:m",value:297.2})'),297.2);
+    assert.equal(a.run('gridElevation({unitCode:"wmoUnit:ft",value:975})'),null);
+    assert.equal(a.run('gridElevation(undefined)'),null);
 });
 
 test('1000 m pressure and psychrometric round trip account for lower air density',()=>{

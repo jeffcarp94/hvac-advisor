@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f5f6fa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.6.25 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.6.26 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -108,7 +108,7 @@
 <div class="app">
     <div class="header">
         <div class="header-tag">Coach House Platinum III 250 DT</div>
-        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.25</span></div>
+        <div class="header-title">HVAC Advisor <span class="header-version">v6.6.26</span></div>
         <div class="header-sub">Your RV comfort plan</div>
     </div>
     <div id="installBanner" class="install-banner">Add to Home Screen for offline access.<button id="installBtn">Install</button></div>
@@ -625,8 +625,12 @@ function optionalWeatherIntervals(field,conversions,label,min,max){
         interval.value!==null&&(interval.value<min||interval.value>max)?{...interval,value:null}:interval);}
     catch{return [];}
 }
+// v6.6.26 (defect fix): the gridpoint elevation is an NWS QuantitativeValue, whose unit field is `unitCode`
+// (grid series such as temperature use `uom`). v6.6.12–v6.6.25 read only `uom`, so live forecasts always fell back to
+// sea-level pressure. `uom` is still accepted.
 function gridElevation(field){
-    return field?.uom==='wmoUnit:m'&&Number.isFinite(field.value)&&field.value>=-500&&field.value<=9000?field.value:null;
+    const unit=field?.unitCode??field?.uom;
+    return ['wmoUnit:m','unit:m'].includes(unit)&&Number.isFinite(field.value)&&field.value>=-500&&field.value<=9000?field.value:null;
 }
 function gridWeatherAt(time,period=periodAt(time)){
     const get=name=>intervalAt(forecast.intervals[name]||[],time)?.value??null;
@@ -4469,7 +4473,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.25';
+const LOG_APP_VERSION='6.6.26';
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
