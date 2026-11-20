@@ -1515,12 +1515,12 @@ const WINDOW_SECTIONS=[
 // 11/17 furnace) within the fit residual (v6.6.27 refit) combined in quadrature with the 0.3°F digitizing tolerance,
 // chosen as the most and least rear-isolating such sets on reconstructed 30°F furnace and 45°F heat-pump
 // nights, with engineering floors widthFt ≥ 0.25 ft and mix ≥ 0.5 (tools/analysis/airflow-extremes.cjs). v6.6.27: re-derived the
-// same way around the refit (v6.6.16 sets: restricted .5/.40/.52/.28, greater 2.8/.35/.65/.30).
+// same way around the refit (restricted furnace rear rounded inward .569→.568 to stay within the limit; v6.6.16 sets: restricted .5/.40/.52/.28, greater 2.8/.35/.65/.30).
 // flow and windSign (windows, MaxxFan) have no new evidence and are unchanged. rhOffset, tempOffset,
 // surfaceFactor and cabFactor are not airflow terms and are unchanged pending a separate owner decision.
 const AIR_WEATHER_CASES=[
     {name:'working estimate',flow:1,windSign:0,mix:1,ductRear:null,furnaceRear:null,widthFt:null,rhOffset:0,tempOffset:0,surfaceFactor:.8,cabFactor:3},
-    {name:'restricted airflow / warmer',flow:.7,windSign:1,mix:.92,ductRear:.387,furnaceRear:.569,widthFt:.25,rhOffset:5,tempOffset:2,surfaceFactor:.85,cabFactor:4.5},
+    {name:'restricted airflow / warmer',flow:.7,windSign:1,mix:.92,ductRear:.387,furnaceRear:.568,widthFt:.25,rhOffset:5,tempOffset:2,surfaceFactor:.85,cabFactor:4.5},
     {name:'greater airflow / cooler',flow:1.2,windSign:-1,mix:1.805,ductRear:.336,furnaceRear:.683,widthFt:1.481,rhOffset:5,tempOffset:-2,surfaceFactor:.9,cabFactor:1.5}];
 // Cross all body assemblies with every existing weather/airflow/cab case.
 // The first remains the nominal case for fast screening, then all nine verify.
@@ -1577,7 +1577,7 @@ const ENSEMBLE_PRIORS=Object.freeze({
     // Airflow and storage (Task A method, owner decisions 4 and 5; reports/wp13-priors.md). Each is one family
     // position in [−1, 1], with every other parameter at the v6.6.15 fit:
     // - airflow: restricted (−1) ↔ working (0) ↔ greater (+1) v6.6.16 sets, so mixing (log space), rooftop and
-    //   furnace rear shares (0.52–0.57–0.65) and buoyant width move together;
+    //   furnace rear shares (v6.6.27: 0.568–0.58–0.683) and buoyant width move together;
     // - storage: low (−1) ↔ fitted (0) ↔ high (+1) data-supported sets of air node, mass node and coupling.
     // Every family point reproduces both garage runs within the fit residual ⊕ 0.3°F (v6.6.27 refit), but the square's
     // corners do not, so the pair is drawn uniformly on the unit disk (Shirley–Chiu concentric map).
@@ -1986,9 +1986,9 @@ const WP6_CAPACITY={
     heatTemperature:[.758746,.027626,.000148716,.0000034992]
 };
 // v6.6.27 (D2): nominal settings of the live capacity model. Empty = nominal (heat scale 1, 280 CFM High, Medium .82,
-// Low .68, rated leaving RH 95%, no roof increment, changeover at 42°F with no offset or hysteresis). Analysis tools
+// Low .68, rated leaving RH 95%, no roof increment, changeover at C.heatPumpMinTemp (42°F) with no offset or hysteresis). Analysis tools
 // (joint-fit.cjs) may set heatScale. An envelope with legacyCapacity:true uses the pre-v6.6.27 capacities
-// (analysis and before/after only).
+// (analysis, before/after, and the WP7 coil advisory until the moisture-buffer review).
 const LIVE_CAPACITY={};
 function wp6Celsius(f){return (f-32)*5/9;}
 function wp6Fahrenheit(c){return c*9/5+32;}
@@ -2075,7 +2075,8 @@ function wp6CoolingOutput(inF,w,outF,pressure,fan,settings={}){
         clamped:x!==wetBulb||y!==outC||f!==flow};
 }
 function wp6HeatSource(previous,roofF,settings){
-    const switchAt=42+(settings.deltaF??0),returnAt=switchAt+(settings.hysteresisF??0);
+    // v6.6.27 (D2): the changeover follows the configured Auto Gas Changeover setting (C.heatPumpMinTemp, 42°F).
+    const switchAt=C.heatPumpMinTemp+(settings.deltaF??0),returnAt=switchAt+(settings.hysteresisF??0);
     if(previous==='furnace')return roofF>returnAt?'hp':'furnace';
     return roofF<=switchAt?'furnace':'hp';
 }
@@ -2407,7 +2408,7 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
     let hpRunMinutes=0,defrostRemaining=0,defrostMinutes=0;
     let priorDehumHeat=0,dehumRuntimeMinutes=0,moistureTotals={occupants:0,dehumidifier:0,ac:0,outside:0,acDrained:0,coilEvaporated:0,bufferUptake:0,dehumidifierReturned:0},initialWaterLb=w.reduce((sum,v,z)=>sum+v*airMass[z],0)+(wb?wb[0]+wb[1]:0);
     let condensedLb=0,humidRun=0,humidMax=0,surfaceRun=[0,0],surfaceMax=0,minMargin=Infinity,maxRH=0,minRH=100,maxSurfaceRH=0;
-    let recoveryDeadline=M.recoveryMinutes,warmRun=0,warmMax=0,coldRun=0,coldMax=0,severeRun=0,severeMax=0,recovery=null,freezeRisk=null,condensationConcern=null,failureTime=null,comfortProblem=null,surfaceConcern=null;
+    let deadlineMoved=false,recoveryDeadline=M.recoveryMinutes,warmRun=0,warmMax=0,coldRun=0,coldMax=0,severeRun=0,severeMax=0,recovery=null,freezeRisk=null,condensationConcern=null,failureTime=null,comfortProblem=null,surfaceConcern=null;
     // WP13 (D3) severity: bedroom degree-minutes outside the applicable band (warm × 2, existing policy) and
     // minutes inside room-air RH runs that exceed the sustained-RH rule. Observation only unless the
     // ensemble policy is enabled; neither changes this trial's pass/fail.
@@ -2439,13 +2440,13 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
     if(carry){
         t=carry.t.slice();tm=(carry.tm??carry.t).slice();w=carry.w.slice();phase=carry.phase;lastSetup=carry.lastSetup||null;
         ({score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern}=carry);
-        tempMissDegMin=carry.tempMissDegMin??0;recoveryDeadline=carry.recoveryDeadline??M.recoveryMinutes;rhExceedMin=carry.rhExceedMin??0;humidFailTime=carry.humidFailTime??null;
+        tempMissDegMin=carry.tempMissDegMin??0;recoveryDeadline=carry.recoveryDeadline??M.recoveryMinutes;deadlineMoved=!!carry.deadlineMoved;rhExceedMin=carry.rhExceedMin??0;humidFailTime=carry.humidFailTime??null;
         moistureTotals={...carry.moistureTotals};surfaceRun=carry.surfaceRun.slice();
         if(carry.wb!==undefined)wb=carry.wb&&carry.wb.slice();if(carry.coilWater)coilWater={...carry.coilWater};unsafe.push(...carry.unsafe);carry.warnings.forEach(w=>warnings.add(w));
     }
     // Checkpoints only at whole five minutes: every grid handoff resumes from one, and any other handoff time is
     // simulated directly (identical result, tested). This keeps cached prefixes small on a phone (WP13).
-    const capture=time=>{if(options.capture&&time%300000===0)checkpoints.push({time,recoveryDeadline,t:t.slice(),tm:tm.slice(),w:w.slice(),wb:wb&&wb.slice(),coilWater:{...coilWater},initialCoilLb,phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,tempMissDegMin,rhExceedMin,humidFailTime,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin),...(sensor?{sensorReading}:{}),...(comparisonSettings?{comparisonHeatSource:heatSource}:{})});};
+    const capture=time=>{if(options.capture&&time%300000===0)checkpoints.push({time,recoveryDeadline,deadlineMoved,t:t.slice(),tm:tm.slice(),w:w.slice(),wb:wb&&wb.slice(),coilWater:{...coilWater},initialCoilLb,phase,lastSetup,activeRecovery,recoveryFloorBreach,score,hoursOut,draftScore,didCool,didHeat,heatMinutes,coolMinutes,capacityCool,capacityHeat,heatingFloorLimited,hpRunMinutes,defrostRemaining,defrostMinutes,priorDehumHeat,dehumRuntimeMinutes,initialWaterLb,condensedLb,humidRun,humidMax,moistureTotals:{...moistureTotals},surfaceRun:surfaceRun.slice(),surfaceMax,minMargin,maxRH,minRH,maxSurfaceRH,warmRun,warmMax,coldRun,coldMax,severeRun,severeMax,recovery,condensationConcern,freezeRisk,comfortProblem,surfaceConcern,tempMissDegMin,rhExceedMin,humidFailTime,unsafe:unsafe.slice(),warnings:[...warnings],min:Math.min(carry?.min??Infinity,runningMin),...(sensor?{sensorReading}:{}),...(comparisonSettings?{comparisonHeatSource:heatSource}:{})});};
     record(carry?rows[0].from:start.getTime(),carry?(rows[0].from-start.getTime())/60000:0);
     // Surface estimates are output-only observations, including at the initial state.
     const moistureCheck=(weather,elapsed,dt,rh)=>{
@@ -2618,19 +2619,19 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
         const humidityPenalty=Math.max(...now.rh.map(h=>h<=55?0:h<=60?.4:h<=65?1.9:3.4));score+=dt*humidityPenalty;
         // v6.6.27 (owner decision, option E): while the coach is unoccupied only protection checks (65°F floor, equipment,
         // moisture) and comfort at the return apply. Comfort runs do not accumulate on unoccupied rows, and an absence that
-        // begins before the 30-minute recovery deadline moves the deadline to the return.
+        // begins before the 30-minute recovery deadline moves the deadline to the return (deadlineMoved).
         const unoccupied=row.occupants===0;
-        if(unoccupied&&(row.from-start.getTime())/60000<=recoveryDeadline+1e-6)recoveryDeadline=Math.max(recoveryDeadline,elapsed);
+        if(unoccupied&&(row.from-start.getTime())/60000<=recoveryDeadline+1e-6){recoveryDeadline=Math.max(recoveryDeadline,elapsed);deadlineMoved=true;}
         if(unoccupied){warmRun=0;coldRun=0;severeRun=0;}
         else if(elapsed>(activeRecovery?(recovery??Infinity):recoveryDeadline)){warmRun=comfortT>band.high+M.comfortRunEdgeF?warmRun+dt*60:0;warmMax=Math.max(warmMax,warmRun);coldRun=coldT<band.low-M.comfortRunEdgeF?coldRun+dt*60:0;coldMax=Math.max(coldMax,coldRun);severeRun=comfortT>band.high+1+M.comfortRunEdgeF?severeRun+dt*60:0;severeMax=Math.max(severeMax,severeRun);}
         // The return state (end of the absence, before the first occupied step) counts as recovery when it is in the band
         // that applies after the return.
-        if(recovery===null&&!unoccupied&&(row.from-start.getTime())/60000<=recoveryDeadline+1e-6&&recoveryDeadline>M.recoveryMinutes&&
+        if(recovery===null&&!unoccupied&&(row.from-start.getTime())/60000<=recoveryDeadline+1e-6&&deadlineMoved&&
             previousZones[0]<=band.high&&previousZones[0]>=band.low)recovery=(row.from-start.getTime())/60000;
         if(recovery===null&&comfortT<=band.high&&coldT>=band.low)recovery=elapsed;
         if(activeRecovery&&recovery!==null&&t[0]<floor-1e-6)recoveryFloorBreach=true;
         if(!comfortProblem){
-            const reason=t[0]<floor-1e-6&&(!activeRecovery||recovery!==null)?'Predicted bed-area temperature falls below 65°F.':!activeRecovery&&elapsed>=recoveryDeadline&&!unoccupied&&recovery===null?(recoveryDeadline>M.recoveryMinutes?'Bedroom is outside its comfort range at the return.':'Does not reach acceptable temperature within 30 minutes.'):coldRun>M.warmMinutes?'Remains below '+(band.low-M.comfortRunEdgeF)+'°F for more than 30 minutes.':warmRun>M.warmMinutes?'Remains above '+(band.high+M.comfortRunEdgeF)+'°F for more than 30 minutes.':severeRun>=M.severeWarmMinutes?'Remains above '+(band.high+1+M.comfortRunEdgeF)+'°F for at least 15 minutes.':'';
+            const reason=t[0]<floor-1e-6&&(!activeRecovery||recovery!==null)?'Predicted bed-area temperature falls below 65°F.':!activeRecovery&&elapsed>=recoveryDeadline&&!unoccupied&&recovery===null?(deadlineMoved?'Bedroom is outside its comfort range at the return.':'Does not reach acceptable temperature within 30 minutes.'):coldRun>M.warmMinutes?'Remains below '+(band.low-M.comfortRunEdgeF)+'°F for more than 30 minutes.':warmRun>M.warmMinutes?'Remains above '+(band.high+M.comfortRunEdgeF)+'°F for more than 30 minutes.':severeRun>=M.severeWarmMinutes?'Remains above '+(band.high+1+M.comfortRunEdgeF)+'°F for at least 15 minutes.':'';
             if(reason)comfortProblem={time:new Date(row.to),reason,low:band.low,high:band.high};
         }
         if(config&&isOvernight){const bedside=air.flows.reduce((a,v,i)=>a+(WINDOW_SECTIONS[i].bed?Math.max(0,v):0),0);
@@ -2662,11 +2663,17 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
     const moistureReason=humidMax>M.humidMinutes?'Indoor RH exceeds 65% for '+Math.round(humidMax)+' consecutive minutes after recovery.':'';
     // E: a run that ends before an absence-extended deadline (a stage that ends at the return) has not missed it; comfort at
     // the return is checked separately (returnComfort, D3 returnAt).
-    const deadlinePending=recovery===null&&recoveryDeadline>M.recoveryMinutes&&(+trace.at(-1).time-start.getTime())/60000<=recoveryDeadline+1e-6;
-    const recovered=recovery!==null&&(activeRecovery||recovery<=recoveryDeadline)||deadlinePending;
+    // A run that ends where an absence begins, before the 30-minute deadline (the current stage of a departure plan),
+    // has the same extension: the deadline moves to the return, outside this run.
+    const runMinutes=(+trace.at(-1).time-start.getTime())/60000;
+    const deadlinePending=recovery===null&&(deadlineMoved&&runMinutes<=recoveryDeadline+1e-6||
+        !!options.awayAt?.(+trace.at(-1).time)&&runMinutes<recoveryDeadline-1e-6);
+    // A pending deadline only means the deadline was not missed; recoveryInfo.complete and the stall check keep the
+    // reached-the-band meaning.
+    const recovered=recovery!==null&&(activeRecovery||recovery<=recoveryDeadline),deadlineMet=recovered||deadlinePending;
     const recoveryProgress=recoveryDirection==='heating'?finalIndoor-initialTemperature:initialTemperature-finalIndoor;
     const recoveryStalled=activeRecovery&&!recovered&&recoveryProgress<=0;
-    const comfortReason=(activeRecovery?recoveryFloorBreach:min<floor-1e-6)?'Predicted temperature falls below 65°F.':comfortProblem?.reason||(recoveryStalled?'Available HVAC does not restore comfort in this interval.':!activeRecovery&&!recovered?'Does not reach acceptable temperature within 30 minutes.':'');
+    const comfortReason=(activeRecovery?recoveryFloorBreach:min<floor-1e-6)?'Predicted temperature falls below 65°F.':comfortProblem?.reason||(recoveryStalled?'Available HVAC does not restore comfort in this interval.':!activeRecovery&&!deadlineMet?'Does not reach acceptable temperature within 30 minutes.':'');
     const recoveryInfo=activeRecovery?{direction:recoveryDirection,initial:initialTemperature,minutes:recovery,
         complete:recovered,final:finalIndoor,progress:recoveryProgress,through:trace.at(-1).time}:null;
     const comfortEligible=!comfortReason,moistureEligible=!moistureReason,equipmentEligible=!unsafe.length;
@@ -2960,7 +2967,7 @@ function simulatePlan(phases,envelope,request,scenario=AIR_SCENARIOS[0],rows=nul
     const first=phases[0].setup;
     const activeRows=resume?split.filter(row=>row.from>=resume.time):split;
     const sim=zoneProfile(first.type,envelope,bounds.sleep,first.setpoints,C.metaAwake,request.initial.temperature[0],{
-        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry,comparisonSensor:envelope.comparisonSensor,capacityComparison:envelope.capacityComparison,legacyCapacity:!!envelope.legacyCapacity,coilAdvisory:!!envelope.coilAdvisory,sleepAt:time=>bounds.hasSleep&&time>=+bounds.sleepFrom&&time<+bounds.end&&!isAwayAt(request,time)});
+        rows:activeRows,initialZones:request.initial,frontControl:true,scenario,controlAt:phaseControl(phases),fanSetting:first.fan,stopOnFailure:!diagnostic,capture,carry:resume?.carry,comparisonSensor:envelope.comparisonSensor,capacityComparison:envelope.capacityComparison,legacyCapacity:!!envelope.legacyCapacity,coilAdvisory:!!envelope.coilAdvisory,awayAt:time=>isAwayAt(request,time),sleepAt:time=>bounds.hasSleep&&time>=+bounds.sleepFrom&&time<+bounds.end&&!isAwayAt(request,time)});
     if(activeRows.length&&sim.trace.length)SEARCH_WORK+=Math.max(0,+sim.trace.at(-1).time-activeRows[0].from)/3600000;
     if(resume){sim.trace=[...resume.prefix.trace.filter(p=>+p.time<resume.time),...sim.trace];sim.segments=[...resume.prefix.segments.filter(s=>s.endMs<=resume.time),...sim.segments];}
     const atBedtime=bounds.bedtime?sim.trace.find(p=>+p.time===+bounds.bedtime):null;
@@ -3635,7 +3642,10 @@ function wp7CoilCheck(plan,envelope,request){
     if(!phases.some(p=>WP7_COOLING_TYPES.includes(p.setup.type)))return null;
     const end=plan.trials?.[0]?.trace?.at(-1)?.time;
     const rows=end==null?null:planRows(envelope,request,.5,phases.map(p=>p.time)).filter(r=>r.to<=+end);
-    const env={...envelope,coilAdvisory:true,planCache:null};
+    // v6.6.27 (owner decision): the advisory keeps the pre-v6.6.27 equipment capacities (legacyCapacity) until the
+    // moisture-buffer assumption is reviewed; with the live D2 latent removal the coach dries to ~30% RH in the model
+    // and High fan would be flagged on ordinary hot afternoons. Advisory only; plans use the live capacities.
+    const env={...envelope,coilAdvisory:true,planCache:null,legacyCapacity:true};
     const cases=AIR_SCENARIOS.map(s=>simulatePlan(phases,env,request,s,rows,null,false,true).coil).filter(Boolean);
     const flagged=cases.filter(c=>c.flagMinutes>0),firsts=flagged.map(c=>c.first).filter(Boolean).sort((a,b)=>a.time-b.time);
     const finite=cases.map(c=>c.minColdestF).filter(Number.isFinite);
@@ -3720,6 +3730,11 @@ function bedtimeRecovery(result,envelope,request){
         pair.cool=Math.max(pair.cool,pair.heat+EASYTOUCH.minAutoSpread);
         night=withSetting(night,pair);
     }
+    // v6.6.27 (owner decision): with a qualified plan, the card uses the plan's own overnight setting (the phase in
+    // effect at bedtime), and an unverified card yields to the normal plan instead of replacing it.
+    const qualified=!!(winner?.suitable&&winner.ready);
+    const planNight=qualified?winner.phases?.filter(p=>+p.time<=bedtime).at(-1)?.setup:null;
+    if(planNight?.sleepComfort)night=planNight;
     const dayPhase={time:start,setup},nominal=simulatePlan([dayPhase],envelope,request,AIR_SCENARIOS[0],null,null,false,true);
     const reachedEarly=nominal.trace.some(point=>+point.time<transition&&reached(point));
     // If it reaches the sleep target well before the transition, keep the
@@ -3731,6 +3746,7 @@ function bedtimeRecovery(result,envelope,request){
     const trials=verify(phases),bedroom=readingAt({trials},bedtime,'bedroom');
     const eta=safe(trials)?summarize(trials,bedtime):null;
     const verified=safe(trials)&&casesPass(trials,trial=>trial.ready&&trial.suitable);
+    if(qualified&&!verified)return null;
     return {setup,night,start,switchAt,bedtime,transition,bedroom,eta,verified,
         reviewAt:action?.reviewAt,request,direction,target:sleep.target};
 }

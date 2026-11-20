@@ -15,7 +15,8 @@ test('scale geometry includes open cab and ducted output follows the calibrated 
   close(a.run('q[0]/(q[0]+q[1])'),a.run('ductRearFraction()'));
  }
  // v6.6.15: owner 11/17/2026 garage furnace run calibrates the furnace split to 57% rear (was 70% from the outlet layout).
- a.run("q=zoneHeatGains([0,0],0,10000,'furnace')");close(a.run('q[0]'),5700);close(a.run('q[1]'),4300);
+ // v6.6.27 (R1): joint refit of both garage runs on the WP6 heat pump gives 58% rear.
+ a.run("q=zoneHeatGains([0,0],0,10000,'furnace')");close(a.run('q[0]'),5800);close(a.run('q[1]'),4200);
 });
 test('cab uncertainty changes total load while preserving independent RV-body conductance',()=>{
  const a=app();const body=a.run('envelopeAllocation().body'),rear=a.run('envelopeAllocation().rear');let previous;
@@ -132,10 +133,11 @@ test('owner-confirmed window sides change wind pressure with the same pane and s
 test('furnace and ducted heat use their garage-calibrated rear/front splits',()=>{
  const a=app();
  // Furnace under the owner's bed: aisle and bathroom outlets (rear), weaker sink-cabinet outlet (front).
- // The 11/17/2026 garage run measured a 57% rear share (FURNACE.rearFraction), below the former 70% layout estimate.
+ // The 11/17/2026 garage run measured a 57% rear share (FURNACE.rearFraction), below the former 70% layout estimate;
+ // v6.6.27 (R1) joint refit: 58%.
  const furnace=a.run('zoneHeatGains([0,0],0,10000,"furnace")'),hp=a.run('zoneHeatGains([0,0],0,10000,"hp")');
- assert.ok(Math.abs(furnace[0]-5700)<1e-9&&Math.abs(furnace[1]-4300)<1e-9);
+ assert.ok(Math.abs(furnace[0]-5800)<1e-9&&Math.abs(furnace[1]-4200)<1e-9);
  assert.ok(Math.abs(hp[0]-10000*a.run('ductRearFraction()'))<1e-9);
  for(const g of [furnace,hp])assert.ok(Math.abs(g[0]+g[1]-10000)<1e-9);
- const both=a.run('zoneHeatGains([100,200],0,10000,"furnace")');assert.ok(Math.abs(both[0]-5800)<1e-9&&Math.abs(both[1]-4500)<1e-9);
+ const both=a.run('zoneHeatGains([100,200],0,10000,"furnace")');assert.ok(Math.abs(both[0]-5900)<1e-9&&Math.abs(both[1]-4400)<1e-9);
 });

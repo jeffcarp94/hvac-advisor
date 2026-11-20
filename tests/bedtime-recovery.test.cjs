@@ -1,14 +1,14 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {app}=require('./helpers.cjs');
 
-function fixture(initial,hour,minute,type,crossing,{late='23:00',verified=true,allReach=true}={}){
+function fixture(initial,hour,minute,type,crossing,{late='23:00',verified=true,allReach=true,qualified=true,nightPhase=''}={}){
     const a=app();
     a.run(`forecast.timeZone='America/Chicago';
         clockAt=text=>new Date('2026-11-16T'+text+':00-06:00');
         request={start:clockAt('${hour}:${minute}'),initial:{temperature:[${initial},${initial}]},occupancy:'staying'};
         bounds=planBounds(request.start,request);
         setup=planSetup('${type}',bounds.sleep);
-        result={bounds,winner:{setup,suitable:true,ready:true},request};
+        result={bounds,winner:{setup,suitable:${qualified},ready:${qualified}${nightPhase?`,phases:[{time:+request.start,setup},{time:+bounds.bedtime,setup:${nightPhase}}]`:''}},request${qualified?'':',current:{setup}'}};
         trials=[];
         point=(time,bedroom)=>({time,bedroom});
         simulatePlan=(phases,e,r,scenario)=>{
@@ -50,10 +50,20 @@ test('a rerun at 9:45 PM can recommend switching immediately with fresh readings
 });
 
 test('late recovery shows a conditional overnight ETA and a 9:30 PM rerun prompt',()=>{
-    const a=fixture(58,'21','40','furnace','',{verified:false});
+    // v6.6.27: an unverified card is shown only when no qualified plan exists.
+    const a=fixture(58,'21','40','furnace','',{verified:false,qualified:false});
     assert.equal(a.run('outcome.switchAt'),a.run("+clockAt('22:00')"));
     assert.match(a.run('bedtimeRecoveryHTML(outcome)'),/11:00 PM/);
     assert.match(a.run('bedtimeRecoveryHTML(outcome)'),/fresh readings.*9:30 PM/);
+});
+
+test('v6.6.27: an unverified card yields to a qualified plan; a verified card uses the plan night setting',()=>{
+    const unverified=fixture(58,'21','40','furnace','',{verified:false});
+    assert.equal(unverified.run('outcome'),null);
+    const own=fixture(58,'21','40','furnace','',{nightPhase:"withSetting(planSetup('furnace',true),64)"});
+    assert.equal(own.run('outcome.night.setpoints.heat'),64);
+    assert.equal(own.run('outcome.verified'),true);
+    assert.equal(own.run('trials.slice(1).every(phases=>phases.at(-1).setup.setpoints.heat===64)'),true);
 });
 
 test('a bedtime rerun shows no definite ETA when sleeping comfort is not reached',()=>{

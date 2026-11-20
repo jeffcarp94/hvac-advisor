@@ -7,6 +7,7 @@ function load(a,job){a.setNow(job.start);a.ctx.job=job;a.run(`forecast.timeZone=
  e.site={heading:'S',confirmed:true,cover:{}};`);}
 test('heat pump includes full defrost interruptions and never substitutes furnace',()=>{
  const a=app();a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=false;C.heatPumpMinTemp=30;C.hpCapacityCold=1000;C.hpCapacityWarm=1000;
+ LIVE_CAPACITY.heatScale=.1; // v6.6.27 (D2): the live heat-pump curve ignores C.hpCapacity*; ~1,000 BTU/h keeps it running.
  e={windowStart:new Date('2026-05-10T03:00Z'),windowEnd:new Date('2026-05-10T04:30Z'),wind:0,cloud:0,points:[{time:new Date('2026-05-10T03:00Z'),tOut:40,rh:70,wind:0,cloud:0}]};
  p=zoneProfile('hp',e,true,confirmedSetpoints(true),0,60,{checkEquipment:false});`);
  assert.ok(Math.abs(a.run('p.defrostMinutes')-15)<1e-6);
@@ -37,14 +38,22 @@ test('sleep forbids later thermostat or physical changes even when remote contro
  assert.equal(a.run('p.suitable'),false);assert.match(a.run('p.reason'),/unavailable action/);
 });
 test('AUTO readiness accepts normal cycling only after cooling target has been reached',()=>{
+ // v6.6.27 (owner decision B): readiness allows 30 minutes after bedtime to enter the sleeping band.
  const a=app();load(a,require('./fixtures/winterset-planning-regressions.json')[0]);
  // v6.6.15 calibrated storage and duct split restore the original 63/67 case
  // (v6.6.14 had to use 64/68).
  a.run(`p=simulatePlan([{time:+r.start,setup:withSetting(planSetup('auto',true),{heat:63,cool:67})}],e,r);`);
  assert.equal(a.run('p.ready'),true);
  assert.ok(a.run('p.trace.some(p=>p.bedroom<=68.5)'));
- a.run(`late=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+planBounds(r.start).bedtime,setup:withSetting(planSetup('auto',true),{heat:63,cool:67})}],e,r);`);
- assert.equal(a.run('late.ready'),false);
+ a.run(`b=planBounds(r.start);late=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+b.bedtime,setup:withSetting(planSetup('auto',true),{heat:63,cool:67})}],e,r);
+  off=simulatePlan([{time:+r.start,setup:planSetup('ac',false)},{time:+b.bedtime,setup:planSetup('passive',true)}],e,r,AIR_SCENARIOS[0],null,null,false,true);
+  inBand=p=>p.bedroom>=65&&p.bedroom<=69;within=sim=>sim.trace.some(p=>+p.time>=+b.bedtime&&+p.time<=+b.bedtime+30*60000&&inBand(p));`);
+ // Switching AUTO on at bedtime: outside the band at 10 PM, inside it within 30 minutes, so ready under B.
+ assert.equal(a.run('inBand(late.trace.find(p=>+p.time===+b.bedtime))'),false);
+ assert.equal(a.run('within(late)'),true);assert.equal(a.run('late.ready'),true);
+ // OFF at bedtime never enters the band within 30 minutes: not ready, with the B reason.
+ assert.equal(a.run('within(off)'),false);assert.equal(a.run('off.ready'),false);
+ assert.match(a.run('off.bedtimeReason'),/does not enter the 65–69°F sleeping band \(target 67°F\) within 30 minutes/);
 });
 test('preparation search checks a fine-grid timing island after coarse proposals fail',()=>{
  // The October 2025 fixture has no qualifying fixed COOL night under the v6.6.2+

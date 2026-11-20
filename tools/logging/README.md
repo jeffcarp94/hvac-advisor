@@ -19,7 +19,7 @@ Install `Code.gs` in the dedicated spreadsheet’s bound script project. Save it
 
 The request is a plain-text POST with a JSON object containing `token` and `event`. The event uses the column names in `Code.gs` and schema version 1. Set fields ending in `_json` to JSON strings. The receiver creates the HVAC Run Log tab and writes headers. It preserves existing rows and returns the existing row number on replay.
 
-Columns are only ever appended. v6.6.22 adds `comfort_metric_json` (the WP12 Phase A comfort metric, observation only). After pasting the new `Code.gs` and deploying a new version, the next write extends an existing tab's header in place; older rows keep a blank cell. A header that is not the start of the current list still stops the write. Until the new version is deployed, the old receiver ignores the field.
+Columns are only ever appended. v6.6.22 adds `comfort_metric_json` (the WP12 Phase A comfort metric, observation only); since v6.6.27 the app no longer fills it (comfort metric removed, owner decision), so it logs "missing" and the receiver needs no change. After pasting the new `Code.gs` and deploying a new version, the next write extends an existing tab's header in place; older rows keep a blank cell. A header that is not the start of the current list still stops the write. Until the new version is deployed, the old receiver ignores the field.
 
 For token rotation, keep the retiring token in `HVAC_LOG_PREVIOUS_TOKEN` and set `HVAC_LOG_PREVIOUS_TOKEN_UNTIL_UTC` to its ISO UTC expiration. Replace `HVAC_LOG_TOKEN` with the new value.
 

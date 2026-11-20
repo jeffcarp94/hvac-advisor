@@ -26,7 +26,9 @@ test('natural daytime recovery is checked after 10 AM and after 7 PM',()=>{
 test('projected alternatives retain identical preparation and exact carried bedtime state',()=>{
  // Labeled synthetic clear, steady 48F night (v6.6.15 calibrated model). It yields a
  // qualified plan whose alternatives must share the same preparation and carried bedtime state.
- const a=scenario();a.run(`state.temp=48;state.rh=40;state.cloud=0;r.initial={temperature:[69,69],rh:[35,35]};e=makeEnvelope(r.start,planBounds(r.start).end,'Synthetic clear 48F night',300000)`);a.ctx.structuredClone=structuredClone;a.run(`result=runUnifiedPlan(r,e);records=[];originalEvaluate=evaluatePlan;
+ // v6.6.27: the plan now holds AUTO before bed; inside the 9:30 PM transition window that shows the
+ // bedtime-recovery card instead of the plan card, so this run starts at 9:20 PM, before the window.
+ const a=scenario('2026-10-24T02:20Z');a.run(`state.temp=48;state.rh=40;state.cloud=0;r.initial={temperature:[69,69],rh:[35,35]};e=makeEnvelope(r.start,planBounds(r.start).end,'Synthetic clear 48F night',300000)`);a.ctx.structuredClone=structuredClone;a.run(`result=runUnifiedPlan(r,e);records=[];originalEvaluate=evaluatePlan;
  evaluatePlan=(...args)=>{const p=originalEvaluate(...args);records.push(p);return p;};
  comparisons=periodComparisons(result,planSetups(false),planSetups(true),planRows(e,r));html=renderPlan({...result,comparisons});`);
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);

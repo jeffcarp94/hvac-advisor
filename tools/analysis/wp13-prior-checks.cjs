@@ -8,7 +8,7 @@ const base={ca:229,cm:402,tau:.92,f:.36,w:.61,ff:.58,sf:.605,fm:.50,mx:1,shp:1,u
 const lim={hp:{front:.418,rear:.429,gap:.559},furnace:{front:.456,rear:.443,gap:.470}}; // v6.6.27 residual ⊕ 0.3°F
 // v6.6.27 sets re-derived around the refit (v6.6.21: R {mx .5, f .40, ff .52, w .28}, G {2.8, .35, .65, .30}, LO 295/540/.85, HI 305/630/1.2).
 const SETS=JSON.parse(process.env.SETS||'null'); // optional override {R,G,LO,HI} for exploring candidate sets
-const R=SETS?.R??{mx:.92,f:.387,ff:.569,w:.25},G=SETS?.G??{mx:1.805,f:.336,ff:.683,w:1.481},LO=SETS?.LO??{ca:227,cm:390,tau:.86},HI=SETS?.HI??{ca:232,cm:418,tau:1.02};
+const R=SETS?.R??{mx:.92,f:.387,ff:.568,w:.25},G=SETS?.G??{mx:1.805,f:.336,ff:.683,w:1.481},LO=SETS?.LO??{ca:227,cm:390,tau:.86},HI=SETS?.HI??{ca:232,cm:418,tau:1.02};
 const airflow=s=>{const e=s<0?R:G,k=Math.abs(s);return{mx:Math.exp(Math.log(e.mx)*k),f:base.f+(e.f-base.f)*k,ff:base.ff+(e.ff-base.ff)*k,w:base.w+(e.w-base.w)*k};};
 const storage=s=>{const e=s<0?LO:HI,k=Math.abs(s);return{ca:base.ca+(e.ca-base.ca)*k,cm:base.cm+(e.cm-base.cm)*k,tau:base.tau+(e.tau-base.tau)*k};};
 function check(p,label){const r=errors({...base,...p});

@@ -57,8 +57,9 @@ test('Latin hypercube: each dimension puts one member in each of 31 strata; draw
  for(const [s,i] of [[-1,1],[1,2]]){const f=JSON.parse(a.run(`JSON.stringify(interpolateAirflow(${s}))`)),c=JSON.parse(a.run(`JSON.stringify(AIR_WEATHER_CASES[${i}])`));
   for(const k of ['mix','ductRear','furnaceRear','widthFt'])assert.ok(Math.abs(f[k]-c[k])<1e-12,k);}
  assert.deepEqual(JSON.parse(a.run('JSON.stringify(interpolateStorage(0))')),JSON.parse(a.run('JSON.stringify({solarToMass:STORAGE.solarToMass,airTotal:STORAGE.airTotal,massTotal:STORAGE.massTotal,massTauHours:STORAGE.massTauHours})')));
- // Furnace rear share stays within the owner-decided 0.52–0.65.
- assert.equal(a.run('members.every(m=>(m.furnaceRear??FURNACE.rearFraction)>=.52-1e-12&&(m.furnaceRear??FURNACE.rearFraction)<=.65+1e-12)'),true);
+ // Furnace rear share stays within the data-supported family ends (v6.6.16 0.52–0.65; v6.6.27 re-derived
+ // the same way around the R1 refit: 0.568–0.683).
+ assert.equal(a.run('members.every(m=>(m.furnaceRear??FURNACE.rearFraction)>=.568-1e-12&&(m.furnaceRear??FURNACE.rearFraction)<=.683+1e-12)'),true);
  // D2-gated items are not sampled: capacities, WP6 airflow and changeover stay at their live values.
  assert.equal(a.run('members.every(m=>!m.ensemble.params||["capacity","changeover","furnaceOutput"].every(k=>!(k in m.ensemble.params)))'),true);
 });
@@ -104,7 +105,7 @@ test('the nominal member reproduces the working-case trial exactly; member conte
  // A member's installation draws reach the helpers it affects.
  a.run('MEMBER_PARAMS=members[4].ensemble.params;st=zoneStorage();g=zoneInternalGains(0,0,true,true);MEMBER_PARAMS=null;st0=zoneStorage();');
  assert.ok(Math.abs(a.run('st.air[0]+st.air[1]')-a.run('members[4].ensemble.draws.storage.airTotal'))<1e-9);
- assert.ok(Math.abs(a.run('st0.air[0]+st0.air[1]')-297)<1e-9);
+ assert.ok(Math.abs(a.run('st0.air[0]+st0.air[1]')-229)<1e-9); // v6.6.27 (R1) refit air storage (was 297)
  assert.ok(Math.abs(a.run('g[0]')-a.run('(members[4].ensemble.draws.gains.multiPlusStandby+members[4].ensemble.draws.gains.sleepPhoneCharging)*WATTS_TO_BTU_H'))<1e-9);
 });
 
