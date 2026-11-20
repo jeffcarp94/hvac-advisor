@@ -50,7 +50,7 @@ test('lag is continuous across a cached restart and leaves the live envelope and
     assert.equal(a.run('JSON.stringify(full.segments)!==JSON.stringify(JSON.parse(baseline).segments)'),true);
 });
 
-test('synthetic heating and cooling fixtures avoid repeated calls less than three minutes apart',()=>{
+test('synthetic heating and cooling fixtures have no call shorter than, or starting within, three minutes',()=>{
     const a=scene();
     for(const [mode,out,initial,setpoint,operation] of [['hp',55,61,66,'hp'],['ac',88,77,72,'ac']]){
         for(const fan of ['Auto','Low']){
@@ -65,6 +65,10 @@ test('synthetic heating and cooling fixtures avoid repeated calls less than thre
                 assert.ok(a.run(`summary.blocks.some(b=>b.operation==='${operation}')`),`${mode} ${fan} ${lag}`);
                 assert.ok(a.run("summary.blocks.filter(b=>b.operation!=='off').every((b,i,c)=>i===0||b.start-c[i-1].start>=180000)"),
                     `${mode} ${fan} ${lag}`);
+                // v6.6.26: the scope's WP3 no-chatter rule itself: no completed call (one that ends before the
+                // horizon) is shorter than 3 minutes. Shortest at v6.6.26: 3.22 min (heat pump, zero lag).
+                assert.ok(a.run("summary.blocks.filter(b=>b.operation!=='off'&&b.end<end).every(b=>b.end-b.start>=180000)"),
+                    `call shorter than 3 min: ${mode} ${fan} ${lag}`);
             }
         }
     }

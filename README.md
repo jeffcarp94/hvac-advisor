@@ -1,3 +1,8 @@
+# v6.6.26 — defect fixes: site elevation, WP3 no-chatter test
+
+- **Site elevation was never used (fixed).** Since v6.6.12 the app was meant to use the NWS grid elevation for air pressure (humidity and air-density math). It looked for the elevation's unit under the wrong field name, so every live forecast fell back to sea-level pressure ("Sea-level pressure assumed" on the plan, `elevation_m` "missing" in every logged row). It now reads the NWS field correctly. Effect on your 5:28 PM run, rebuilt at an assumed 340 m: the same recommendations and pass counts, predictions within 0.01°F. Your next plan should say "NWS grid elevation … m" and log `elevation_m`.
+- **WP3 no-chatter check now matches the scope.** The test checked only that thermostat calls start at least 3 minutes apart; it now also checks that no completed call is shorter than 3 minutes. The 2.79-minute call noted in v6.6.14 no longer occurs (shortest now 3.22 minutes, with the comparison-only +3°F sensor offset and no lag). Nothing in the app changed for this item.
+
 # v6.6.25 — comfort metric and predictions for Leaving and Away runs (logging only)
 
 - **What was wrong.** For "Leaving the coach" and "Currently away" runs, the plan cards are summaries that don't carry the predicted temperature track. The comfort metric (`comfort_metric_json`, and the Comfort metric panel) and the 30-minute and 2-hour predictions (`prediction_30min_json`, `prediction_2h_json`, `prediction_next_action_json`) read that track, so they were blank on every Leaving/Away run since v6.6.22 (your rows 8–11 on November 19). Staying runs were not affected.
