@@ -2080,19 +2080,225 @@ function wp6HeatSource(previous,roofF,settings){
     if(previous==='furnace')return roofF>returnAt?'hp':'furnace';
     return roofF<=switchAt?'furnace':'hp';
 }
-// WP7 (decision D1): experimental physics coil-icing comparison. Advisory only: it never changes
-// eligibility, ranking, timing or the existing coolingPolicy screen. Uses the experimental WP6 coil
-// model in parallel (live AC capacity unchanged). ΔT_cold 4°F is a fixed low-confidence prior, not
-// fitted to any fixture; a flag is an instantaneous crossing, not proof that frost accumulates.
-const WP7_COIL=Object.freeze({coldDeltaF:4,flagAtF:32,
+// WP7 (decision D1): physics coil-icing comparison. Advisory only: it never changes eligibility, ranking, timing or
+// the existing coolingPolicy screen. Since v6.6.28 (WP14) it uses the same cycle model as plan capacity and flags
+// accumulated frost (see cycleFrostStep), not an instantaneous surface crossing.
+const WP7_COIL=Object.freeze({
     // Micro-Air EasyTouch RV 350 Reference Manual 2.0 p.7: Full Auto "automatically adjusts the speed
     // based on the difference between setpoint and inside temperature"; thresholds are not documented,
     // and the Dometic zone board performs the staging. Until verified, AUTO is assessed at Low while
     // the compressor runs; the CCC2 staging (autoFanSpeed) is reported alongside.
     autoAssumedFan:'Low'});
-function wp7CoilState(returnF,w,outF,pressure,fan){
-    const coil=wp6CoolingOutput(returnF,w,outF,pressure,fan),coldestF=coil.adpF-(MEMBER_PARAMS?.coilColdDeltaF??WP7_COIL.coldDeltaF);
-    return{fan,adpF:coil.adpF,leavingSaturationF:coil.leavingSaturationF,coldestF,flag:coldestF<=WP7_COIL.flagAtF,clamped:coil.clamped,shr:coil.shr,cfm:coil.cfm};
+// WP14 (v6.6.28, owner-approved November 20, 2026): vapor-compression cycle model of the rooftop AC.
+// One model for plan cooling capacity and the coil-icing advisory. The evaporating temperature is where
+// compressor flow, capillary flow and coil heat transfer balance, so lower airflow, drier return air and milder
+// outdoor air make the coil colder physically (and a hot condenser makes it warmer) instead of through
+// capacity curves applied below their validated airflow range (EnergyPlus DX coils: rated 300–450 CFM/ton,
+// operating ≥ 200; this unit is about 224 CFM/ton at High).
+// Sources and labels (model-assumptions.md, v6.6.28):
+// - Rating anchor (OEM-proxy, Dometic Brisk II 15K heat pump B59196, ISO 5151 T1): 4,396 W (15,000 BTU/h) cooling at
+//   27 °C / 19 °C WB indoor and 35 °C outdoor, 1,725 W input; 280 CFM High (retailer listing).
+// - Compressor input 1,475 W = 1,725 W − about 250 W for the fan motor (Eng; 2.5 A, 1/5 hp Brisk II motor).
+// - Rated evaporating 42 °F, condensing 118 °F, 10 °F superheat and subcooling (Eng: typical R-410A operation for a
+//   low-airflow coil and a 95 °F condenser; sensitivity reported).
+// - Fan speeds (Eng): one 3-speed motor drives the evaporator blower and the condenser fan (dual-shaft Dometic motor;
+//   replacement Brisk II motor 3315332.005 / Genteq F48AF70A61 listed at 1650/1500/1350 rpm), so both airflows
+//   scale with speed (fan law): Medium 0.909, Low 0.818. Condenser airflow 1,000 CFM at High (Eng).
+// - Metering: capillary tube (Eng; typical of RV rooftop units, not verified for B59186). Choked flow, m ∝ Pcond^0.5,
+//   10 °F subcooling; when the capillary passes less than the compressor can pump the evaporator is starved
+//   (superheat rises, suction pressure falls); otherwise it floods (no superheat).
+// - Coil: Braun–Klein–Mitchell wet-coil effectiveness with an infinite refrigerant capacity rate (ASHRAE Trans.
+//   95(2), 1989); wet or dry by the larger heat transfer; refrigerant-side to air-side conductance 3:1 (Eng); air-side
+//   conductance ∝ airflow^0.6 (Eng, fin-tube j-factor scaling). Superheat on a parallel face fraction (dry, ε-NTU).
+// - Compressor: displacement with volumetric efficiency 1 − 0.04((Pc/Pe)^(1/1.15) − 1) and an isentropic efficiency
+//   fitted at the rating; R-410A properties from CoolProp 6 fits (max error 0.03% psat, 0.014 kJ/kg Δh_is).
+// - Condenser inlet = outdoor air + 2 °F × (solar gain / clear-sky peak) for the rooftop shroud (Eng; a measured
+//   platform-mounted rooftop unit saw 0.3 °C, Wray & Akbari 2008; an RV unit sits on the roof).
+// - Frost (advisory): deposition only where the surface is below 32 °F and the air's dew point; Lewis analogy; frost
+//   density from Hayashi et al. (1977), 650·e^(0.227·Ts°C) kg/m³; melting during off-cycles by convection (fixed fan) or
+//   natural convection 5 W/m²K (AUTO, fan stops). Flag when frost reaches 0.43 mm, half the gap between fins at
+//   14 fins/in (Eng; fin pitch not published). Air-side film 60 W/m²K, fin efficiency 0.85 (Eng).
+const R410A_FIT=Object.freeze({
+    lnRhoSuc:[7.268008853e-07,-8.791540533e-05,0.03192395423,3.381705222],
+    hSucKJ:[-2.191397322e-05,-0.003000130382,0.3487395613,427.4926516],
+    hLiqKJ:[6.756097565e-05,-0.002528927257,1.636826704,190.1497913],
+    lnPsat:[-7.303886775e-10,5.25295592e-07,-0.0001245174484,0.03190254134,13.5899431],
+    dhIsKJ:[-0.1855066105,-0.8659303214,0.8827259651,0.00485950339,-0.002645551316,-0.002611824147,-1.69256605e-05,5.64556599e-06,5.092761917e-07,8.394769349e-06]
+});
+const CYCLE=Object.freeze({
+    rated:{inC:27,wbC:19,ambC:35,coolKW:4.39607,compKW:1.475,teC:(42-32)/1.8,tcC:(118-32)/1.8,highCfm:280,condCfm:1000},
+    fanRatio:{High:1,Medium:1500/1650,Low:1350/1650},
+    kappa:3,kappaVapor:1,airExponent:.6,clearance:.04,polytropic:1.15,capillaryExponent:.5,
+    superheatC:5.556,fitSuperheatC:5.556,roofSolarF:2,
+    frost:{hOutside:60,finEfficiency:.85,naturalH:5,flagMm:.43,fusionJPerKg:333500,finGapMm:1.7,
+        // Blower against the duct system (frost feedback): Dometic gives 0.55–1.10 in. W.C. total static at High with filter and
+        // grille (installation manual, Table C); 0.8 in. used, 0.2 in. of it across the wet coil, PSC shut-off 1.4 in. at High (Eng).
+        staticInWC:.8,coilInWC:.2,shutoffInWC:1.4}
+});
+const CY_CFM=.00047194745;
+function cyPoly(c,x){let a=0;for(const k of c)a=a*x+k;return a;}
+function cyPsat(t){return Math.exp(cyPoly(R410A_FIT.lnPsat,t));}
+function cyCpv(te){return 1.116+.0085*(te-5);}
+function cyHG(te){return cyPoly(R410A_FIT.hSucKJ,te)-cyCpv(te)*CYCLE.fitSuperheatC;}
+function cyRho(te,sh){return Math.exp(cyPoly(R410A_FIT.lnRhoSuc,te))*(te+CYCLE.fitSuperheatC+273.15)/(te+sh+273.15);}
+function cyHLiq(tc){return cyPoly(R410A_FIT.hLiqKJ,tc);}
+function cyDhIs(te,tc,sh){const k=R410A_FIT.dhIsKJ;
+    return (k[0]+k[1]*te+k[2]*tc+k[3]*te*te+k[4]*te*tc+k[5]*tc*tc+k[6]*te**3+k[7]*te*te*tc+k[8]*te*tc*tc+k[9]*tc**3)*(te+sh+273.15)/(te+CYCLE.fitSuperheatC+273.15);}
+function cyEtaV(te,tc){return 1-CYCLE.clearance*(Math.pow(cyPsat(tc)/cyPsat(te),1/CYCLE.polytropic)-1);}
+// Psychrometrics in °C (same Magnus form as saturationPa; over ice below 0 °C for frost).
+function cySatW(c,pressure){const pv=c>=0?610.78*Math.exp(17.27*c/(237.3+c)):611.15*Math.exp(22.452*c/(272.55+c));return .62198*pv/(pressure-pv);}
+function cyHSat(c,pressure){return wp6Enthalpy(c,cySatW(c,pressure));}
+function cyAirDensity(c,w,pressure){return (pressure-pressure*w/(.62198+w))/(287.055*(c+273.15));}
+function cyBisect(f,lo,hi,n=30){let flo=f(lo);for(let i=0;i<n;i++){const m=(lo+hi)/2,fm=f(m);if((fm>0)===(flo>0)){lo=m;flo=fm;}else hi=m;}return (lo+hi)/2;}
+function cyEvaporator(inC,w,pressure,m,te,UAo,UAi,profile=false){
+    const cpa=1.006+1.86*w,hin=wp6Enthalpy(inC,w),hse=cyHSat(te,pressure),Ca=m*cpa;
+    const UAd=1/(1/UAo+1/UAi),ntuD=UAd/Ca,qD=(1-Math.exp(-ntuD))*Ca*(inC-te),ntuO=UAo/Ca;
+    let cs=(cyHSat(te+3,pressure)-hse)/3,qW=0,ntuS=0,tsEff=te;
+    for(let i=0;i<4;i++){
+        ntuS=1/(cpa/UAo+cs/UAi)/m;qW=m*(hin-hse)*(1-Math.exp(-ntuS));
+        const hsEff=hin-qW/m/(1-Math.exp(-ntuO));
+        tsEff=cyBisect(c=>cyHSat(c,pressure)-hsEff,-45,60,26);
+        if(Math.abs(tsEff-te)>.05)cs=(cyHSat(tsEff,pressure)-hse)/(tsEff-te);
+    }
+    const wsEff=cySatW(tsEff,pressure),wet=wsEff<w&&qW>qD;
+    let r;
+    if(wet){const wout=wsEff+(w-wsEff)*Math.exp(-ntuO),latent=m*(w-wout)*2501;r={q:qW,latent,sensible:qW-latent,wout,wet};}
+    else r={q:Math.max(0,qD),latent:0,sensible:Math.max(0,qD),wout:w,wet:false};
+    if(profile){
+        // Surface temperature along the air path from the local balance (air side vs refrigerant side).
+        const N=9;let rate=0,frac=0,prev=null,minTs=Infinity;
+        for(let k=0;k<N;k++){
+            const x=k/(N-1);let ts,wa;
+            if(wet){const ha=hse+(hin-hse)*Math.exp(-ntuS*x);wa=wsEff+(w-wsEff)*Math.exp(-ntuO*x);
+                ts=cyBisect(t=>UAo/cpa*(ha-cyHSat(t,pressure))-UAi*(t-te),te,inC,26);}
+            else{const ta=te+(inC-te)*Math.exp(-ntuD*x);ts=(UAo*ta+UAi*te)/(UAo+UAi);wa=w;}
+            const dep=ts<0?Math.max(0,UAo/cpa*(wa-cySatW(ts,pressure))):0;
+            if(prev){rate+=(prev.dep+dep)/2*(x-prev.x);frac+=(prev.ts<0&&ts<0?1:prev.ts<0||ts<0?.5:0)*(x-prev.x);}
+            prev={x,ts,dep};minTs=Math.min(minTs,ts);
+        }
+        r.minSurfaceC=minTs;r.frostRate=rate;r.frostFraction=frac;
+    }
+    return r;
+}
+function cyWithSuperheat(inC,w,pressure,m,te,UAo,UAi,mr,hliq){
+    const full=cyEvaporator(inC,w,pressure,m,te,UAo,UAi),need=mr*(cyHG(te)-hliq);
+    if(!(full.q>0))return null;
+    const phi=need/full.q;if(phi>=1)return {flooded:true};
+    const cpa=1.006+1.86*w,Ca=(1-phi)*m*cpa,Cv=mr*cyCpv(te),UAsh=(1-phi)*UAo*CYCLE.kappaVapor/(1+CYCLE.kappaVapor);
+    const Cmin=Math.min(Ca,Cv),cr=Cmin/Math.max(Ca,Cv),ntu=UAsh/Cmin;
+    const eps=cr<1?(1-Math.exp(-ntu*(1-cr)))/(1-cr*Math.exp(-ntu*(1-cr))):ntu/(1+ntu);
+    const qsh=eps*Cmin*(inC-te),wout=phi*full.wout+(1-phi)*w,q=need+qsh,latent=m*(w-wout)*2501;
+    return {flooded:false,phi,sh:qsh/Cv,q,latent,sensible:q-latent,wout,wet:full.wet};
+}
+let CYCLE_CAL=null;
+// Analysis only (tools/analysis): airflow scale for sensitivity runs (e.g. a loaded filter); clear CYCLE_GRID after changing.
+const CYCLE_ANALYSIS={airflowScale:1};
+function cycleCalibration(){
+    if(CYCLE_CAL)return CYCLE_CAL;
+    const R=CYCLE.rated,p=SEA_LEVEL_PA,ws=cySatW(R.wbC,p);
+    const w=(wp6Enthalpy(R.wbC,ws)-4.186*R.wbC*ws-1.006*R.inC)/(2501+1.86*R.inC-4.186*R.wbC);
+    const m=R.highCfm*CY_CFM*cyAirDensity(R.inC,w,p),hl=cyHLiq(R.tcC);
+    const mr=R.coolKW/(cyHG(R.teC)+cyCpv(R.teC)*CYCLE.superheatC-hl);
+    const disp=mr/(cyEtaV(R.teC,R.tcC)*cyRho(R.teC,CYCLE.superheatC));
+    const etaIs=mr*cyDhIs(R.teC,R.tcC,CYCLE.superheatC)/R.compKW;
+    const mc=R.condCfm*CY_CFM*cyAirDensity(R.ambC,.01,p),Cc=mc*1.02,eps=(R.coolKW+R.compKW)/(Cc*(R.tcC-R.ambC)),UAc=-Cc*Math.log(1-eps);
+    const UAo=cyBisect(u=>{const e=cyWithSuperheat(R.inC,w,p,m,R.teC,u,CYCLE.kappa*u,mr,hl);return !e||e.flooded?-1:e.sh-CYCLE.superheatC;},.05,20,40);
+    const A=UAo*1000/(CYCLE.frost.hOutside*CYCLE.frost.finEfficiency);
+    return CYCLE_CAL=Object.freeze({w,m,mr,disp,etaIs,mc,UAc,UAo,UAi:CYCLE.kappa*UAo,kCap:mr/Math.pow(cyPsat(R.tcC),CYCLE.capillaryExponent),areaM2:A});
+}
+function cyCompressor(te,tc,sh){const K=cycleCalibration(),mr=cyEtaV(te,tc)*cyRho(te,sh)*K.disp;return {mr,w:mr*cyDhIs(te,tc,sh)/K.etaIs};}
+// Exact solution (kW internally). Returns BTU/h, °F and lb/h.
+function cycleSolve(inF,w,condF,pressure,fan,airflowScale=1){
+    const K=cycleCalibration(),inC=wp6Celsius(inF),ambC=wp6Celsius(condF),r=CYCLE.fanRatio[fan]??1;
+    w=Math.min(w,cySatW(inC,pressure));
+    const m=r*CYCLE_ANALYSIS.airflowScale*airflowScale*K.m*cyAirDensity(inC,w,pressure)/cyAirDensity(CYCLE.rated.inC,K.w,SEA_LEVEL_PA);
+    const UAo=K.UAo*Math.pow(m/K.m,CYCLE.airExponent),UAi=K.UAi;
+    const mc=r*K.mc*cyAirDensity(ambC,.01,pressure)/cyAirDensity(CYCLE.rated.ambC,.01,SEA_LEVEL_PA);
+    const Cc=mc*1.02,eps=1-Math.exp(-K.UAc*Math.pow(mc/K.mc,CYCLE.airExponent)/Cc);
+    let tc=ambC+15,te=5,sh=CYCLE.superheatC,ev=null,mode='starved',work=0;
+    for(let outer=0;outer<12;outer++){
+        const hl=cyHLiq(tc),mcap=K.kCap*Math.pow(cyPsat(tc),CYCLE.capillaryExponent);
+        let shS=sh,teS=te,evS=null;
+        for(let k=0;k<5;k++){
+            teS=cyBisect(t=>cyCompressor(t,tc,shS).mr-mcap,-40,inC-.2,26);
+            evS=cyWithSuperheat(inC,w,pressure,m,teS,UAo,UAi,mcap,hl);
+            if(!evS||evS.flooded)break;shS=evS.sh;
+        }
+        if(evS&&!evS.flooded){mode='starved';te=teS;sh=shS;ev=evS;}
+        else{
+            mode='flooded';sh=0;
+            te=cyBisect(t=>cyEvaporator(inC,w,pressure,m,t,UAo,UAi).q-cyCompressor(t,tc,0).mr*(cyHG(t)-hl),-40,inC-.2,26);
+            const f=cyEvaporator(inC,w,pressure,m,te,UAo,UAi);ev={...f,phi:1,sh:0};
+        }
+        work=cyCompressor(te,tc,sh).w;
+        const next=ambC+(ev.q+work)/(eps*Cc);
+        if(Math.abs(next-tc)<.02){tc=next;break;}
+        tc=(tc+next)/2;
+    }
+    const prof=cyEvaporator(inC,w,pressure,m,te,UAo,UAi,true),phi=ev.phi??1;
+    return {total:ev.q*3412.142,sensible:ev.sensible*3412.142,latent:ev.latent*3412.142,waterLbHr:m*(w-ev.wout)*7936.641,
+        shr:ev.q>0?ev.sensible/ev.q:1,teF:wp6Fahrenheit(te),tcF:wp6Fahrenheit(tc),superheatF:sh*1.8,mode,wet:ev.wet,compressorKW:work,
+        minSurfaceF:wp6Fahrenheit(prof.minSurfaceC),frostRateKgS:phi*prof.frostRate,frostAreaM2:phi*prof.frostFraction*K.areaM2,
+        cfm:CYCLE.rated.highCfm*r,clamped:false};
+}
+// Lazily filled grid (return air 2 °F, return dew point 2.5 °F, condenser inlet 5 °F; per fan and 500 Pa pressure
+// band) with trilinear interpolation, so the cycle is solved only at the grid corners a run touches.
+const CYCLE_GRID=new Map(),CYCLE_KEYS=['total','sensible','latent','waterLbHr','teF','tcF','superheatF','minSurfaceF','frostRateKgS','frostAreaM2'];
+function cycleCorner(i,j,k,fan,pBand,f=20){
+    const key=fan+'|'+pBand+'|'+f+'|'+i+'|'+j+'|'+k;let v=CYCLE_GRID.get(key);
+    if(!v){const inF=i*2,dew=Math.min(j*2.5,inF),pressure=pBand*500;
+        const s=cycleSolve(inF,humidityRatio(dew,100,pressure),k*5,pressure,fan,f/20);
+        v=CYCLE_KEYS.map(n=>s[n]);CYCLE_GRID.set(key,v);}
+    return v;
+}
+function cycleCoolingOutput(inF,w,condF,pressure,fan,airflowScale=1){
+    fan=CYCLE.fanRatio[fan]?fan:'High';
+    // Airflow scale (frost feedback, advisory only) in 0.05 steps, interpolated between neighbours.
+    const fs=wp6Clamp(airflowScale,.2,1)*20,f0=Math.floor(fs),ff=fs-f0;
+    const pBand=Math.round(pressure/500),p=pBand*500,dew=Math.min(dpFromRatio(w,p),inF);
+    const x=wp6Clamp(inF,40,110)/2,y=wp6Clamp(dew,-20,85)/2.5,z=wp6Clamp(condF,0,150)/5;
+    const i=Math.floor(x),j=Math.floor(y),k=Math.floor(z),fx=x-i,fy=y-j,fz=z-k,out=new Array(CYCLE_KEYS.length).fill(0);
+    for(let a=0;a<2;a++)for(let b=0;b<2;b++)for(let c=0;c<2;c++){
+        const weight=(a?fx:1-fx)*(b?fy:1-fy)*(c?fz:1-fz);if(!weight)continue;
+        for(let d=0;d<2;d++){const wf=d?ff:1-ff;if(!wf)continue;
+            const v=cycleCorner(i+a,j+b,k+c,fan,pBand,f0+d);for(let n=0;n<v.length;n++)out[n]+=weight*wf*v[n];}
+    }
+    const r=Object.fromEntries(CYCLE_KEYS.map((n,idx)=>[n,out[idx]]));
+    r.total=Math.max(0,r.total);r.sensible=Math.max(0,Math.min(r.total,r.sensible));r.latent=Math.max(0,r.total-r.sensible);r.waterLbHr=Math.max(0,r.waterLbHr);
+    r.shr=r.total>0?r.sensible/r.total:1;r.frostRateKgS=Math.max(0,r.frostRateKgS);r.frostAreaM2=Math.max(0,r.frostAreaM2);
+    r.cfm=CYCLE.rated.highCfm*CYCLE.fanRatio[fan]*airflowScale;r.clamped=inF<40||inF>110||dew< -20||condF<0||condF>150;
+    return r;
+}
+// Frost feedback (advisory): frost narrows the fin gaps on the frosted part of the coil; the coil pressure drop rises as
+// (gap/free gap)^3 there (laminar channel flow) and the blower (fan curve s²·P0·(1−(Q/(s·Qmax))²), fan laws) settles at
+// lower airflow. Returns airflow relative to the clean coil at the same speed.
+function cycleFrostAirflow(frostMm,frostFraction,fan){
+    const F=CYCLE.frost,s=CYCLE.fanRatio[fan]??1,qmax=1/Math.sqrt(1-F.staticInWC/F.shutoffInWC);
+    const blockage=(1-frostFraction)+frostFraction*Math.pow(F.finGapMm/Math.max(.05*F.finGapMm,F.finGapMm-2*frostMm),3);
+    const flow=b=>cyBisect(q=>s*s*F.shutoffInWC*(1-(q/(s*qmax))**2)-((F.staticInWC-F.coilInWC)*q*q+F.coilInWC*Math.pow(q,1.5)*b),0,s*qmax,30);
+    return frostMm>0?flow(blockage)/flow(1):1;
+}
+// Frost on the coil (advisory): mass per area on the frosted part, density from the deposition temperature.
+function cycleFrostStep(state,coil,minutes,returnF,fanRunning,fan){
+    const F=CYCLE.frost,s=state||{kgM2:0,density:0,peakMm:0,fraction:0},seconds=minutes*60;
+    const hO=F.hOutside*Math.pow(CYCLE.fanRatio[fan]??1,CYCLE.airExponent);
+    if(coil){ // compressor running
+        if(coil.frostAreaM2>1e-6&&coil.frostRateKgS>0){
+            const tsC=Math.min(0,wp6Celsius(coil.minSurfaceF)),rho=650*Math.exp(.227*Math.max(-25,tsC)),add=coil.frostRateKgS/coil.frostAreaM2*seconds;
+            s.density=s.kgM2+add>0?(s.kgM2*s.density+add*rho)/(s.kgM2+add):rho;s.kgM2+=add;
+            s.fraction=Math.max(s.fraction,coil.frostAreaM2/cycleCalibration().areaM2);
+        }else if(s.kgM2>0)s.kgM2=Math.max(0,s.kgM2-hO*Math.max(0,wp6Celsius(coil.minSurfaceF))*seconds/F.fusionJPerKg);
+    }else if(s.kgM2>0){
+        const h=fanRunning?hO:F.naturalH;
+        s.kgM2=Math.max(0,s.kgM2-h*Math.max(0,wp6Celsius(returnF))*seconds/F.fusionJPerKg);
+    }
+    s.mm=s.kgM2>0&&s.density>0?s.kgM2/s.density*1000:0;if(!s.mm)s.fraction=0;s.peakMm=Math.max(s.peakMm,s.mm);
+    s.airflow=cycleFrostAirflow(s.mm,s.fraction,fan);
+    return s;
+}
+function wp7CoilState(returnF,w,condF,pressure,fan,airflowScale=1){
+    const c=cycleCoolingOutput(returnF,w,condF,pressure,fan,airflowScale);
+    return{fan,minSurfaceF:c.minSurfaceF,teF:c.teF,superheatF:c.superheatF,frostRateKgS:c.frostRateKgS,frostAreaM2:c.frostAreaM2,coil:c,clamped:c.clamped};
 }
 // WP10 (v6.6.20): wind and infiltration. Pinned sources:
 // - Local wind: ASHRAE power law as in the EnergyPlus Engineering Reference ("Outside Surface Heat
@@ -2404,7 +2610,7 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
     const initialCoilLb=options.carry?.initialCoilLb??options.initialCoilWaterLb??0;
     let wb=options.moistureBuffer===false?null:bufferEquilibrium(t.map((v,z)=>rhFromRatio(v,w[z],pressure))),coilWater={water:options.initialCoilWaterLb??0,onHours:0}; // initialCoilWaterLb: test hook only
     let didCool=false,didHeat=false,heatMinutes=0,coolMinutes=0,capacityCool=false,capacityHeat=false,heatingFloorLimited=false;
-    const coilLog=options.coilAdvisory?{coolingMinutes:0,flagMinutes:0,stagedFlagMinutes:0,minColdestF:null,first:null,clamped:false,autoAssumed:false}:null;
+    const coilLog=options.coilAdvisory?{coolingMinutes:0,flagMinutes:0,stagedFlagMinutes:0,minSurfaceF:null,peakFrostMm:0,stagedPeakFrostMm:0,frostMinutes:0,first:null,clamped:false,autoAssumed:false,frost:null,stagedFrost:null}:null;
     let hpRunMinutes=0,defrostRemaining=0,defrostMinutes=0;
     let priorDehumHeat=0,dehumRuntimeMinutes=0,moistureTotals={occupants:0,dehumidifier:0,ac:0,outside:0,acDrained:0,coilEvaporated:0,bufferUptake:0,dehumidifierReturned:0},initialWaterLb=w.reduce((sum,v,z)=>sum+v*airMass[z],0)+(wb?wb[0]+wb[1]:0);
     let condensedLb=0,humidRun=0,humidMax=0,surfaceRun=[0,0],surfaceMax=0,minMargin=Infinity,maxRH=0,minRH=100,maxSurfaceRH=0;
@@ -2434,7 +2640,8 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
     const capacityModel=options.legacyCapacity||envelope.legacyCapacity?options.capacityComparison:(options.capacityComparison??LIVE_CAPACITY); // v6.6.27 (D2)
     const comparisonSettings=capacityModel?{...capacityModel,rating:capacityModel.rating??(capacityModel.leavingRH==null&&capacityModel.highCfm==null?WP6_NOMINAL_RATING:
         wp6Rating(capacityModel.leavingRH,capacityModel.highCfm))}:null;
-    const peakSolar=comparisonSettings?.roofHeatF?solarPeakGains().reduce((sum,value)=>sum+value,0):0;
+    // v6.6.28 (WP14): the rooftop condenser inlet adds a solar increment (CYCLE.roofSolarF at the clear-sky peak).
+    const peakSolar=solarPeakGains().reduce((sum,value)=>sum+value,0);
     let heatSource=carry?.comparisonHeatSource??comparisonSettings?.startHeatSource??'hp';
     let runningMin=t[0],sensorReading=sensor?(carry?.sensorReading??t[1]+sensor.bias):null;
     if(carry){
@@ -2484,7 +2691,7 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
         const ua=conductionUA(assemblies,row.wind);
         const uaTotal=ua[0]+ua[1]+outsideHeatFactor*bgTotal;
         let operation='off',q=0,duty=0,cooling=null;
-        const roofF=out;
+        const roofF=out,condF=roofF+(peakSolar>0?(comparisonSettings?.roofHeatF??CYCLE.roofSolarF)*wp6Clamp(row.solar/peakSolar,0,1):0);
         if(comparisonSettings)heatSource=wp6HeatSource(heatSource,roofF,comparisonSettings);
         if(thermostatMode(mode)){
             const control={phase};operation=thermostatDemand(mode,sensed,sp,control,out);phase=control.phase;
@@ -2508,10 +2715,11 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
             const fan=comparisonSettings&&maxFan==='Auto'?autoFanSpeed(sensed,target):maxFan;
             let capacity=operation==='ac'?C.acSensibleCapacity:operation==='furnace'?C.furnaceOutput:heatPumpCapacity(out);
             if(comparisonSettings&&operation==='ac'){
-                const roofIncrement=peakSolar?(comparisonSettings.roofHeatF??0)*wp6Clamp(row.solar/peakSolar,0,1):0;
-                cooling=wp6CoolingOutput(t[1],sharedW,roofF+roofIncrement,pressure,fan,comparisonSettings);
+                // v6.6.28 (WP14): cooling from the cycle model; coolModel:'wp6' keeps the EnergyPlus curves for analysis.
+                cooling=comparisonSettings.coolModel==='wp6'?wp6CoolingOutput(t[1],sharedW,condF,pressure,fan,comparisonSettings):
+                    cycleCoolingOutput(t[1],sharedW,condF,pressure,fan);
                 capacity=cooling.sensible;
-                if(cooling.clamped)warnings.add('Experimental cooling curve clamped an input to its published domain.');
+                if(cooling.clamped)warnings.add('The cooling model clamped an input to its modeled range.');
             }else if(comparisonSettings&&operation==='hp'){
                 const heat=wp6HeatOutput(roofF,fan,comparisonSettings);
                 capacity=heat.btuh;
@@ -2583,15 +2791,29 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
                 workRows.splice(rowIndex,1,{...row,to:split,dt:first},{...row,from:split,dt:dt-first});rowIndex--;continue;
             }
         }
-        if(coilLog&&operation==='ac'&&duty>0){
-            // Compressor running: entering (return) air is the front zone at the start of the step.
-            const auto=maxFan==='Auto',assessed=wp7CoilState(t[1],sharedW,roofF,pressure,auto?WP7_COIL.autoAssumedFan:maxFan);
-            const staged=auto?wp7CoilState(t[1],sharedW,roofF,pressure,autoFanSpeed(sensed,sp.cool)):assessed,minutes=dt*60;
-            coilLog.coolingMinutes+=minutes;coilLog.autoAssumed||=auto;coilLog.clamped||=assessed.clamped;
-            coilLog.minColdestF=Math.min(coilLog.minColdestF??Infinity,assessed.coldestF);
-            if(assessed.flag){coilLog.flagMinutes+=minutes;coilLog.first??={time:row.from,mode,setpoint:sp.cool,fan:maxFan,assessedFan:assessed.fan,
-                coldestF:assessed.coldestF,adpF:assessed.adpF,returnF:t[1],outdoorF:roofF,indoorDewPointF:dpFromRatio(sharedW,pressure)};}
-            if(staged.flag)coilLog.stagedFlagMinutes+=minutes;
+        if(coilLog){
+            // v6.6.28 (WP14): frost builds on the coil while the compressor runs (entering air = front zone at the start
+            // of the step) and melts while it is off; a flag means accumulated frost reached CYCLE.frost.flagMm.
+            const minutes=dt*60,auto=maxFan==='Auto',running=operation==='ac'&&duty>0;
+            const fanRunning=!!maxFan&&!auto&&!['passive','maxxfan'].includes(mode);
+            if(running){
+                const assessedFan=auto?WP7_COIL.autoAssumedFan:maxFan,stagedFan=auto?autoFanSpeed(sensed,sp.cool):assessedFan;
+                // Frost feedback acts on the coil state only; plan capacity and the trajectory are unchanged (advisory).
+                const assessed=wp7CoilState(t[1],sharedW,condF,pressure,assessedFan,coilLog.frost?.airflow??1),
+                    staged=auto?wp7CoilState(t[1],sharedW,condF,pressure,stagedFan,coilLog.stagedFrost?.airflow??1):assessed;
+                coilLog.frost=cycleFrostStep(coilLog.frost,assessed,minutes,t[1],true,assessedFan);
+                coilLog.stagedFrost=auto?cycleFrostStep(coilLog.stagedFrost,staged,minutes,t[1],true,stagedFan):coilLog.frost;
+                coilLog.coolingMinutes+=minutes;coilLog.autoAssumed||=auto;coilLog.clamped||=assessed.clamped;
+                coilLog.minSurfaceF=Math.min(coilLog.minSurfaceF??Infinity,assessed.minSurfaceF);
+                if(coilLog.frost.mm>=CYCLE.frost.flagMm&&!coilLog.first)coilLog.first={time:row.to,mode,setpoint:sp.cool,fan:maxFan,assessedFan,
+                    minSurfaceF:assessed.minSurfaceF,frostMm:coilLog.frost.mm,returnF:t[1],outdoorF:roofF,condenserF:condF,indoorDewPointF:dpFromRatio(sharedW,pressure)};
+            }else if(coilLog.frost?.kgM2>0||coilLog.stagedFrost?.kgM2>0){
+                coilLog.frost=cycleFrostStep(coilLog.frost,null,minutes,t[1],fanRunning,maxFan);
+                coilLog.stagedFrost=auto?cycleFrostStep(coilLog.stagedFrost,null,minutes,t[1],false,maxFan):coilLog.frost;
+            }
+            if(coilLog.frost){if(coilLog.frost.mm>0)coilLog.frostMinutes+=minutes;if(coilLog.frost.mm>=CYCLE.frost.flagMm)coilLog.flagMinutes+=minutes;
+                coilLog.peakFrostMm=Math.max(coilLog.peakFrostMm,coilLog.frost.peakMm);}
+            if(coilLog.stagedFrost){if(coilLog.stagedFrost.mm>=CYCLE.frost.flagMm)coilLog.stagedFlagMinutes+=minutes;coilLog.stagedPeakFrostMm=Math.max(coilLog.stagedPeakFrostMm,coilLog.stagedFrost.peakMm);}
         }
         if(sensor)sensorReading=advanceComparisonSensor(sensorReading,t[1],nextT[1],dt,sensor);
         t=nextT;tm=stepped.mass;
@@ -3642,16 +3864,16 @@ function wp7CoilCheck(plan,envelope,request){
     if(!phases.some(p=>WP7_COOLING_TYPES.includes(p.setup.type)))return null;
     const end=plan.trials?.[0]?.trace?.at(-1)?.time;
     const rows=end==null?null:planRows(envelope,request,.5,phases.map(p=>p.time)).filter(r=>r.to<=+end);
-    // v6.6.27 (owner decision): the advisory keeps the pre-v6.6.27 equipment capacities (legacyCapacity) until the
-    // moisture-buffer assumption is reviewed; with the live D2 latent removal the coach dries to ~30% RH in the model
-    // and High fan would be flagged on ordinary hot afternoons. Advisory only; plans use the live capacities.
-    const env={...envelope,coilAdvisory:true,planCache:null,legacyCapacity:true};
+    // v6.6.28 (WP14, owner direction November 20, 2026): one model. The advisory runs on the live cycle model that sets
+    // plan capacity (the v6.6.27 legacyCapacity hold is retired). Advisory only.
+    const env={...envelope,coilAdvisory:true,planCache:null};
     const cases=AIR_SCENARIOS.map(s=>simulatePlan(phases,env,request,s,rows,null,false,true).coil).filter(Boolean);
     const flagged=cases.filter(c=>c.flagMinutes>0),firsts=flagged.map(c=>c.first).filter(Boolean).sort((a,b)=>a.time-b.time);
-    const finite=cases.map(c=>c.minColdestF).filter(Number.isFinite);
+    const finite=cases.map(c=>c.minSurfaceF).filter(Number.isFinite);
     return{cases:cases.length,cooling:cases.filter(c=>c.coolingMinutes>0).length,flagged:flagged.length,
         stagedFlagged:cases.filter(c=>c.stagedFlagMinutes>0).length,autoAssumed:cases.some(c=>c.autoAssumed),
-        flagMinutes:Math.max(0,...cases.map(c=>c.flagMinutes)),minColdestF:finite.length?Math.min(...finite):null,
+        flagMinutes:Math.max(0,...cases.map(c=>c.flagMinutes)),minSurfaceF:finite.length?Math.min(...finite):null,
+        peakFrostMm:Math.max(0,...cases.map(c=>c.peakFrostMm)),frostCases:cases.filter(c=>c.peakFrostMm>0).length,
         first:firsts[0]||null,clamped:cases.some(c=>c.clamped)};
 }
 function wp7CoilAdvisory(result,envelope,request){
@@ -3680,10 +3902,10 @@ function wp7CoilAdvisoryHTML(advisory,request){
     if(!advisory?.flagged)return '';
     const c=advisory.check,f=c.first;
     let html='<div class="mitigation-box" id="coilAdvisory"><strong>Coil-icing advisory (experimental; this recommendation is unchanged)</strong>'+
-        '<p>The experimental coil model flags possible icing at this fan setting. The current cooling check permits this setup.</p>'+
+        '<p>The coil model predicts frost building up on the cooling coil at this fan setting. The current cooling check permits this setup.</p>'+
         '<p class="hint">Flagged in '+c.flagged+' of '+c.cases+' tested conditions'+(f?', first at '+escapeHTML(formatTime(new Date(f.time)))+' ('+escapeHTML(f.fan)+' fan'+
-        (f.fan==='Auto'?', assessed at '+escapeHTML(f.assessedFan):'')+'; estimated coldest coil surface '+f.coldestF.toFixed(1)+'°F, return air '+f.returnF.toFixed(1)+'°F, outdoor '+f.outdoorF.toFixed(1)+'°F)':'')+
-        '. The model estimates the coldest coil surface as the apparatus dew point minus '+WP7_COIL.coldDeltaF+'°F and flags '+WP7_COIL.flagAtF+'°F or colder while the compressor runs. A flag is not an observation of ice.</p>';
+        (f.fan==='Auto'?', assessed at '+escapeHTML(f.assessedFan):'')+'; coldest coil surface '+f.minSurfaceF.toFixed(1)+'°F, return air '+f.returnF.toFixed(1)+'°F, outdoor '+f.outdoorF.toFixed(1)+'°F)':'')+
+        '. The model follows the refrigeration cycle (coil, compressor, capillary tube and condenser), grows frost only where the coil surface is below 32°F and the air\'s dew point, melts it between compressor runs, and flags when it reaches '+CYCLE.frost.flagMm+' mm, enough to start blocking airflow between the fins. A little frost that melts between runs is not flagged. A flag is not an observation of ice.</p>';
     if(c.autoAssumed)html+='<p class="hint">With the AUTO fan, the flag assumes the fan can run at Low while the compressor runs. Micro-Air does not document the speed thresholds. With the CCC2 staging the app otherwise uses, it flags in '+c.stagedFlagged+' of '+c.cases+'.</p>';
     const alt=advisory.alternative;
     if(alt){
@@ -4655,7 +4877,7 @@ function recordRunLog(event,result,nextAction){
         // WP7 (D1) comparison record for the review trigger: flagged cases, first flag and fan basis.
         const coil=result.coilAdvisory?.check;
         event.coil_advisory=coil?JSON.stringify({flagged:coil.flagged,cases:coil.cases,staged_flagged:coil.stagedFlagged,auto_assumed:coil.autoAssumed,
-            min_coldest_f:coil.minColdestF==null?null:+coil.minColdestF.toFixed(1),first_utc:coil.first?new Date(coil.first.time).toISOString():null,
+            min_surface_f:coil.minSurfaceF==null?null:+coil.minSurfaceF.toFixed(1),peak_frost_mm:+coil.peakFrostMm.toFixed(2),first_utc:coil.first?new Date(coil.first.time).toISOString():null,
             first_fan:coil.first?.fan??null,alternative:!!result.coilAdvisory.alternative}):'no cooling';
         // comfort_metric_json: not filled since v6.6.27 (WP12 comfort metric removed, owner decision); logs missing.
     }
