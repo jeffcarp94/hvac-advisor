@@ -2486,9 +2486,20 @@ function acMoistureRemoval(w,duty,pressure=SEA_LEVEL_PA,density=1){
 // class, transfer evidence), split by zone volume and exchanging with each zone's RH at
 // τ_b = 4 h. Stored as mass, never as an equivalent humidity ratio, so temperature or pressure
 // changes cannot create or destroy water.
-const MOISTURE_BUFFER={areaM2:40,mbvGramsPerM2RH:.75,tauHours:4};
+const MOISTURE_BUFFER={areaM2:40,mbvGramsPerM2RH:.75,tauHours:4,
+    // v6.6.28: fast layer (Eng). Furnishings exchange moisture with the air within minutes, so an AC run that removes
+    // more water than the air holds does not swing room RH by tens of points. Textiles (bedding, cushions, curtains:
+    // about 30 m² at 0.33 g/(m²·%RH), cotton isotherm slope × 300 g/m²) plus other hygroscopic surfaces at the
+    // penetration depth of a 20-minute cycle (about 50 m² × 0.15 g/(m²·%RH), MBV scaled by √(20 min / 8 h)): about
+    // 17 g/%RH, roughly three times the coach air. Coupling 3 minutes (surface mass transfer ≈ 0.0025 m/s over
+    // about 80 m² against 28 m³ of air). EnergyPlus EMPD guidance treats the surface layer the same way, sized by the
+    // period of the humidity swing (Woods, Winkler & Christensen, NREL/TP-5500-57441).
+    fastGramsPerRH:17,fastTauHours:.05};
 function bufferCapacityLbPerRH(){return MOISTURE_BUFFER.areaM2*MOISTURE_BUFFER.mbvGramsPerM2RH/453.59237*(MEMBER_PARAMS?.bufferScale??1);}
 function bufferEquilibrium(rh){return M.fraction.map((f,z)=>bufferCapacityLbPerRH()*f*Math.max(0,Math.min(100,rh[z])));}
+function fastBufferCapacityLbPerRH(){return MOISTURE_BUFFER.fastGramsPerRH/453.59237*(MEMBER_PARAMS?.fastBufferScale??1);}
+// Moisture storage state: slow layer [front, rear], then fast layer [front, rear].
+function bufferState(rh){return [...bufferEquilibrium(rh),...M.fraction.map((f,z)=>fastBufferCapacityLbPerRH()*f*Math.max(0,Math.min(100,rh[z])))];}
 function rhSlope(tF,w,pressure=SEA_LEVEL_PA){return 100*pressure*.62198/((.62198+w)**2*saturationPa(tF));}
 // buffer (optional): {mass:[lb,lb], temperatures:[°F,°F]}. Solved implicitly with the air balance
 // (isotherm linearized about the step-start state); the air–buffer exchange is exactly conserved.
@@ -2496,9 +2507,10 @@ function mixedMoistureStep(w,tFront,sourceLbHr,outdoorCFM,outdoorW,dt,enabled,
     pressure=SEA_LEVEL_PA,airMass=M.volumeFt3.reduce((a,b)=>a+b)*.075,outdoorDensity=1,buffer=null){
     const outsideMassFlow=4.5*outdoorDensity*outdoorCFM;
     let denominator=airMass/dt+outsideMassFlow,rhs=airMass/dt*w+sourceLbHr+outsideMassFlow*outdoorW;
-    const exchange=buffer?buffer.temperatures.map((tz,z)=>({b:bufferCapacityLbPerRH()*M.fraction[z],a:rhFromRatio(tz,w,pressure),s:rhSlope(tz,w,pressure),m:buffer.mass[z]})):[];
-    const lag=(MEMBER_PARAMS?.bufferTauHours??MOISTURE_BUFFER.tauHours)+dt;
-    exchange.forEach(x=>{denominator+=x.b*x.s/lag;rhs+=(x.m-x.b*(x.a-x.s*w))/lag;});
+    const slowLag=(MEMBER_PARAMS?.bufferTauHours??MOISTURE_BUFFER.tauHours)+dt,fastLag=MOISTURE_BUFFER.fastTauHours+dt;
+    const exchange=buffer?buffer.mass.map((m,i)=>{const z=i%2,tz=buffer.temperatures[z],fast=i>=2;
+        return{b:(fast?fastBufferCapacityLbPerRH():bufferCapacityLbPerRH())*M.fraction[z],a:rhFromRatio(tz,w,pressure),s:rhSlope(tz,w,pressure),m,lag:fast?fastLag:slowLag};}):[];
+    exchange.forEach(x=>{denominator+=x.b*x.s/x.lag;rhs+=(x.m-x.b*(x.a-x.s*w))/x.lag;});
     const uncontrolled=rhs/denominator,performance=dehumidifierPerformance(tFront,rhFromRatio(tFront,w,pressure));
     const requested=enabled&&performance.running?Math.max(0,(uncontrolled-humidityRatio(tFront,50,pressure))*denominator):0;
     // Returned moisture: while the humidistat cycles, 15% of each cycle's removal re-evaporates,
@@ -2511,7 +2523,7 @@ function mixedMoistureStep(w,tFront,sourceLbHr,outdoorCFM,outdoorW,dt,enabled,
     // electrical runtime includes the cycling loss, rather than weakening capacity.
     const runtime=partLoad/(.95+.05*partLoad),electricalBTU=enabled?performance.powerBTU*runtime:0;
     const water=(rhs-removal)/denominator;
-    const flux=exchange.map(x=>(x.b*(x.a+x.s*(water-w))-x.m)/lag);
+    const flux=exchange.map(x=>(x.b*(x.a+x.s*(water-w))-x.m)/x.lag);
     // Net latent release only: returned water condenses and re-evaporates in the same zone.
     return{water,removal,grossRemoval:gross,returned:gross-removal,partLoad,runtime,electricalBTU,
         heatBTU:electricalBTU+removal*M.latentBTUPerLb,capacityLbHr:capacity,
@@ -2628,11 +2640,11 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
     // WP9: the moisture buffer starts in equilibrium with each zone's starting room-air RH, and the
     // AC coil starts dry (labeled assumptions). Buffer and coil water carry through checkpoints.
     const initialCoilLb=options.carry?.initialCoilLb??options.initialCoilWaterLb??0;
-    let wb=options.moistureBuffer===false?null:bufferEquilibrium(t.map((v,z)=>rhFromRatio(v,w[z],pressure))),coilWater={water:options.initialCoilWaterLb??0,onHours:0}; // initialCoilWaterLb: test hook only
+    let wb=options.moistureBuffer===false?null:bufferState(t.map((v,z)=>rhFromRatio(v,w[z],pressure))),coilWater={water:options.initialCoilWaterLb??0,onHours:0}; // initialCoilWaterLb: test hook only
     let didCool=false,didHeat=false,heatMinutes=0,coolMinutes=0,capacityCool=false,capacityHeat=false,heatingFloorLimited=false;
     const coilLog=options.coilAdvisory?{coolingMinutes:0,flagMinutes:0,stagedFlagMinutes:0,minSurfaceF:null,peakFrostMm:0,stagedPeakFrostMm:0,frostMinutes:0,first:null,clamped:false,autoAssumed:false,frost:null,stagedFrost:null}:null;
     let hpRunMinutes=0,defrostRemaining=0,defrostMinutes=0;
-    let priorDehumHeat=0,dehumRuntimeMinutes=0,moistureTotals={occupants:0,dehumidifier:0,ac:0,outside:0,acDrained:0,coilEvaporated:0,bufferUptake:0,dehumidifierReturned:0},initialWaterLb=w.reduce((sum,v,z)=>sum+v*airMass[z],0)+(wb?wb[0]+wb[1]:0);
+    let priorDehumHeat=0,dehumRuntimeMinutes=0,moistureTotals={occupants:0,dehumidifier:0,ac:0,outside:0,acDrained:0,coilEvaporated:0,bufferUptake:0,dehumidifierReturned:0},initialWaterLb=w.reduce((sum,v,z)=>sum+v*airMass[z],0)+(wb?wb.reduce((a,b)=>a+b,0):0);
     let condensedLb=0,humidRun=0,humidMax=0,surfaceRun=[0,0],surfaceMax=0,minMargin=Infinity,maxRH=0,minRH=100,maxSurfaceRH=0;
     let deadlineMoved=false,recoveryDeadline=M.recoveryMinutes,warmRun=0,warmMax=0,coldRun=0,coldMax=0,severeRun=0,severeMax=0,recovery=null,freezeRisk=null,condensationConcern=null,failureTime=null,comfortProblem=null,surfaceConcern=null;
     // WP13 (D3) severity: bedroom degree-minutes outside the applicable band (warm × 2, existing policy) and
@@ -2895,7 +2907,7 @@ function zoneProfileCore(mode,envelope,isOvernight,setpoints,meta,startIndoor,op
     // WP9 ledger. Room water = air + buffer; the coil (which starts dry) is tracked separately, and
     // only drained water leaves through the AC. residualLb closes the whole-coach balance.
     const moistureLedger=()=>{
-        const airWaterLb=w.reduce((sum,v,z)=>sum+v*airMass[z],0),bufferLb=wb?wb[0]+wb[1]:0,finalWaterLb=airWaterLb+bufferLb;
+        const airWaterLb=w.reduce((sum,v,z)=>sum+v*airMass[z],0),bufferLb=wb?wb.reduce((a,b)=>a+b,0):0,finalWaterLb=airWaterLb+bufferLb;
         const residualLb=initialWaterLb+initialCoilLb+moistureTotals.occupants+moistureTotals.outside-moistureTotals.acDrained-moistureTotals.dehumidifier-condensedLb-finalWaterLb-coilWater.water;
         return{condensedLb,initialWaterLb,finalWaterLb,airWaterLb,bufferLb,coilWaterLb:coilWater.water,residualLb,buffer:!!wb,totals:{...moistureTotals},
             dehumRuntimeMinutes,maxRH,minRH,minMargin,maxSurfaceRH,surfaceMax,humidMax,estimated:options.initialZones?false:state.indoorRH==null};
