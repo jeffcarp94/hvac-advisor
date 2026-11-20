@@ -1,3 +1,4 @@
+// v6.6.27 (D2): the live heat pump is the WP6 model; shp scales LIVE_CAPACITY.heatScale (and the legacy curve).
 // mx (optional, default 1) scales the forced interzone term as AIR_WEATHER_CASES.mix does;
 // cab (optional, default 3) is AIR_WEATHER_CASES.cabFactor (cab conductance × cab/3).
 // Usage: node tools/analysis/joint-fit.cjs <repo> ['{"u":1,"shp":1}' fixed params] [furnace off minute] [iterations]
@@ -20,7 +21,8 @@ for(const t of tests){t.obs=t.d.minutes.map((m,i)=>({m,front:t.d.front[i],rear:t
  t.points=t.d.minutes.map((m,i)=>({time:new Date(t.base+m*60000),tOut:t.d.garage[i],rh:42,wind:0,cloud:0,precip:'none'})).filter(p=>+p.time>=t.base+(t.on-1)*60000&&+p.time<=t.base+(t.end+1)*60000);}
 function simulate(p,t){
  a.ctx.points=t.points;
- a.run(`STORAGE.airTotal=${p.ca};STORAGE.massTotal=${p.cm};STORAGE.massTauHours=${p.tau};DUCT.rearFraction=${p.f};INTERZONE.widthFt=${p.w};__shp=${p.shp};__u=${p.u??1};FURNACE.rearFraction=${p.ff};FURNACE.toMass=${p.fm??0};C.furnaceOutput=__furn0*${p.sf};
+ a.run(`if(typeof LIVE_CAPACITY!=='undefined')LIVE_CAPACITY.heatScale=${p.shp}; // v6.6.27: shp scales the live WP6 heat pump
+  STORAGE.airTotal=${p.ca};STORAGE.massTotal=${p.cm};STORAGE.massTauHours=${p.tau};DUCT.rearFraction=${p.f};INTERZONE.widthFt=${p.w};__shp=${p.shp};__u=${p.u??1};FURNACE.rearFraction=${p.ff};FURNACE.toMass=${p.fm??0};C.furnaceOutput=__furn0*${p.sf};
   start=new Date(${t.base+t.on*60000});
   r={start,reading:start,initial:{temperature:[${t.d.rear[t.i0]},${t.d.front[t.i0]}],rh:[40,40]},occupancy:'away',remote:false,departure:start,returnTime:new Date(${t.base+(t.end+60)*60000}),actualConfirmed:true};
   e={windowStart:start,windowEnd:new Date(${t.base+t.end*60000}),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,singlePoint:false,points,cloud:0,wind:0,precip:'none',elevationM:300};

@@ -186,7 +186,6 @@ function loggedRun(a,setup){
     a.ctx.structuredClone=structuredClone;
     a.run(`forecast.timeZone='America/Chicago';state.dehumidifierEnabled=true;${setup}
         result=structuredClone(trimPlanResult(runUnifiedPlan(r,e)));html=renderPlan(result);
-        result.comfortEnvelope=e;result.comfort=wp12Comfort(result,e,r); // as the page does (WP12 Phase A)
         complete=result.winner.suitable&&result.winner.ready;
         logged=complete?result.winner:result.current||result.stages?.current?.recommended||result.stages?.departure?.recommended;
         cards=[...html.matchAll(/data-ensemble="([0-9]+)[/]([0-9]+)"/g)].map(m=>m[1]+'/'+m[2]);
@@ -230,9 +229,9 @@ test('partial-run current guidance, whose count the page does not show, logs nul
     assert.equal(a.run('logged.ensemble.evaluated'),32);
     assert.equal(a.run('ensembleDisplayedPlans(result).some(p=>p.ensemble===logged.ensemble)'),false,'the card shows the full-sequence winner only');
     assert.equal(a.run('ev.ensemble_pass_count'),null);
-    // v6.6.25: the staying partial run logs predictions and the comfort metric from result.current itself.
+    // v6.6.25: the staying partial run logs predictions from result.current itself.
     assert.equal(a.run('loggedTracePlan(result)===result.current'),true);
-    assert.ok(a.run('ev.prediction_30min_json'));assert.ok(JSON.parse(a.run('ev.comfort_metric_json')).samples>0);
+    assert.ok(a.run('ev.prediction_30min_json'));assert.equal(a.run('ev.comfort_metric_json??null'),null); // v6.6.27: comfort metric removed
 });
 test('with the nine-case policy (ensemble off) or a partial summary, ensemble_pass_count is null',()=>{
     const a=loggingApp();loggedRun(a,overnight([55,55,55,55,55],false));
@@ -252,15 +251,16 @@ test('readings-only events do not set ensemble_pass_count',()=>{
     assert.equal(a.run("'ensemble_pass_count' in readLogQueue()[0].event"),false);
 });
 
-// v6.6.25 (logging and observation only): leaving/away stage cards are summaries without trajectories; predictions
-// and the comfort metric use result.winner, which executes the cards' setups, only when its control at the start
-// is the logged setup. Labeled synthetic weather (the away-with-Wi-Fi fixture of wp13-search-gate.cjs).
-test('a partial away plan logs predictions and the comfort metric from the plan behind its cards',()=>{
+// v6.6.25 (logging only): leaving/away stage cards are summaries without trajectories; predictions
+// use result.winner, which executes the cards' setups, only when its control at the start
+// is the logged setup. Labeled synthetic weather (the away-with-Wi-Fi fixture of wp13-search-gate.cjs at 35°F, v6.6.27).
+test('a partial away plan logs predictions from the plan behind its cards',()=>{
     const a=loggingApp();
     loggedRun(a,`ENSEMBLE.enabled=true;const s=Date.parse('2026-11-12T06:00:00Z');
         r={occupancy:'away',remote:true,start:new Date(s),reading:new Date(s),departure:new Date(s),returnTime:new Date('2026-11-12T08:00:00Z'),actualConfirmed:true,initial:{temperature:[68,68],rh:[30,30]}};
         r.actual=withSetting(planSetup('hp',false,null,'Low'),67);
-        points=[45,45,45,45,45,45,45].map((tOut,i)=>({time:new Date(s+i*${H}),tOut,rh:35,cloud:1,wind:4,precip:'none'}));
+        points=[35,35,35,35,35,35,35].map((tOut,i)=> // v6.6.27: 35°F keeps this away plan partial
+            ({time:new Date(s+i*${H}),tOut,rh:35,cloud:1,wind:4,precip:'none'}));
         e={windowStart:r.start,windowEnd:new Date(s+7*${H}),timeZone:'America/Chicago',lat:41.3358,lon:-94.0136,points,cloud:1,wind:4,precip:'none'};`);
     assert.equal(a.run('complete'),false);assert.equal(a.run('!!result.stages'),true);
     assert.equal(a.run('ev.run_status'),'partial');
@@ -270,8 +270,7 @@ test('a partial away plan logs predictions and the comfort metric from the plan 
     const p30=JSON.parse(a.run('ev.prediction_30min_json'));
     const nominal=a.run(`result.winner.trials.find(t=>t.member===0).trace.find(p=>+p.time>=+r.start+1800000).bedroom`);
     assert.equal(p30.bed_temp_f,nominal);
-    assert.equal(a.run('ev.comfort_metric_json'),a.run('wp12LogJSON(wp12Comfort(result,e,r))'));
-    assert.ok(a.run('ev.comfort_metric_json'));
+    assert.equal(a.run('ev.comfort_metric_json??null'),null); // v6.6.27: comfort metric removed (owner decision)
 });
 test('a winner that does not start with the logged setup is never used for the log',()=>{
     const a=app();
