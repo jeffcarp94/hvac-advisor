@@ -157,7 +157,7 @@ function weather(url){
   assert.equal(await page.evaluate(()=>!lastPlan.winner.suitable||lastPlan.winner.trials.every(t=>t.trace.every(p=>p.bedroom>=64-1e-6))),true,'accepted plans enforce the 64°F floor (65°F less the v6.6.28 1°F allowance) at every point');
   // v6.6.15: with the calibrated storage this evening can instead show the computed
   // bedtime-recovery card (a timed preparation with the predicted 10 PM bedroom).
-  const text=await page.locator('#results').innerText();assert.match(text,/Next action|No suitable current setup|Recovery before bed[\s\S]*bedroom is projected to be [0-9.–]+°F at 10 PM/i);assert.doesNotMatch(text,/Preparing for Sleep from 9|Not chosen|weighted/);
+  const text=await page.locator('#results').innerText();assert.match(text,/Next action|No suitable current setup|Recovery before bed[\s\S]*(bedroom is projected to be [0-9.–]+°F at 10 PM|Keep this setup through morning)/i); // v6.6.28: with the 1°F allowance the verified card (switch at 10 PM) is also validassert.doesNotMatch(text,/Preparing for Sleep from 9|Not chosen|weighted/);
   await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-evening-plan.png'),fullPage:true});
   const widths=[];for(const width of [390,448,480]){await page.setViewportSize({width,height:950});widths.push(await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})));}
   assert.ok(widths.every(x=>x.width===x.scroll),JSON.stringify(widths));
