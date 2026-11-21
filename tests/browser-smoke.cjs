@@ -43,8 +43,8 @@ function weather(url){
   await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-initial.png'),fullPage:true});console.log('INITIAL',await page.evaluate(()=>({remote:document.getElementById('remoteAccess')?.checked,away:document.getElementById('awayOption')?.disabled,heading:document.getElementById('indoorHeading')?.textContent,loaded:typeof initializePlan})));assert.deepEqual(errors,[]);
   assert.equal(await page.locator('.period-toggle').count(),0);assert.equal(await page.locator('#awayOption').evaluate(e=>e.disabled),false);
   assert.equal(await page.locator('#remoteAccess').isChecked(),true);
-  await page.locator('#parkingObservations summary').click();
-  await page.locator('#logCalibration summary').click(); // v6.7.0: comfort vote and logging sit under Log & calibration
+  await page.locator('#parkingObservations > summary').click();
+  await page.locator('#logCalibration > summary').click(); // v6.7.0: comfort vote and logging sit under Log & calibration
   await page.locator('#comfortObservations summary').click();
   await page.locator('#parkingHeading').selectOption('NW');
   await page.locator('#tree_driver').selectOption('Partial');
@@ -71,7 +71,7 @@ function weather(url){
   }
   await page.emulateMedia({colorScheme:'light'});
   await page.locator('#loggingOptions summary').click();
-  await page.locator('#parkingObservations summary').click();
+  await page.locator('#parkingObservations > summary').click();
   await page.locator('#comfortObservations summary').click();
   assert.equal(await page.locator('#thermostatIsolation').count(),0);
   assert.equal(await page.locator('#departureFields').isVisible(),false);
