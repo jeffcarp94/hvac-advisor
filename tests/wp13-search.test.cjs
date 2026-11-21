@@ -112,7 +112,6 @@ test('display trace: ranges and readings at display boundaries are unchanged',()
  for(const [f,t] of [[0,80],[0,399],[80,200],[200,399]])for(const field of ['bedroom','midCoach','rh','midRH','dewPoint'])
   assert.equal(a.run(`traceRange(Q,${start}+${f}*45000,${start}+${t}*45000,'${field}')`),a.run(`traceRange(P,${start}+${f}*45000,${start}+${t}*45000,'${field}')`));
  for(const m of [0,80,200,399])assert.equal(a.run(`readingAt(Q,${start}+${m}*45000,'bedroom')`),a.run(`readingAt(P,${start}+${m}*45000,'bedroom')`));
- assert.equal(a.run(`frontOutlook(Q.trials,${start},${start}+399*45000)`),a.run(`frontOutlook(P.trials,${start},${start}+399*45000)`));
 });
 
 test('end to end: automatic search renders the same plan as exhaustive; the trimmed Worker result renders identically',()=>{

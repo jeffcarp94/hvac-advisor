@@ -48,11 +48,12 @@ test('complete departure plan carries state, covers each stage and renders the s
  a.run(`prefix=[result.winner.phases[0]];rows=planRows(e,r);before=AIR_SCENARIOS.map(s=>simulatePlan(prefix,e,r,s,rows.filter(x=>x.to<=+r.departure)));
  carried=result.winner.trials.map(t=>t.trace.find(p=>+p.time===+r.departure));`);
  assert.equal(a.run('before.every((t,i)=>JSON.stringify(t.trace.at(-1).water)===JSON.stringify(carried[i].water)&&t.trace.at(-1).bedroom===carried[i].bedroom&&t.trace.at(-1).midCoach===carried[i].midCoach)'),true);
- for(const label of ['Recommended current mode','Other viable current options','Recommended departure mode','Other viable departure options','Recommended overnight mode','Other viable overnight options'])assert.match(a.run('html'),new RegExp(label));
- assert.match(a.run('html'),/Predicted conditions at return/);assert.match(a.run('html'),/11:30 PM/);
+ // v6.7.0 display: one card per stage, each with its other modes (collapsed) and the predicted return temperature.
+ for(const kind of ['current','departure','overnight'])assert.match(a.run('html'),new RegExp('data-stage="'+kind+'"[\\s\\S]*?Other modes'));
+ assert.match(a.run('html'),/Predicted Internal Temperature at 11:30 PM \(back\)/);
  assert.doesNotMatch(a.run('html'),/<details[^>]*\bopen\b|Recommended return mode/);
  a.run(`delete result.envelope.planCache;for(const p of result.plans)for(const t of p.trials){delete t.checkpoints;if(p!==result.winner){t.trace=[];t.segments=[];}};copy=structuredClone(result);workerHTML=renderPlan(copy)`);
- assert.match(a.run('workerHTML'),/Recommended departure mode/);
+ assert.match(a.run('workerHTML'),/data-stage="departure"/);
 });
 test('current and departure modes may differ without inserting any adjustment during the absence',()=>{
  const a=scenario({start:'2026-10-23T17:00Z',departure:'2026-10-23T17:02Z',back:'2026-10-24T14:00Z',temp:85});
@@ -62,7 +63,7 @@ test('current and departure modes may differ without inserting any adjustment du
  assert.ok(['ac','auto'].includes(a.run('result.stages.departure.recommended.setup.type')));
  assert.equal(a.run('result.stages.night'),null);
  assert.equal(a.run('result.winner.trials.every(t=>+t.trace.at(-1).time===+r.returnTime)'),true);
- assert.doesNotMatch(a.run('html'),/Recommended overnight mode/);assert.match(a.run('html'),/No overnight recommendation/);
+ assert.doesNotMatch(a.run('html'),/data-stage="overnight"/);assert.match(a.run('html'),/No overnight plan\./);
 });
 test('identical current and departure setup says keep it; immediate departure omits a zero-length current stage',()=>{
  const a=scenario({back:'2026-10-24T12:00Z',temp:80});
@@ -71,13 +72,13 @@ test('identical current and departure setup says keep it; immediate departure om
  assert.match(a.run('html'),/Keep this setup when you leave/);
  a.run(`r.departure=r.start;result=runUnifiedPlan(r,e);html=renderPlan(result)`);
  assert.equal(a.run('result.stages.current'),null);assert.ok(a.run('result.winner.trials'));
- assert.match(a.run('html'),/Recommended departure mode/);assert.doesNotMatch(a.run('html'),/Recommended current mode/);
+ assert.match(a.run('html'),/data-stage="departure"/);assert.doesNotMatch(a.run('html'),/data-stage="current"/);
 });
 test('a cold current stage prescribes recovery without claiming an unverified later stage',()=>{
  const a=scenario();a.run(`r.initial.temperature=[60,60];result=runUnifiedPlan(r,e);html=renderPlan(result)`);
  assert.ok(a.run('result.stages.current.recommended'));
  assert.ok(a.run("['hp','furnace','auto','auto_furnace'].includes(result.stages.current.recommended.setup.type)"));
- assert.match(a.run('html'),/Warming the RV from 60.0°F/);
+ assert.match(a.run('html'),/The bedroom is 60°F[\s\S]*Heating brings it up toward your 71°F target/);
  if(!a.run('result.stages.departure.recommended'))assert.equal(a.run('result.stages.night?.recommendation??null'),null);
 });
 test('a genuinely failed current stage cannot certify departure or overnight',()=>{
@@ -127,7 +128,7 @@ test('one remote change can prevent a return comfort miss and carries the actual
  assert.equal(a.run('result.winner.phases[0].setup.type'),'passive');
  assert.equal(a.run('result.stages.remoteAction.setup.type'),'ac');
  assert.ok(a.run('result.stages.remoteAction.time>+r.start&&result.stages.remoteAction.time<+r.returnTime'));
- assert.match(a.run('html'),/One remote thermostat adjustment.*COOL at 70°F with High fan/s);
+ assert.match(a.run('html'),/Remote adjustment at [\s\S]*?class="mode cool"[\s\S]*?Set to<\/div><div class="v">70°[\s\S]*?Fan<\/div><div class="v">High[\s\S]*?Micro-Air app/);
  a.run("r.actual={...r.actual,config:{gaps:[0,0,0,4,0,0],fanZone:1}};result=runUnifiedPlan(r,e)");
  assert.equal(a.run('result.stages.remoteAction'),null,'the open window cannot be closed remotely');
  a.run("r.occupancy='leaving';r.remote=false;result=runUnifiedPlan(r,e)");
@@ -151,6 +152,6 @@ test('absence search stays within its work budget and discloses a bounded result
  a.run('e.points.forEach(p=>p.tOut=20);r.remote=true;start=SEARCH_WORK;result=runUnifiedPlan(r,e);used=SEARCH_WORK-start;html=renderPlan(result)');
  assert.ok(a.run('used')<=a.run('PLAN.absenceWorkHours')*1.5,'work '+a.run('used'));
  assert.ok(a.run('result.stages.boundedSearch'));
- assert.match(a.run('html'),/bounded search, not an exhaustive one/);
+ assert.match(a.run('html'),/id="boundedSearchNote"[\s\S]*Not every setup was checked/);
  assert.equal(a.run('result.winner.trials.every(t=>t.trace.every(p=>[p.bedroom,p.midCoach].every(Number.isFinite)))'),true);
 });

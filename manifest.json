@@ -4,8 +4,8 @@
     "description": "Thermodynamic HVAC analysis for Coach House Platinum III 250 DT motorhome",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0f1117",
-    "theme_color": "#1a1a2e",
+    "background_color": "#F5F6F8",
+    "theme_color": "#F5F6F8",
     "orientation": "portrait",
     "icons": [
         {

@@ -98,9 +98,11 @@ test('Winterset evening gives verified current guidance when the complete plan f
  assert.equal(a.run('result.current.trials.length'),32);
  assert.equal(a.run('result.current.reviewAt'),+new Date(winterset.request.start)+30*60000);
  assert.equal(a.run('result.current.trials.every(t=>t.suitable&&+t.trace.at(-1).time===result.current.reviewAt&&t.moisture.humidMax===0)'),true);
- assert.match(a.run('html'),/Select (COOL|HEAT PUMP|FURNACE) at \d+°F|Select AUTO (HEAT PUMP|FURNACE); set HEAT TO \d+°F and COOL TO \d+°F/);assert.match(a.run('html'),/Bed-area comfort takes priority/);assert.match(a.run('html'),/dew point/);
- assert.doesNotMatch(a.run('html'),/No suitable current setup/);
- assert.match(a.run('html'),/Overnight needs reassessment|complete overnight setup has not been verified/);
+ // v6.7.0 display: the current setting shows its mode, set point(s) and fan; the partial-plan line (approved item 3).
+ assert.match(a.run('html'),/class="mode (cool|heat|gas|auto)"[\s\S]*<div class="k">(Set to|Heat to)<\/div><div class="v">\d+°<\/div>[\s\S]*<div class="k">Fan<\/div>/);
+ assert.doesNotMatch(a.run('html'),/No complete plan/);
+ assert.match(a.run('html'),/No setting works all night\.<\/b>None of the tested settings keeps the bedroom between 65–69°F until 7:00 AM without changes\. If you follow this plan into the night \(.+ from \d+:\d\d [AP]M\), .+ Rebuild the plan at \d+:\d\d [AP]M with fresh readings\./);
+ assert.match(a.run('html'),/Recheck at \d+:\d\d [AP]M/);
 });
 test('a future extreme-cold shortfall still provides bounded current guidance',()=>{
  const a=setup();a.run(`shortlistVents=()=>[];planSetups=sleep=>['ac','furnace'].map(type=>planSetup(type,sleep));
@@ -109,7 +111,7 @@ test('a future extreme-cold shortfall still provides bounded current guidance',(
  assert.equal(a.run('result.winner.suitable'),false);assert.ok(a.run('result.current'));
  assert.equal(a.run('result.current.reviewAt'),+new Date(winterset.request.start)+30*60000);
  assert.equal(a.run('result.current.trials.every(t=>t.suitable&&+t.trace.at(-1).time===result.current.reviewAt)'),true);
- assert.match(a.run('html'),/Next action — refresh readings/);// Either disclosure is valid: no outlook at all, or a partial outlook that failed its checks.
- assert.match(a.run('html'),/complete overnight (setup has not been verified|plan has not passed the checks)/i);
+ assert.match(a.run('html'),/Rebuild at \d+:\d\d [AP]M/);// v6.7.0: the partial-plan line, with or without an outlook.
+ assert.match(a.run('html'),/No setting works all night\./);
 });
 
