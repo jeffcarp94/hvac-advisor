@@ -44,7 +44,7 @@ test('a checkpoint inside the saved plan logs predicted and measured values for 
     // The form is prefilled with the plan's setting.
     assert.equal(a.element('cpMode').value,a.run('plannedSetupAt(record,record.start).type'));
     a.setNow(new Date(start+65*60000).toISOString());
-    a.element('cpTime').value=a.run(`inputDate(new Date(${start+65*60000}))`);
+    a.element('cpTime').value=a.run(`inputDate(new Date(${start+65*60000}))`);a.run('checkpointTimeEdited=true');
     const ev=await checkpoint(a);
     assert.equal(ev.event_type,'checkpoint');assert.equal(ev.data_source,'real');
     assert.equal(ev.plan_event_id,a.run('ev.event_id'));
@@ -69,12 +69,12 @@ test('a checkpoint inside the saved plan logs predicted and measured values for 
 
 test('a different setting is marked; a checkpoint after the plan has no prediction',async()=>{
     const a=loggingApp(),start=plannedNight(a);
-    const t=start+30*60000;a.setNow(new Date(t).toISOString());a.element('cpTime').value=a.run(`inputDate(new Date(${t}))`);
+    const t=start+30*60000;a.setNow(new Date(t).toISOString());a.element('cpTime').value=a.run(`inputDate(new Date(${t}))`);a.run('checkpointTimeEdited=true');
     let ev=await checkpoint(a,{cpMode:'ac',cpSetpoint:'60',cpFan:'High'});
     assert.equal(ev.settings_match,'differs');assert.ok(ev.predicted_json);
     assert.match(a.element('cpResult').innerHTML,/Settings differ from the plan\./);
     // After 7:00 AM, when the plan ends.
-    const late=start+10*H;a.setNow(new Date(late).toISOString());a.element('cpTime').value=a.run(`inputDate(new Date(${late}))`);
+    const late=start+10*H;a.setNow(new Date(late).toISOString());a.element('cpTime').value=a.run(`inputDate(new Date(${late}))`);a.run('checkpointTimeEdited=true');
     ev=await checkpoint(a,{cpMode:'passive'});
     assert.equal(a.element('cpStatus').textContent,'');
     assert.equal(ev.reading_utc,new Date(late).toISOString());
@@ -133,6 +133,16 @@ test('observed weather comes from the nearest NWS station with unit conversion',
     assert.deepEqual({...await a.run('fetchObservedWeather(NaN,-94)')},{error:'no location'});
 });
 
+test('an unedited checkpoint time is the save time; an edited one is kept, then reset',async()=>{
+    const a=loggingApp();
+    a.run("forecast.timeZone='America/Chicago';initializeCheckpoints()");const shown=a.element('cpTime').value;
+    a.setNow('2026-10-21T19:30:00Z'); // the tab stayed open for 2.5 hours
+    let ev=await checkpoint(a,{cpMode:'passive'});
+    assert.equal(ev.reading_utc,'2026-10-21T19:30:00.000Z');assert.notEqual(shown,a.element('cpTime').value);
+    a.element('cpTime').value='2026-10-21T13:00';a.run('checkpointTimeEdited=true');
+    ev=await checkpoint(a,{cpMode:'passive'});assert.equal(ev.reading_utc,'2026-10-21T18:00:00.000Z');
+    assert.equal(a.run('checkpointTimeEdited'),false);
+});
 test('the logged app version follows the release version',()=>{
     const a=app();
     const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8'),sw=fs.readFileSync(path.join(__dirname,'..','sw.js'),'utf8');

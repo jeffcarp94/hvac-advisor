@@ -309,7 +309,7 @@
             <label class="field">Humidity % (YoLink)<input id="cpFrontRH" type="number" inputmode="decimal" min="1" max="100" step="any"></label>
         </div>
         <div class="row-inline">
-            <label class="field">Readings taken at<input id="cpTime" type="datetime-local"></label>
+            <label class="field">Readings taken at<input id="cpTime" type="datetime-local" oninput="checkpointTimeEdited=true" onchange="checkpointTimeEdited=true"></label>
             <button class="minor-btn" onclick="checkpointNow()" aria-label="Checkpoint readings taken now">Now</button>
         </div>
         <p class="zone">EasyTouch display</p>
@@ -5228,7 +5228,7 @@ function recordRunLog(event,result,nextAction){
 // misses. Logging and display only: nothing here changes a plan. The simulation box is never saved or carried over.
 const CHECKPOINT_PLAN_KEY='hvac-advisor-checkpoint-plan-v1';
 const CHECKPOINT_STEP_MS=600000; // 10-minute prediction grid saved with each plan (exact member values, display trim)
-let checkpointBusy=false;
+let checkpointBusy=false,checkpointTimeEdited=false; // until the owner edits the time, a checkpoint is taken "now" at save
 function checkpointGrid(start,end){
     const out=[];if(!Number.isFinite(start)||!Number.isFinite(end))return out;
     for(let t=start;t<=end;t+=CHECKPOINT_STEP_MS)out.push(t);
@@ -5285,7 +5285,7 @@ function interpolateSeries(series,time){
 }
 function showCheckpointPlan(){
     const line=document.getElementById('cpPlanLine'),record=readCheckpointPlan();
-    if(!document.getElementById('cpTime').value)document.getElementById('cpTime').value=inputDate(new Date());
+    if(!checkpointTimeEdited||!document.getElementById('cpTime').value){checkpointTimeEdited=false;document.getElementById('cpTime').value=inputDate(new Date());}
     if(!record||Date.now()>record.end){line.textContent='No current plan. Checkpoints are logged without a prediction.';return;}
     line.textContent='Compared with the plan built '+formatTime(new Date(record.saved_utc))+(record.data_source==='simulation'?' (simulation)':'')+'.';
 }
@@ -5304,15 +5304,15 @@ function checkpointModeChanged(){
     document.getElementById('cpAutoFields').hidden=!auto;
     document.getElementById('cpFanField').hidden=type==='passive'||type==='maxxfan';
 }
-function checkpointNow(){document.getElementById('cpTime').value=inputDate(new Date());}
+function checkpointNow(){checkpointTimeEdited=false;document.getElementById('cpTime').value=inputDate(new Date());}
 function checkpointStatus(message){document.getElementById('cpStatus').textContent=message;}
 function readCheckpointInputs(){
     const get=id=>document.getElementById(id).value.trim(),number=id=>get(id)===''?null:Number(get(id));
     const temperature=[number('cpBedTemp'),number('cpFrontTemp')],rh=[number('cpBedRH'),number('cpFrontRH')];
     if(temperature.some(v=>!Number.isFinite(v))||rh.some(v=>!Number.isFinite(v)||v<1||v>100))
         throw new Error('Enter both temperatures and humidity readings from 1–100%.');
-    if(!get('cpTime'))checkpointNow();
-    const reading=parseLocalInput(get('cpTime'),'the checkpoint time');
+    if(!checkpointTimeEdited||!get('cpTime'))checkpointNow();
+    const reading=checkpointTimeEdited?parseLocalInput(get('cpTime'),'the checkpoint time'):new Date();
     if(+reading>Date.now()+5*60000)throw new Error('The checkpoint time is in the future.');
     const type=get('cpMode'),auto=isAutoMode(type),whole=id=>{const v=easyLogInteger(id);if(v===null)throw new Error('Enter the thermostat set point in whole degrees.');return v;};
     const setting={type,heat:null,cool:null,fan_set:null,fan:type==='passive'||type==='maxxfan'?null:get('cpFan')};
@@ -5406,6 +5406,7 @@ function checkpointResultHTML(input,predicted,planned,match,assumed,observed,log
 function clearCheckpointEntry(){
     for(const id of ['cpBedTemp','cpBedRH','cpFrontTemp','cpFrontRH','cpTime','cpEasyTemp','cpEasyOutdoor','cpNotes','voteBedroom','voteFront','voteContext','cpCall'])document.getElementById(id).value='';
     for(const id of ['cpTagCooking','cpTagShower','cpTagDoor','cpTagGuests','cpSimulation'])document.getElementById(id).checked=false;
+    checkpointTimeEdited=false;
 }
 async function saveCheckpoint(){
     if(checkpointBusy)return;
