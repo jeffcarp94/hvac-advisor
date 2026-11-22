@@ -4791,7 +4791,7 @@ const PLAN_VIEW_KEY='hvac-advisor-plan-view-v1',SESSION_KEY='hvac-advisor-sessio
 let sessionRestoring=false;
 function markRecheckPassed(){
     const card=document.getElementById('planCard');if(!card||resultContext.recheckMarked)return;
-    resultContext.recheckMarked=true;card.insertAdjacentHTML('afterbegin','<div id="recheckNote">'+noteHTML('Recheck time passed. ','Build a fresh plan with new readings.','warn')+'</div>');
+    resultContext.recheckMarked=true;card.insertAdjacentHTML?.('afterbegin','<div id="recheckNote">'+noteHTML('Recheck time passed. ','Build a fresh plan with new readings.','warn')+'</div>');
     savePlanView();
 }
 function savePlanView(){
