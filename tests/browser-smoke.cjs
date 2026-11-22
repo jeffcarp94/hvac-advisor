@@ -245,7 +245,8 @@ function weather(url){
   {
    const fixed=await page.evaluate(()=>Date.now()),reopened=await context.newPage();reopened.on('pageerror',e=>errors.push(e.message));
    await reopened.clock.setFixedTime(new Date(fixed));await reopened.goto(base);
-   await reopened.locator('#tabPlan').click();
+   // Wide screen here (Inputs and Plan side by side); a reopened phone opens on the Plan tab.
+   assert.equal(await reopened.locator('#tabPlan').getAttribute('aria-selected'),'true');
    const restored=await reopened.locator('#results').innerText();
    assert.match(restored,/Recheck time passed\./);assert.equal(restored.replace(/\s+/g,' '),(await page.locator('#results').innerText()).replace(/\s+/g,' '));
    assert.equal(await reopened.locator('#emptyPlan').isVisible(),false);
