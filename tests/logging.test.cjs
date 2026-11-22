@@ -19,16 +19,18 @@ function loggingApp() {
     return a;
 }
 
-test('a readings event survives reload and only leaves the queue on matching acknowledgement', async () => {
+// v6.8.0: checkpoints replace "Log readings only" (owner decision, November 22, 2026).
+async function saveCheckpointWith(a, values = {}) {
+    for (const [id, v] of Object.entries({cpBedTemp: '68', cpFrontTemp: '69', cpBedRH: '50', cpFrontRH: '48', cpMode: 'passive', cpOpenings: 'plan',
+        cpDehumidifier: 'on', cpOccupancy: 'in_coach', ...values})) a.element(id).value = v;
+    await a.run('saveCheckpoint()');
+}
+test('a checkpoint event survives reload and only leaves the queue on matching acknowledgement', async () => {
     const a = loggingApp();
-    a.element('bedTemp').value = '68';
-    a.element('frontTemp').value = '69';
-    a.element('bedRH').value = '50';
-    a.element('frontRH').value = '48';
-    a.run('logReadingsOnly()');
+    await saveCheckpointWith(a);
     const id = a.run('readLogQueue()[0].event.event_id');
     assert.ok(id);
-    assert.equal(a.run('readLogQueue()[0].event.event_type'), 'readings_only');
+    assert.equal(a.run('readLogQueue()[0].event.event_type'), 'checkpoint');
     assert.equal(a.run('JSON.stringify(readLogQueue()).includes(readLogSettings().token)'), false);
 
     const reloaded = app();
@@ -120,25 +122,28 @@ test('parking confirmation persists and both a location move and parking reset i
     assert.equal(reloaded.run('captureParkingLog().heading'), 'ENE');
 });
 
-test('readings log keeps separate YoLink timestamps and records the reported vote setup', () => {
+test('plan log keeps separate YoLink timestamps; comfort votes are logged with the checkpoint setting', async () => {
     const a = loggingApp();
     a.element('bedLastUpdated').value = '2026-10-21T11:55';
     a.element('frontLastUpdated').value = '2026-10-21T11:57';
-    a.element('voteBedroom').value = 'Too warm';
-    a.element('voteContext').value = 'Awake in bed';
-    a.element('voteTime').value = '2026-10-21T11:59';
-    a.element('voteMode').value = 'ac';
-    a.element('voteCool').value = '70';
-    a.element('voteFan').value = 'Low';
     a.run(`forecast={...forecast,fetched:true,timeZone:'America/Chicago'};
-        e=captureLogEvent('readings_only',{reading:new Date(),initial:{temperature:[68,69],rh:[50,48]},occupancy:'staying'});`);
+        e=captureLogEvent('plan',{reading:new Date(),initial:{temperature:[68,69],rh:[50,48]},occupancy:'staying'});`);
     assert.equal(a.run('e.bed_last_updated'), '2026-10-21T16:55:00.000Z');
     assert.equal(a.run('e.front_last_updated'), '2026-10-21T16:57:00.000Z');
-    assert.equal(a.run('e.vote_time'), '2026-10-21T16:59:00.000Z');
+    assert.equal(a.run("'vote_bedroom' in e"), false, 'v6.8.0: votes moved to checkpoints');
+    a.element('voteBedroom').value = 'Too warm';
+    await saveCheckpointWith(a, {cpMode: 'ac', cpSetpoint: '70', cpFan: 'Low'});
+    assert.match(a.element('cpStatus').textContent, /context/);
+    assert.equal(a.run('readLogQueue().length'), 0);
+    a.element('voteBedroom').value = 'Too warm';a.element('voteContext').value = 'Awake in bed';
+    await saveCheckpointWith(a, {cpMode: 'ac', cpSetpoint: '70', cpFan: 'Low'});
+    a.run('e=readLogQueue()[0].event');
+    assert.equal(a.run('e.vote_time'), '2026-10-21T17:00:00.000Z');
     assert.equal(a.run('e.vote_bedroom'), 'Too warm');
     assert.equal(a.run('e.actual_mode'), 'ac');
     assert.equal(a.run('e.actual_cool_to'), 70);
     assert.equal(a.run('e.actual_fan'), 'Low');
+    assert.equal(a.element('voteBedroom').value, '', 'votes clear after saving');
 });
 test('phone compass heading wraps, averages across north and snaps to the 16 points',()=>{
     const a=app();
@@ -152,8 +157,7 @@ test('phone compass heading wraps, averages across north and snaps to the 16 poi
 });
 test('an app upgrade keeps a non-empty queue and retries each entry with its original ID and version',async()=>{
     const a=loggingApp();
-    for(const [id,v] of [['bedTemp','68'],['frontTemp','69'],['bedRH','50'],['frontRH','48']])a.element(id).value=v;
-    a.run('logReadingsOnly()');
+    await saveCheckpointWith(a);
     // Simulate an entry written by an older release (v6.6.6) still waiting in storage.
     const queue=JSON.parse(a.ctx.localStorage.getItem(a.run('LOG_QUEUE_KEY')));
     queue[0].event.app_version='6.6.6';a.ctx.localStorage.setItem(a.run('LOG_QUEUE_KEY'),JSON.stringify(queue));
@@ -245,11 +249,10 @@ test('with the nine-case policy (ensemble off) or a partial summary, ensemble_pa
     assert.equal(a.run('logEnsemblePassCount({ensemble:{passes:30,evaluated:32,members:32}})'),30);
     assert.equal(a.run('logEnsemblePassCount(null)'),null);
 });
-test('readings-only events do not set ensemble_pass_count',()=>{
+test('checkpoint events do not set ensemble_pass_count',async()=>{
     const a=loggingApp();
-    for(const [id,v] of [['bedTemp','68'],['frontTemp','69'],['bedRH','50'],['frontRH','48']])a.element(id).value=v;
-    a.run('logReadingsOnly()');
-    assert.equal(a.run('readLogQueue()[0].event.event_type'),'readings_only');
+    await saveCheckpointWith(a);
+    assert.equal(a.run('readLogQueue()[0].event.event_type'),'checkpoint');
     assert.equal(a.run("'ensemble_pass_count' in readLogQueue()[0].event"),false);
 });
 

@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#F5F6F8" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0F1216" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.7.1 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.8.0 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <style>
@@ -37,8 +37,11 @@
         .layout{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
         .inputs-col{flex:1 1 340px;min-width:0;display:flex;flex-direction:column;gap:12px}
         .plan-col{flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:12px}
-        body.view-plan .inputs-col,body:not(.view-plan) .plan-col{display:none}
-        @media (min-width:960px){.view-tabs{display:none}body.view-plan .inputs-col,body:not(.view-plan) .plan-col{display:flex}.inputs-col{max-width:400px}}
+        .checkpoints-col{flex:1 1 340px;min-width:0;display:flex;flex-direction:column;gap:12px}
+        body.view-plan .inputs-col,body.view-checkpoints .inputs-col,body:not(.view-plan) .plan-col,body:not(.view-checkpoints) .checkpoints-col{display:none}
+        @media (min-width:960px){#tabPlan{display:none}body.view-plan .inputs-col,body:not(.view-checkpoints):not(.view-plan) .plan-col{display:flex}.inputs-col{max-width:400px}.checkpoints-col{max-width:560px}}
+        .tags{display:flex;flex-wrap:wrap;gap:0 16px}.tags .check{margin:2px 0}
+        textarea{width:100%;min-height:72px;font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--text)}
         .card,.input-section{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
         .input-section-title,.card h2{font-size:16px;font-weight:700;margin-bottom:10px}
         details.input-section>summary{cursor:pointer;list-style:none;min-height:28px;display:flex;flex-direction:column;justify-content:center;font-size:16px;font-weight:700}
@@ -125,10 +128,11 @@
 </head>
 <body>
 <div class="app">
-    <header class="header"><div class="header-title">HVAC Advisor</div><span class="header-version">v6.7.1</span></header>
+    <header class="header"><div class="header-title">HVAC Advisor</div><span class="header-version">v6.8.0</span></header>
     <nav class="view-tabs" role="tablist" aria-label="View">
         <button type="button" role="tab" id="tabInputs" aria-selected="true" onclick="showView('inputs')">Inputs</button>
         <button type="button" role="tab" id="tabPlan" aria-selected="false" onclick="showView('plan')">Plan</button>
+        <button type="button" role="tab" id="tabCheckpoints" aria-selected="false" onclick="showView('checkpoints')">Checkpoints</button>
     </nav>
     <div class="layout">
     <section class="inputs-col" aria-label="Inputs">
@@ -251,22 +255,10 @@
         </div>
     </details>
 
-    <details class="input-section" id="logCalibration"><summary>Log &amp; calibration<span class="sum">YoLink update times · comfort vote · Sheets logging</span></summary>
+    <details class="input-section" id="logCalibration"><summary>Log &amp; calibration<span class="sum">YoLink update times · Sheets logging</span></summary>
         <p class="sub">YoLink last updated (optional)</p>
         <label class="field">Bedroom<input id="bedLastUpdated" type="datetime-local" aria-label="Bedroom YoLink last updated"></label>
         <label class="field">Front<input id="frontLastUpdated" type="datetime-local" aria-label="Front YoLink last updated"></label>
-        <details id="comfortObservations"><summary class="sub">Comfort vote</summary>
-            <label class="field">Bedroom<select id="voteBedroom"><option value="">No vote</option><option>Too cold</option><option>Comfortable</option><option>Too warm</option></select></label>
-            <label class="field">Front<select id="voteFront"><option value="">No vote</option><option>Too cold</option><option>Comfortable</option><option>Too warm</option></select></label>
-            <label class="field">Context<select id="voteContext"><option value="">Choose context</option><option>Awake in bed</option><option>Awake elsewhere</option><option>Recalled sleep comfort</option></select></label>
-            <label class="field">Vote time (blank = now)<input id="voteTime" type="datetime-local"></label>
-            <label class="field">HVAC mode at vote time<select id="voteMode">
-                <option value="">Current confirmed setup</option><option value="passive">Off</option><option value="ac">Cool</option><option value="hp">Heat pump</option><option value="furnace">Furnace</option><option value="auto">Auto heat pump</option><option value="auto_furnace">Auto furnace</option><option value="maxxfan">MaxxFan</option>
-            </select></label>
-            <label class="field">Heat setting °F<input id="voteHeat" type="number" step="1"></label>
-            <label class="field">Cool setting °F<input id="voteCool" type="number" step="1"></label>
-            <label class="field">Fan<select id="voteFan"><option value="">Unknown</option><option>Auto</option><option>Low</option><option>Medium</option><option>High</option><option>Off</option></select></label>
-        </details>
         <details id="loggingOptions"><summary class="sub">Run logging</summary>
             <label class="check"><input id="logEnabled" type="checkbox"> Log runs to Google Sheets</label>
             <label class="field">Apps Script web app URL<input id="logEndpoint" type="url" autocomplete="off"></label>
@@ -278,7 +270,6 @@
             <p class="hint" id="easyLogAdjustmentChanged"></p>
             <div class="stack-btns">
                 <button type="button" class="minor-btn" onclick="saveLogSettings()">Save logging settings</button>
-                <button type="button" class="minor-btn" onclick="logReadingsOnly()">Log readings only</button>
             </div>
             <p id="logChanged" class="hint"></p>
         </details>
@@ -292,6 +283,7 @@
         </details>
     </details>
     <p id="logStatus" class="hint" role="status" aria-live="polite"></p>
+    <label class="check sim-check" hidden><input id="planSimulation" type="checkbox" autocomplete="off"> Log as simulation (test)</label>
     <div class="build-bar"><p class="hint" id="buildStatus" role="status" aria-live="polite"></p><button class="analyze-btn" id="analyzeBtn" onclick="analyze()">Build plan</button></div>
     </section>
 
@@ -299,6 +291,65 @@
         <div id="resultStatus" class="status-line" role="status" aria-live="polite"></div>
         <div class="results" id="results"></div>
         <p class="empty-plan" id="emptyPlan">Enter readings and build a plan.</p>
+    </section>
+
+    <section class="checkpoints-col" aria-label="Checkpoints">
+    <div id="cpResult"></div>
+    <div class="input-section">
+        <h2 class="input-section-title">Readings</h2>
+        <p class="hint" id="cpPlanLine"></p>
+        <p class="zone">Bedroom</p>
+        <div class="sensor-grid">
+            <label class="field">Temperature °F<input id="cpBedTemp" type="number" inputmode="decimal" step="any"></label>
+            <label class="field">Humidity % (YoLink)<input id="cpBedRH" type="number" inputmode="decimal" min="1" max="100" step="any"></label>
+        </div>
+        <p class="zone">Front</p>
+        <div class="sensor-grid">
+            <label class="field">Temperature °F<input id="cpFrontTemp" type="number" inputmode="decimal" step="any"></label>
+            <label class="field">Humidity % (YoLink)<input id="cpFrontRH" type="number" inputmode="decimal" min="1" max="100" step="any"></label>
+        </div>
+        <div class="row-inline">
+            <label class="field">Readings taken at<input id="cpTime" type="datetime-local"></label>
+            <button class="minor-btn" onclick="checkpointNow()" aria-label="Checkpoint readings taken now">Now</button>
+        </div>
+        <p class="zone">EasyTouch display</p>
+        <div class="sensor-grid">
+            <label class="field">Indoor °F<input id="cpEasyTemp" type="number" inputmode="numeric" step="1"></label>
+            <label class="field">Outdoor °F<input id="cpEasyOutdoor" type="number" inputmode="numeric" step="1"></label>
+        </div>
+        <label class="field">Running now<select id="cpCall"><option value="">Not sure</option><option value="heating">Heating</option><option value="cooling">Cooling</option><option value="fan">Fan only</option><option value="idle">Idle</option></select></label>
+    </div>
+    <div class="input-section">
+        <h2 class="input-section-title">Thermostat and coach</h2>
+        <label class="field">Thermostat mode<select id="cpMode" onchange="checkpointModeChanged()"><option value="passive">OFF</option><option value="ac">COOL</option><option value="hp">HEAT PUMP</option><option value="furnace">FURNACE</option><option value="auto">AUTO HEAT PUMP</option><option value="auto_furnace">AUTO FURNACE</option><option value="maxxfan">OFF — MaxxFan in AUTO</option></select></label>
+        <label class="field" id="cpSetpointField">Set point °F<input id="cpSetpoint" type="number" inputmode="numeric" step="1"></label>
+        <div class="sensor-grid" id="cpAutoFields" hidden>
+            <label class="field">HEAT TO °F<input id="cpHeat" type="number" inputmode="numeric" step="1"></label>
+            <label class="field">COOL TO °F<input id="cpCool" type="number" inputmode="numeric" step="1"></label>
+        </div>
+        <label class="field" id="cpFanField">Fan<select id="cpFan"><option>Auto</option><option>Low</option><option>Medium</option><option>High</option></select></label>
+        <label class="field">Windows and MaxxFans<select id="cpOpenings"><option value="plan">As the plan says</option><option value="different">Different (add a note)</option></select></label>
+        <label class="field">Dehumidifier<select id="cpDehumidifier"><option value="on">On</option><option value="off">Off</option></select></label>
+        <label class="field">Occupancy<select id="cpOccupancy"><option value="in_coach">In the coach</option><option value="away">Away</option></select></label>
+    </div>
+    <div class="input-section">
+        <h2 class="input-section-title">Comfort vote</h2>
+        <label class="field">Bedroom<select id="voteBedroom"><option value="">No vote</option><option>Too cold</option><option>Comfortable</option><option>Too warm</option></select></label>
+        <label class="field">Front<select id="voteFront"><option value="">No vote</option><option>Too cold</option><option>Comfortable</option><option>Too warm</option></select></label>
+        <label class="field">Context<select id="voteContext"><option value="">Choose context</option><option>Awake in bed</option><option>Awake elsewhere</option><option>Recalled sleep comfort</option></select></label>
+    </div>
+    <div class="input-section">
+        <h2 class="input-section-title">Notes</h2>
+        <div class="tags">
+            <label class="check"><input type="checkbox" id="cpTagCooking"> Cooking</label>
+            <label class="check"><input type="checkbox" id="cpTagShower"> Shower</label>
+            <label class="check"><input type="checkbox" id="cpTagDoor"> Door open</label>
+            <label class="check"><input type="checkbox" id="cpTagGuests"> Guests</label>
+        </div>
+        <label class="field">Note<textarea id="cpNotes" maxlength="500"></textarea></label>
+    </div>
+    <label class="check sim-check" hidden><input id="cpSimulation" type="checkbox" autocomplete="off"> Log as simulation (test)</label>
+    <div class="build-bar"><p class="hint" id="cpStatus" role="status" aria-live="polite"></p><button class="analyze-btn" id="cpSaveBtn" onclick="saveCheckpoint()">Save checkpoint</button></div>
     </section>
     </div>
 </div>
@@ -4674,7 +4725,7 @@ function planInputsChanged(){
 function freshReadings(){document.getElementById('readingTime').value=inputDate(new Date());planInputsChanged();}
 function updatePlanUI(){
     const get=id=>document.getElementById(id);
-    if(formTimeZone&&formTimeZone!==analysisTimeZone())for(const id of ['readingTime','departureTime','returnTime','futureStart','easyLogTime','bedLastUpdated','frontLastUpdated','voteTime']){const field=get(id);if(field.value){try{field.value=inputDate(parseLocalInput(field.value,id,formTimeZone));}catch{field.value='';}}}
+    if(formTimeZone&&formTimeZone!==analysisTimeZone())for(const id of ['readingTime','departureTime','returnTime','futureStart','easyLogTime','bedLastUpdated','frontLastUpdated','cpTime']){const field=get(id);if(field.value){try{field.value=inputDate(parseLocalInput(field.value,id,formTimeZone));}catch{field.value='';}}}
     formTimeZone=analysisTimeZone();updateEasyLogTimeHint();if(window.location.protocol!=='worker:')refreshParkingLogStatus();get('indoorHeading').textContent=get('planningMode').value==='future'?'Projected starting conditions':'Inside the coach now';
     const remote=!!get('remoteAccess').checked,occupancy=get('occupancyMode').value||'staying';
     get('awayOption').disabled=!remote;
@@ -4702,7 +4753,13 @@ function readingAgeNote(){
 }
 function showView(view){
     document.body?.classList.toggle('view-plan',view==='plan');
-    for(const [id,name] of [['tabInputs','inputs'],['tabPlan','plan']]){const tab=document.getElementById(id);if(tab?.setAttribute)tab.setAttribute('aria-selected',String(view===name));}
+    document.body?.classList.toggle('view-checkpoints',view==='checkpoints');
+    // v6.8.0: on wide screens Inputs and Plan share one view, so the Inputs tab stays selected for the plan.
+    const wide=typeof matchMedia==='function'&&matchMedia('(min-width:960px)').matches;
+    for(const [id,name] of [['tabInputs','inputs'],['tabPlan','plan'],['tabCheckpoints','checkpoints']]){
+        const tab=document.getElementById(id);if(tab?.setAttribute)tab.setAttribute('aria-selected',String(view===name||wide&&name==='inputs'&&view==='plan'));
+    }
+    if(view==='checkpoints')showCheckpointPlan();
 }
 function updatePeriodSublabels(){updatePlanUI();}
 function equipmentInputsChanged(){state.dehumidifierEnabled=document.getElementById('dehumidifierMode').value==='enabled';planInputsChanged();}
@@ -4738,7 +4795,7 @@ function trimPlanResult(result){
     for(const p of [...result.plans,...shown])for(const k of ['rebuild','pruned','screen'])delete p[k];
     const b=result.bounds||{},r=result.request||{};
     const marks=new Set([r.start,b.start,b.end,b.bedtime,b.sleepFrom,r.departure,r.returnTime,result.current?.reviewAt,result.recoveryAction?.reviewAt,
-        ...shown.flatMap(p=>(p.phases||[]).map(x=>x.time))].filter(v=>v!=null).map(Number));
+        ...shown.flatMap(p=>(p.phases||[]).map(x=>x.time)),...checkpointGrid(+r.start,+b.end)].filter(v=>v!=null).map(Number));
     for(const p of shown)for(const t of p.trials){delete t.checkpoints;if(t.member>0){t.trace=displayTrace(t.trace,marks);t.segments=[];}}
     return result;
 }
@@ -4776,7 +4833,8 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
         planWorker.postMessage({request,envelope,state:inputs.state,forecast:inputs.forecast});
     });
 }
-const LOG_APP_VERSION='6.6.28';
+// v6.8.0: one version constant for the log (LOG_APP_VERSION was left at 6.6.28 in v6.7.0 and v6.7.1).
+const APP_VERSION='6.8.0',LOG_APP_VERSION=APP_VERSION;
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
@@ -4809,6 +4867,8 @@ function normalizeLogEndpoint(value){
 }
 function fillLogSettings(settings){
     document.getElementById('logEnabled').checked=settings.enabled;
+    // v6.8.0: the simulation boxes appear only while logging is on; they are never saved and start unchecked.
+    for(const box of document.querySelectorAll('.sim-check'))box.hidden=!settings.enabled;
     document.getElementById('logEndpoint').value=settings.url;
     document.getElementById('logToken').value=settings.token;
     document.getElementById('logChanged').textContent=settings.changed?
@@ -4986,21 +5046,6 @@ function logObservationTime(id){
     const time=document.getElementById(id).value;
     return time?parseLocalInput(time,id).toISOString():null;
 }
-function captureComfortVote(now,actual){
-    const get=id=>document.getElementById(id).value;
-    const bedroom=get('voteBedroom'),front=get('voteFront');
-    if(!bedroom&&!front)return {};
-    const context=get('voteContext');
-    if(!context)throw new Error('Choose a context for the comfort vote.');
-    const mode=get('voteMode');
-    const heat=easyLogInteger('voteHeat'),cool=easyLogInteger('voteCool');
-    const fan=get('voteFan');
-    // Use a confirmed existing setup only when the owner did not supply a separate vote-time setup.
-    const setup=mode?{actual_mode:mode,actual_heat_to:heat,actual_cool_to:cool,actual_fan:fan||null}:
-        {actual_mode:actual?.type,actual_heat_to:actual?.setpoints?.heat,actual_cool_to:actual?.setpoints?.cool,actual_fan:actual?.fan};
-    return {...setup,vote_bedroom:bedroom||null,vote_front:front||null,
-        vote_context:context,vote_time:logObservationTime('voteTime')||now.toISOString()};
-}
 
 function initializeLogging(){
     initializeParkingLog();
@@ -5077,7 +5122,7 @@ function logWeatherPoint(envelope,time){
         wind_gust_mph:point.gust??'missing',sky_cover_pct:point.sky??'missing',solar_cloud_factor:point.cloud??envelope.cloud??'missing',
         wind_source:point.windSource??envelope.source,sky_source:point.skySource??envelope.source};
 }
-function captureLogEvent(type,request,envelope=null){
+function captureLogEvent(type,request,envelope=null,simulated=false){
     if(!readLogSettings().enabled)return null;
     const now=new Date(),usedForecast=envelope?.source==='forecast';
     const actual=request.actual;
@@ -5095,7 +5140,7 @@ function captureLogEvent(type,request,envelope=null){
         dehumidifier:state.dehumidifierEnabled,occupancy:request.occupancy,...easyLogFields(request),
         bed_last_updated:request.future?null:logObservationTime('bedLastUpdated'),
         front_last_updated:request.future?null:logObservationTime('frontLastUpdated'),
-        ...captureParkingLog(),...captureComfortVote(now,actual)};
+        ...captureParkingLog(),data_source:simulated?'simulation':'real'}; // v6.8.0: comfort votes moved to checkpoints
     if(envelope){
         const hourly=[];
         for(let time=+envelope.windowStart;time<+envelope.windowEnd;time+=3600000){
@@ -5116,8 +5161,8 @@ function captureLogEvent(type,request,envelope=null){
     }
     return event;
 }
-function prepareRunLog(request,envelope){
-    try{return captureLogEvent('plan',request,envelope);}
+function prepareRunLog(request,envelope,simulated=false){
+    try{return captureLogEvent('plan',request,envelope,simulated);}
     catch{logStatus('Could not prepare a log entry. The plan can still run.');return null;}
 }
 function finishRunLog(event,result,nextAction){
@@ -5176,19 +5221,219 @@ function recordRunLog(event,result,nextAction){
     }
     enqueueLogEvent(event);
 }
-function logReadingsOnly(){
+// v6.8.0 (owner decisions, November 22, 2026): Checkpoints tab. A checkpoint records measured conditions at any
+// time. When it falls inside the last plan's predicted period it also records that plan's predictions for that time
+// (nominal value and the range across the tested conditions), so each row is a predicted-vs-measured pair, plus the
+// weather the plan assumed and the latest NWS station observation, so forecast misses can be told apart from model
+// misses. Logging and display only: nothing here changes a plan. The simulation box is never saved or carried over.
+const CHECKPOINT_PLAN_KEY='hvac-advisor-checkpoint-plan-v1';
+const CHECKPOINT_STEP_MS=600000; // 10-minute prediction grid saved with each plan (exact member values, display trim)
+let checkpointBusy=false;
+function checkpointGrid(start,end){
+    const out=[];if(!Number.isFinite(start)||!Number.isFinite(end))return out;
+    for(let t=start;t<=end;t+=CHECKPOINT_STEP_MS)out.push(t);
+    return out;
+}
+function checkpointSetup(setup){
+    const p=setup?.setpoints||{};
+    return {type:setup.type,heat:p.heat??null,cool:p.cool??null,fan_set:p.fan??null,fan:setup.fan??null,config:setup.config||null};
+}
+function checkpointPlanRecord(result,envelope,eventId,simulated){
+    const plan=loggedTracePlan(result);if(!plan?.trials?.length)return null;
+    const start=+result.request.start;
+    const phases=(plan.phases||(plan.setup?[{time:start,setup:plan.setup}]:[])).map(p=>({time:+p.time,setup:checkpointSetup(p.setup)}));
+    const nominalTrial=plan.trials.find(t=>t.member===0||t.member==null)||plan.trials[0],nominal=nominalTrial.trace||[];
+    if(!phases.length||!nominal.length)return null;
+    const first=+nominal[0].time,last=+nominal.at(-1).time,round=v=>Number.isFinite(v)?+v.toFixed(1):null;
+    const byTime=plan.trials.map(t=>new Map((t.trace||[]).map(p=>[+p.time,p]))),nominalAt=new Map(nominal.map(p=>[+p.time,p]));
+    const series=[],weather=[];
+    for(const t of checkpointGrid(start,last)){
+        const n=nominalAt.get(t);if(t<first||!n)continue;
+        const members=byTime.map(m=>m.get(t)).filter(Boolean),range=k=>members.map(p=>p[k]).filter(Number.isFinite);
+        const bed=range('bedroom'),front=range('midCoach');
+        series.push({t,bed:round(n.bedroom),front:round(n.midCoach),bed_rh:round(n.rh),front_rh:round(n.midRH),
+            bed_lo:round(Math.min(...bed)),bed_hi:round(Math.max(...bed)),front_lo:round(Math.min(...front)),front_hi:round(Math.max(...front)),n:members.length});
+        if(envelope){const w=logWeatherPoint(envelope,t);weather.push({t,temperature_f:round(w.temperature_f),rh_pct:round(w.rh_pct),
+            wind_mph:Number.isFinite(w.wind_mph)?round(w.wind_mph):null,sky_cover_pct:Number.isFinite(w.sky_cover_pct)?w.sky_cover_pct:null});}
+    }
+    if(!series.length)return null;
+    return {version:1,saved_utc:new Date().toISOString(),plan_event_id:eventId,data_source:simulated?'simulation':'real',
+        complete:!!(result.winner?.suitable&&result.winner?.ready),start,end:series.at(-1).t,members:plan.trials.length,phases,series,weather,
+        weather_source:envelope?.source??null,lat:envelope?.lat??forecast._lat??null,lon:envelope?.lon??forecast._lon??null};
+}
+function saveCheckpointPlan(result,envelope,eventId,simulated){
     try{
-        if(!readLogSettings().enabled){logStatus('Enable and save logging before sending readings.');return;}
-        const field=id=>document.getElementById(id).value.trim();
-        const temperature=['bedTemp','frontTemp'].map(id=>field(id)===''?NaN:Number(field(id)));
-        const rh=['bedRH','frontRH'].map(id=>Number(field(id)));
-        if(temperature.some(v=>!Number.isFinite(v))||rh.some(v=>!Number.isFinite(v)||v<1||v>100)){
-            logStatus('Enter both indoor temperatures and humidity readings from 1–100%.');return;
-        }
-        const reading=parseLocalInput(field('readingTime'),'the reading time');
-        const event=captureLogEvent('readings_only',{initial:{temperature,rh},reading,occupancy:field('occupancyMode')});
-        if(event)enqueueLogEvent(event);
-    }catch(error){logStatus(error.message||'Could not prepare the readings entry.');}
+        const record=checkpointPlanRecord(result,envelope,eventId,simulated);
+        if(record){saveLogStorage(CHECKPOINT_PLAN_KEY,record);prefillCheckpoint(record);}
+    }catch{}
+    showCheckpointPlan();
+}
+function readCheckpointPlan(){
+    try{const record=loadLogStorage(CHECKPOINT_PLAN_KEY,null);return record?.version===1&&Array.isArray(record.series)?record:null;}catch{return null;}
+}
+function plannedSetupAt(record,time){
+    let current=null;for(const phase of record.phases){if(phase.time>time)break;current=phase.setup;}
+    return current||record.phases[0]?.setup||null;
+}
+function interpolateSeries(series,time){
+    if(!series?.length||time<series[0].t||time>series.at(-1).t)return null;
+    const i=series.findIndex(p=>p.t>=time),b=series[i];
+    if(b.t===time||i===0)return {...b,t:time};
+    const a=series[i-1],f=(time-a.t)/(b.t-a.t);
+    return Object.fromEntries(Object.keys(b).map(k=>[k,k==='t'?time:k==='n'?Math.min(a.n,b.n):
+        Number.isFinite(a[k])&&Number.isFinite(b[k])?+(a[k]+(b[k]-a[k])*f).toFixed(1):b[k]??a[k]??null]));
+}
+function showCheckpointPlan(){
+    const line=document.getElementById('cpPlanLine'),record=readCheckpointPlan();
+    if(!document.getElementById('cpTime').value)document.getElementById('cpTime').value=inputDate(new Date());
+    if(!record||Date.now()>record.end){line.textContent='No current plan. Checkpoints are logged without a prediction.';return;}
+    line.textContent='Compared with the plan built '+formatTime(new Date(record.saved_utc))+(record.data_source==='simulation'?' (simulation)':'')+'.';
+}
+function prefillCheckpoint(record){
+    const setup=plannedSetupAt(record,Math.max(Date.now(),record.start));if(!setup)return;
+    const set=(id,value)=>{const e=document.getElementById(id);if(e)e.value=value==null?'':String(value);};
+    set('cpMode',setup.type);
+    set('cpSetpoint',setup.type==='ac'?setup.cool:setup.type==='maxxfan'?setup.fan_set:setup.heat);
+    set('cpHeat',setup.heat);set('cpCool',setup.cool);if(setup.fan)set('cpFan',setup.fan);
+    set('cpOpenings','plan');set('cpDehumidifier',state.dehumidifierEnabled?'on':'off');
+    checkpointModeChanged();
+}
+function checkpointModeChanged(){
+    const type=document.getElementById('cpMode').value,auto=isAutoMode(type);
+    document.getElementById('cpSetpointField').hidden=auto||type==='passive';
+    document.getElementById('cpAutoFields').hidden=!auto;
+    document.getElementById('cpFanField').hidden=type==='passive'||type==='maxxfan';
+}
+function checkpointNow(){document.getElementById('cpTime').value=inputDate(new Date());}
+function checkpointStatus(message){document.getElementById('cpStatus').textContent=message;}
+function readCheckpointInputs(){
+    const get=id=>document.getElementById(id).value.trim(),number=id=>get(id)===''?null:Number(get(id));
+    const temperature=[number('cpBedTemp'),number('cpFrontTemp')],rh=[number('cpBedRH'),number('cpFrontRH')];
+    if(temperature.some(v=>!Number.isFinite(v))||rh.some(v=>!Number.isFinite(v)||v<1||v>100))
+        throw new Error('Enter both temperatures and humidity readings from 1–100%.');
+    if(!get('cpTime'))checkpointNow();
+    const reading=parseLocalInput(get('cpTime'),'the checkpoint time');
+    if(+reading>Date.now()+5*60000)throw new Error('The checkpoint time is in the future.');
+    const type=get('cpMode'),auto=isAutoMode(type),whole=id=>{const v=easyLogInteger(id);if(v===null)throw new Error('Enter the thermostat set point in whole degrees.');return v;};
+    const setting={type,heat:null,cool:null,fan_set:null,fan:type==='passive'||type==='maxxfan'?null:get('cpFan')};
+    if(auto){setting.heat=whole('cpHeat');setting.cool=whole('cpCool');
+        if(!validDualSetpoints({heat:setting.heat,cool:setting.cool}))throw new Error('Enter HEAT TO / COOL TO in whole degrees, with cooling at least '+EASYTOUCH.minAutoSpread+'°F above heating.');}
+    else if(type==='ac')setting.cool=whole('cpSetpoint');
+    else if(type==='maxxfan')setting.fan_set=whole('cpSetpoint');
+    else if(type!=='passive')setting.heat=whole('cpSetpoint');
+    const bedroom=get('voteBedroom'),front=get('voteFront'),context=get('voteContext');
+    if((bedroom||front)&&!context)throw new Error('Choose a context for the comfort vote.');
+    const tags=[['cpTagCooking','cooking'],['cpTagShower','shower'],['cpTagDoor','door open'],['cpTagGuests','guests']]
+        .filter(([id])=>document.getElementById(id).checked).map(([,tag])=>tag);
+    return {reading,temperature,rh,setting,easyTemp:easyLogInteger('cpEasyTemp'),easyOutdoor:easyLogInteger('cpEasyOutdoor'),
+        call:get('cpCall')||null,openings:get('cpOpenings'),dehumidifier:get('cpDehumidifier')==='on',occupancy:get('cpOccupancy'),
+        vote:bedroom||front?{bedroom:bedroom||null,front:front||null,context}:null,tags,notes:get('cpNotes')||null};
+}
+function checkpointSettingsMatch(planned,setting,openings){
+    if(!planned)return 'no plan';
+    const field=planned.type==='ac'?'cool':planned.type==='maxxfan'?'fan_set':'heat';
+    const same=planned.type===setting.type&&(planned.type==='passive'||
+        (isAutoMode(planned.type)?planned.heat===setting.heat&&planned.cool===setting.cool:planned[field]===setting[field]))&&
+        (planned.type==='passive'||planned.type==='maxxfan'||planned.fan===setting.fan);
+    return same&&openings==='plan'?'match':'differs';
+}
+function distanceMiles(a,b){
+    const r=Math.PI/180,h=Math.sin((b.lat-a.lat)*r/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin((b.lon-a.lon)*r/2)**2;
+    return 2*3958.8*Math.asin(Math.sqrt(Math.min(1,h)));
+}
+// The NWS observation nearest the coach at save time (the station list from the NWS points endpoint).
+async function fetchObservedWeather(lat,lon){
+    if(!Number.isFinite(lat)||!Number.isFinite(lon))return {error:'no location'};
+    if(navigator.onLine===false)return {error:'offline'};
+    try{
+        const point=await fetchJSON(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`);
+        const features=(await fetchJSON(point.properties.observationStations)).features||[];
+        const located=features.slice(0,10).map(f=>{const [slon,slat]=f.geometry?.coordinates||[];
+            return {f,miles:Number.isFinite(slat)&&Number.isFinite(slon)?distanceMiles({lat,lon},{lat:slat,lon:slon}):Infinity};});
+        const nearest=located.sort((a,b)=>a.miles-b.miles)[0];if(!nearest)return {error:'no station'};
+        const obs=(await fetchJSON(nearest.f.id.replace(/\/$/,'')+'/observations/latest')).properties||{};
+        const ok=q=>q&&q.value!=null&&Number.isFinite(q.value);
+        const fahrenheit=q=>!ok(q)?null:q.unitCode==='wmoUnit:degC'?+(q.value*9/5+32).toFixed(1):q.unitCode==='wmoUnit:degF'?+q.value.toFixed(1):null;
+        const mph=q=>!ok(q)?null:q.unitCode==='wmoUnit:km_h-1'?+(q.value*.621371).toFixed(1):q.unitCode==='wmoUnit:m_s-1'?+(q.value*2.23694).toFixed(1):null;
+        return {station_id:nearest.f.properties?.stationIdentifier??null,station_name:nearest.f.properties?.name??null,
+            distance_mi:Number.isFinite(nearest.miles)?+nearest.miles.toFixed(1):null,obs_utc:obs.timestamp??null,
+            temperature_f:fahrenheit(obs.temperature),dew_point_f:fahrenheit(obs.dewpoint),
+            rh_pct:ok(obs.relativeHumidity)?Math.round(obs.relativeHumidity.value):null,
+            wind_mph:mph(obs.windSpeed),wind_gust_mph:mph(obs.windGust),sky:obs.textDescription||null,
+            cloud_layers:(obs.cloudLayers||[]).map(l=>l.amount).filter(Boolean).join(' ')||null};
+    }catch{return {error:'unavailable'};}
+}
+function checkpointEvent(input,record,planned,predicted,assumed,observed,simulated){
+    const now=new Date();let adjustment='unknown';try{adjustment=easyLogAdjustment();}catch{}
+    const s=input.setting,lat=record?.lat??forecast._lat??parkingLogLocation()?.lat??null,lon=record?.lon??forecast._lon??parkingLogLocation()?.lon??null;
+    return {schema_version:1,event_id:crypto.randomUUID(),event_type:'checkpoint',event_utc:now.toISOString(),
+        event_local:inputDate(now),tz:analysisTimeZone(),app_version:LOG_APP_VERSION,run_status:null,
+        zip:document.getElementById('zipInput').value.trim()||null,lat,lon,place:forecast.fetched?forecast.location:null,
+        ...captureParkingLog(),reading_utc:input.reading.toISOString(),
+        bed_temp_f:input.temperature[0],bed_rh:input.rh[0],front_temp_f:input.temperature[1],front_rh:input.rh[1],
+        easytouch_display_f:input.easyTemp,easytouch_time:input.easyTemp===null?null:input.reading.toISOString(),
+        easytouch_adjustment:adjustment,bias_obs_f:input.easyTemp===null?null:Number((input.easyTemp-input.temperature[1]).toFixed(2)),
+        easytouch_outdoor_f:input.easyOutdoor,actual_mode:s.type,actual_heat_to:s.heat,actual_cool_to:s.type==='maxxfan'?s.fan_set:s.cool,
+        actual_fan:s.fan,active_call:input.call,
+        windows_vents_json:JSON.stringify(input.openings==='plan'&&planned?{as_plan:true,config:planned.config}:{as_plan:false}),
+        dehumidifier:input.dehumidifier,occupancy:input.occupancy,
+        vote_bedroom:input.vote?.bedroom??null,vote_front:input.vote?.front??null,vote_context:input.vote?.context??null,
+        vote_time:input.vote?now.toISOString():null,
+        data_source:simulated?'simulation':'real',plan_event_id:planned?record.plan_event_id:null,
+        planned_setup_json:planned?JSON.stringify(planned):null,settings_match:checkpointSettingsMatch(planned,s,input.openings),
+        predicted_json:predicted?JSON.stringify({valid_time:new Date(predicted.t).toISOString(),plan_built_utc:new Date(record.start).toISOString(),
+            plan_data_source:record.data_source,plan_complete:record.complete,members:predicted.n,
+            bed_temp_f:predicted.bed,front_temp_f:predicted.front,bed_rh:predicted.bed_rh,front_rh:predicted.front_rh,
+            bed_range_f:[predicted.bed_lo,predicted.bed_hi],front_range_f:[predicted.front_lo,predicted.front_hi]}):null,
+        forecast_at_checkpoint_json:assumed?JSON.stringify({source:record.weather_source,...assumed,t:undefined,valid_time:new Date(assumed.t).toISOString()}):null,
+        observed_weather_json:JSON.stringify(observed),checkpoint_tags:input.tags.join(', ')||null,checkpoint_notes:input.notes};
+}
+function checkpointResultHTML(input,predicted,planned,match,assumed,observed,logged,simulated){
+    const f=v=>Number.isFinite(v)?(+v).toFixed(1)+'°F':'—',row=(k,v)=>'<div class="prow"><span class="k">'+escapeHTML(k)+'</span><span class="v">'+escapeHTML(v)+'</span></div>';
+    const chip=logged?chipHTML(simulated?'Logged as simulation':'Logged','ok'):chipHTML(readLogSettings().enabled?'Not logged':'Logging is off','warn');
+    const span=(lo,hi)=>Number.isFinite(lo)&&Number.isFinite(hi)?' ('+lo.toFixed(1)+'–'+hi.toFixed(1)+')':'';
+    let rows=row('Bedroom measured',f(input.temperature[0]));
+    if(predicted)rows+=row('Bedroom predicted',f(predicted.bed)+span(predicted.bed_lo,predicted.bed_hi));
+    rows+=row('Front measured',f(input.temperature[1]));
+    if(predicted)rows+=row('Front predicted',f(predicted.front)+span(predicted.front_lo,predicted.front_hi));
+    if(Number.isFinite(input.easyOutdoor))rows+=row('Outdoor (EasyTouch)',input.easyOutdoor+'°F');
+    if(Number.isFinite(observed?.temperature_f))rows+=row('Outdoor observed ('+(observed.station_id||'NWS')+(observed.obs_utc?', '+formatTime(new Date(observed.obs_utc)):'')+')',f(observed.temperature_f));
+    if(Number.isFinite(assumed?.temperature_f))rows+=row('Outdoor in the plan',f(assumed.temperature_f));
+    const note=planned&&match==='differs'?'<p class="hint">Settings differ from the plan.</p>':'';
+    return '<div class="card"><div class="when">Checkpoint · '+formatTime(input.reading)+'</div><div class="status">'+chip+'</div>'+
+        '<div class="pred" style="margin-top:10px">'+rows+'</div>'+note+'</div>';
+}
+function clearCheckpointEntry(){
+    for(const id of ['cpBedTemp','cpBedRH','cpFrontTemp','cpFrontRH','cpTime','cpEasyTemp','cpEasyOutdoor','cpNotes','voteBedroom','voteFront','voteContext','cpCall'])document.getElementById(id).value='';
+    for(const id of ['cpTagCooking','cpTagShower','cpTagDoor','cpTagGuests','cpSimulation'])document.getElementById(id).checked=false;
+}
+async function saveCheckpoint(){
+    if(checkpointBusy)return;
+    let input;try{input=readCheckpointInputs();}catch(error){checkpointStatus(error.message);return;}
+    const simBox=document.getElementById('cpSimulation'),simulated=!!simBox.checked;simBox.checked=false; // never sticky
+    checkpointBusy=true;const button=document.getElementById('cpSaveBtn');button.disabled=true;button.textContent='Saving…';
+    checkpointStatus('');
+    try{
+        const record=readCheckpointPlan(),time=+input.reading;
+        const inPlan=record&&time>=record.start&&time<=record.end;
+        const planned=inPlan?plannedSetupAt(record,time):null,predicted=inPlan?interpolateSeries(record.series,time):null;
+        const assumed=inPlan?interpolateSeries(record.weather,time):null;
+        const observed=await fetchObservedWeather(record?.lat??forecast._lat??parkingLogLocation()?.lat,record?.lon??forecast._lon??parkingLogLocation()?.lon);
+        const match=checkpointSettingsMatch(planned,input.setting,input.openings);
+        let logged=false;
+        if(readLogSettings().enabled)logged=enqueueLogEvent(checkpointEvent(input,record,planned,predicted,assumed,observed,simulated));
+        const result=document.getElementById('cpResult');
+        result.innerHTML=checkpointResultHTML(input,predicted,planned,match,assumed,observed,logged,simulated);
+        result.scrollIntoView?.({behavior:'smooth',block:'start'});
+        clearCheckpointEntry();showCheckpointPlan();
+    }catch(error){checkpointStatus(error?.message||'Could not save the checkpoint.');}
+    finally{checkpointBusy=false;button.disabled=false;button.textContent='Save checkpoint';}
+}
+function initializeCheckpoints(){
+    const record=readCheckpointPlan();
+    if(record)prefillCheckpoint(record);else{document.getElementById('cpDehumidifier').value=state.dehumidifierEnabled?'on':'off';checkpointModeChanged();}
+    document.getElementById('cpSimulation').checked=false;document.getElementById('planSimulation').checked=false;
+    showCheckpointPlan();
 }
 
 function readSensorPrior(request){
@@ -5290,6 +5535,8 @@ async function analyze(){
     let request;
     try{request=readPlanRequest();}catch(error){showAnalysisError(error);return;}
     let logEvent;
+    // v6.8.0 (owner decision): the simulation box is never sticky; it is read once per build and cleared.
+    const simBox=document.getElementById('planSimulation'),simulated=!!simBox.checked;simBox.checked=false;
     planBusy=true;const button=document.getElementById('analyzeBtn');button.disabled=true;button.textContent='Building…';
     invalidateResults('Checking the connected daytime and overnight plan…');const revision=planRevision;
     const sensorPrior=readSensorPrior(request);
@@ -5297,7 +5544,7 @@ async function analyze(){
         await new Promise(resolve=>setTimeout(resolve,0));
         const bounds=planBounds(request.start,request),envelope=makeEnvelope(request.start,bounds.end,'HVAC Plan',THERMAL_STEP_MIN*60000);
         envelope.site=siteSolarInputs();configureSolarScenarios(envelope); // fails fast if daylight needs a confirmed heading
-        logEvent=prepareRunLog(request,envelope);
+        logEvent=prepareRunLog(request,envelope,simulated);
         let result;
         if(typeof Worker!=='undefined')result=await calculateInWorker(request,envelope);
         else{
@@ -5311,8 +5558,9 @@ async function analyze(){
         resultRecorded(envelope,Math.min(...futureActions),request);
         offerSensorComparison(sensorPrior,request,envelope,result);
         finishRunLog(logEvent,result,Math.min(...futureActions));
+        saveCheckpointPlan(result,envelope,logEvent?.event_id??null,simulated);
         showView('plan');scrollTo({top:0,behavior:'smooth'});
-    }catch(error){if(revision===planRevision){finishRunLog(logEvent||prepareRunLog(request,null),null);showAnalysisError(error);}}
+    }catch(error){if(revision===planRevision){finishRunLog(logEvent||prepareRunLog(request,null,simulated),null);showAnalysisError(error);}}
     finally{planBusy=false;button.disabled=false;button.textContent='Build plan';}
 }
 function initializePlan(){
@@ -5321,7 +5569,7 @@ function initializePlan(){
     updatePlanUI();
 }
 initializePlan();
-if(window.location.protocol!=='worker:')initializeLogging();
+if(window.location.protocol!=='worker:'){initializeLogging();initializeCheckpoints();}
 
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBanner').style.display='block';});
