@@ -18,15 +18,18 @@ test('comparison bias translates all four thermostat boundaries without changing
     const a=scene();
     a.run(`sense=front=>advanceComparisonSensor(0,front,front,0,sensor);
       demand=(mode,front,phase)=>thermostatDemand(mode,sense(front),{heat:66,cool:72},{phase},55);`);
+    // v6.7.1: 1°F gaps. With bias +3, heat starts at front 62 (sensed 65 = 66−1), ends at front 64 (sensed 67);
+    // cooling starts at front 70 (sensed 73 = 72+1), ends at front 68 (sensed 71).
     for(const mode of ['hp','auto']){
-        assert.equal(a.run(`demand('${mode}',61.01,'off')`),'off');
-        assert.equal(a.run(`demand('${mode}',61,'off')`),'hp');
+        assert.equal(a.run(`demand('${mode}',62.01,'off')`),'off');
+        assert.equal(a.run(`demand('${mode}',62,'off')`),'hp');
         assert.equal(a.run(`demand('${mode}',63.99,'hp')`),'hp');
         assert.equal(a.run(`demand('${mode}',64,'hp')`),'off');
     }
     for(const mode of ['ac','auto']){
-        assert.equal(a.run(`demand('${mode}',70.99,'off')`),'off');
-        assert.equal(a.run(`demand('${mode}',71,'off')`),'ac');
+        assert.equal(a.run(`demand('${mode}',70.01,'ac')`),'ac');
+        assert.equal(a.run(`demand('${mode}',69.99,'off')`),'off');
+        assert.equal(a.run(`demand('${mode}',70,'off')`),'ac');
         assert.equal(a.run(`demand('${mode}',68.01,'ac')`),'ac');
         assert.equal(a.run(`demand('${mode}',68,'ac')`),'off');
     }
@@ -66,7 +69,10 @@ test('synthetic heating and cooling fixtures have no call shorter than, or start
                 assert.ok(a.run("summary.blocks.filter(b=>b.operation!=='off').every((b,i,c)=>i===0||b.start-c[i-1].start>=180000)"),
                     `${mode} ${fan} ${lag}`);
                 // v6.6.26: the scope's WP3 no-chatter rule itself: no completed call (one that ends before the
-                // horizon) is shorter than 3 minutes. Shortest at v6.6.26: 3.22 min (heat pump, zero lag).
+                // horizon) is shorter than 3 minutes. Shortest at v6.6.26: 3.22 min (heat pump, zero lag); at v6.7.1
+                // (1°F gaps) 3.27 min. These fixtures are a warm-up and a pull-down, not steady cycling: steady
+                // 1°F-gap calls of about 2–3.5 min are accepted by owner decision (November 21, 2026) unless they
+                // cause coil icing or equipment damage; the Dometic board's ~2-minute compressor delay is relied on.
                 assert.ok(a.run("summary.blocks.filter(b=>b.operation!=='off'&&b.end<end).every(b=>b.end-b.start>=180000)"),
                     `call shorter than 3 min: ${mode} ${fan} ${lag}`);
             }

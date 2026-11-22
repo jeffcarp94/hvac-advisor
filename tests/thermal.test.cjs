@@ -85,12 +85,12 @@ test('AUTO uses separate EasyTouch heating and cooling thresholds',()=>{
     a.run("sp={heat:68,cool:72,fan:72};env.tOut=80");
     a.run("autoStep=thermalStep('auto',71,env,sp,2)");
     assert.equal(a.run('autoStep.segments[0].operation'),'off');
-    close(a.run('autoStep.segments[0].t1'),74);
+    close(a.run('autoStep.segments[0].t1'),73); // v6.7.1: 1°F gaps
     assert.equal(a.run('autoStep.segments[1].operation'),'ac');
     close(a.run('autoStep.segments[1].t1'),71);
     a.run('env.tOut=55;env.gains=0');
     a.run("autoHeat=thermalStep('auto',70,env,sp,2)");
-    close(a.run('autoHeat.segments[0].t1'),66);
+    close(a.run('autoHeat.segments[0].t1'),67);
     assert.equal(a.run('autoHeat.segments[1].operation'),'hp');
     close(a.run('autoHeat.segments[1].t1'),69);
 });

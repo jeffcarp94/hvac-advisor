@@ -1,7 +1,7 @@
 const fs=require('node:fs'),http=require('node:http'),path=require('node:path'),cp=require('node:child_process');
 const assert=require('node:assert/strict'),{chromium}=require('playwright');
 // v6.6.21 (WP13): 32-condition plans take several times longer than nine-case plans; the waits allow for it.
-const PLAN_WAIT=1200000;
+const PLAN_WAIT=2400000; // v6.7.1: the Winterset evening search took 1,130 s locally (2 cores) with the 2°F AUTO spread
 const repo=path.resolve(__dirname,'..'),screens=process.env.QC_SCREENSHOT_DIR||path.join(repo,'test-output');
 fs.mkdirSync(screens,{recursive:true});
 function baseline(file){return process.env.BASELINE_DIR?fs.readFileSync(path.join(process.env.BASELINE_DIR,file),'utf8'):cp.execFileSync('git',['show','450f8b65012c6fd5766653cf858a1c5ebd0b29c0:'+file],{cwd:repo,encoding:'utf8'});}
@@ -175,7 +175,9 @@ function weather(url){
   await page.locator('#bedRH').fill('54');await page.locator('#frontRH').fill('52');
   await page.locator('#zipInput').fill('50273');await page.locator('#retrieveBtn').click();await page.waitForFunction(()=>forecast.fetched&&!weatherLoading);
   await page.locator('#readingTime').fill('2026-10-23T18:47');
+  const wintersetStart=Date.now(); // v6.7.1: report the plan time (the 1°F gaps and 2°F spread widen this search)
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:PLAN_WAIT});
+  console.log('WINTERSET plan seconds',Math.round((Date.now()-wintersetStart)/1000));
   const wintersetText=await page.locator('#results').innerText();
   assert.match(wintersetText,/(COOL|HEAT PUMP|FURNACE)\s+Set to\s+\d+°|AUTO (HEAT PUMP|FURNACE)\s+Heat to\s+\d+°\s+Cool to\s+\d+°/);
   assert.doesNotMatch(wintersetText,/No complete plan|70% rear|Bed-area comfort takes priority/);
@@ -184,7 +186,15 @@ function weather(url){
    const prescribed=complete?lastPlan.winner:lastPlan.current;
    const end=complete?+lastPlan.bounds.end:prescribed?.reviewAt;
    return {complete,hasCurrent:!!lastPlan.current,members:prescribed?.trials.length===32,
-    verified:!!prescribed&&prescribed.trials.every(t=>t.suitable&&t.moisture.humidMax===0&&+t.trace.at(-1).time===end),
+    // v6.7.1: at the installed 1°F gaps this evening can have a complete plan. A complete plan is admitted by the D3 rule
+    // (hard checks in every member, joint pass in the nominal and at least 29 of 32), not by every member passing; the
+    // current-guidance path still requires every member to pass through its review time.
+    // Overnight, room RH may pass 65% briefly; the policy check is a sustained run (moistureEligible), as in the planner.
+    verified:!!prescribed&&(complete?!!prescribed.ensemble?.admitted&&prescribed.trials.every(t=>t.equipmentEligible&&!t.floorBreach&&t.moistureEligible&&+t.trace.at(-1).time===end):
+     prescribed.trials.every(t=>t.suitable&&t.moisture.humidMax===0&&+t.trace.at(-1).time===end)),
+    diag:prescribed&&{passes:prescribed.ensemble?.passes,unsuitable:prescribed.trials.filter(t=>!t.suitable).length,humid:prescribed.trials.filter(t=>t.moisture.humidMax>0).length,humidMaxMin:Math.max(...prescribed.trials.map(t=>t.moisture.humidMax)),maxRH:Math.max(...prescribed.trials.map(t=>t.moisture.maxRH??0)),
+     short:prescribed.trials.filter(t=>+t.trace.at(-1).time!==end).length,hard:prescribed.trials.filter(t=>!t.equipmentEligible||t.floorBreach).length,
+     phases:(prescribed.phases||[]).map(p=>new Date(p.time).toISOString().slice(11,16)+' '+p.setup.key.split('|').slice(0,4).join(' '))},
     mixed:!!prescribed&&prescribed.trials.every(t=>t.trace.slice(1).every(p=>p.water[0]===p.water[1])),
     reason:lastPlan.winner.reason};
   });
@@ -265,12 +275,12 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.7.0'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.7.1'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
   await oldContext.close();}
-  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.7.0','6.0.0 → 6.7.0'],errors},null,2));
+  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.7.1','6.0.0 → 6.7.1'],errors},null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
 

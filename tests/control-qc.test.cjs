@@ -7,23 +7,26 @@ function scene(temp=41,initial=[58,57],rh=[32,31]){
  r={start:new Date('2026-11-15T23:14Z'),reading:new Date('2026-11-15T23:14Z'),initial:{temperature:${JSON.stringify(initial)},rh:${JSON.stringify(rh)}},occupancy:'staying'};
  e=makeEnvelope(r.start,planBounds(r.start,r).end,'Explicit constant weather',30000);to=+r.start+30*60000;rows=planRows(e,r,.5,[to]).filter(x=>x.to<=to);`);return a;
 }
+// v6.7.1: 1°F installed gaps (owner decision, November 21, 2026): heat on at set point −1, off at +1;
+// cooling on at set point +1, off at −1.
 test('all installed heat modes obey the same start, continued-call and stop thresholds',()=>{
  const a=app();
  for(const mode of ['hp','furnace','auto','auto_furnace']){
   a.run(`sp={heat:70,cool:74};control={phase:'off'}`);
-  assert.equal(a.run(`thermostatDemand('${mode}',69,sp,control,55)`),'off');
-  assert.notEqual(a.run(`thermostatDemand('${mode}',68,sp,control,55)`),'off');
+  assert.equal(a.run(`thermostatDemand('${mode}',69.01,sp,control,55)`),'off');
+  assert.notEqual(a.run(`thermostatDemand('${mode}',69,sp,control,55)`),'off');
   assert.notEqual(a.run(`thermostatDemand('${mode}',70,sp,control,55)`),'off');
   assert.equal(a.run(`thermostatDemand('${mode}',71,sp,control,55)`),'off');
  }
- // The reported 58°F setpoint cannot call for heat at a 57°F sensor.
- assert.equal(a.run("thermostatDemand('hp',57,{heat:58,cool:72},{phase:'off'},45)"),'off');
+ // The reported 58°F setpoint cannot call for heat above 57°F (at 2°F gaps, above 56°F).
+ assert.equal(a.run("thermostatDemand('hp',57.01,{heat:58,cool:72},{phase:'off'},45)"),'off');
+ assert.equal(a.run("thermostatDemand('hp',57,{heat:58,cool:72},{phase:'off'},45)"),'hp');
 });
 test('single COOL and AUTO have identical cooling transitions and full-load output',()=>{
  const a=app();for(const mode of ['ac','auto','auto_furnace']){
   a.run("sp={heat:68,cool:72};control={phase:'off'};env={tOut:95,ua:100,gains:500,mass:300}");
-  assert.equal(a.run(`thermostatDemand('${mode}',73,sp,control,95)`),'off');
-  assert.equal(a.run(`thermostatDemand('${mode}',74,sp,control,95)`),'ac');
+  assert.equal(a.run(`thermostatDemand('${mode}',72.99,sp,control,95)`),'off');
+  assert.equal(a.run(`thermostatDemand('${mode}',73,sp,control,95)`),'ac');
   assert.equal(a.run(`thermostatDemand('${mode}',72,sp,control,95)`),'ac');
   assert.equal(a.run(`thermostatDemand('${mode}',71,sp,control,95)`),'off');
   a.run(`p=thermalStep('${mode}',90,env,sp,3)`);

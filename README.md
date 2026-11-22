@@ -1,3 +1,17 @@
+# v6.7.1 — 1°F Heat and Cool gaps, 2°F AUTO spread, closest overnight setting
+
+Control logic (your approvals A1, A2, November 21) and one display change (1a, option B). Your EasyTouch now has 1°F Heat and 1°F Cool Temperature Differential Gaps and a −5°F Temperature Reading Adjustment.
+
+- **1°F gaps (A1).** Heating starts 1°F below HEAT TO and stops 1°F above it; cooling starts 1°F above COOL TO and stops 1°F below it (the cooling stop is still an assumption). At 2°F gaps heating started 2°F below and cooling 2°F above.
+- **2°F minimum AUTO spread (A2).** The EasyTouch accepts HEAT TO 64 / COOL TO 67, and 2°F appears to be its minimum (your observation). The Advisor's 4°F planning rule is retired, so pairs such as 65/67 can be recommended. With 1°F gaps the heat and cool calls still cannot overlap: heat ends at HEAT TO + 1 = COOL TO − 1, and cooling starts at COOL TO + 1. The actual-setting check on the Inputs tab now asks for at least 2°F.
+- **Shorter calls are accepted (your decision).** Steady cycling at 1°F gaps gives calls of about 2–3.5 minutes. You accept them unless they cause coil icing or equipment damage; the Dometic board's compressor time delay of about 2 minutes is relied on and is not modeled. The coil-ice advisory flags none of the 19 fixture plans in any of the 32 conditions (peak modeled ice 0.12 mm, Oct 23 evening, against the 0.43 mm flag). The WP3 3-minute test is unchanged and still passes; it covers a warm-up and a pull-down, not steady cycling.
+- **−5°F Temperature Reading Adjustment.** Nothing in the model changes: it senses front air directly. Keep entering YoLink readings as before, and set the confirmed adjustment under Log & calibration to −5°F so logged EasyTouch readings carry it.
+- **"No setting works all night" names the closest overnight setting (1a, option B).** Example (Oct 23 evening at the former 2°F gaps): "The closest overnight setting, AUTO HEAT PUMP at HEAT TO 63°F / COOL TO 67°F, fan High from 10:00 PM, works in 29 of 32 tested conditions; in 3 the bedroom drops below 64°F after 5:27 AM." The line uses the planner's best plan; ranking is unchanged. Without a night in the horizon the line is as before.
+- **Effect on the test fixtures (search mode auto, 32 conditions):** qualifying fixtures go from 15 of 19 to 19 of 19 (`reports/v671-fixtures.jsonl`; v6.7.0 = `reports/v6628-fixtures.jsonl`, presentation-only release).
+  - **Now qualify:** Oct 23 saved evening (29 → 32 of 32: COOL 69°F Auto, then AUTO FURNACE 65/67 High from 10 PM; bedroom low 64.4°F), falling synthetic (24 → 31), hot synthetic N (0 → 31) and E (8 → 31). Hot N and E were the search-path misses paused in v6.6.28; with the 2°F spread the one-phase-at-a-time search now finds a plan.
+  - **Overnight settings** move to the 2°F spread on most fixtures (AUTO or AUTO FURNACE 65/67 or 66/68), and the mean degree-minutes outside the band fall on 17 of 19 (unchanged on the surface synthetic, up 174 → 186 on hot synthetic W).
+  - **Morning example (test input):** on a 76°F morning starting at 68°F, AUTO FURNACE 69/71 Low now beats OFF for the first 30 minutes on target fit; it heats, then cools. The OFF tie that test checked exists only at the former gaps.
+
 # v6.7.0 — UI overhaul: settings first, short reasons, adapts to any screen
 
 Presentation only. The model, ranking, eligibility, comfort checks, control logic and logging are unchanged (fixture before/after comparison in the PR).

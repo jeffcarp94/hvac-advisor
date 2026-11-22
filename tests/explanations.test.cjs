@@ -67,8 +67,8 @@ test('heating/cooling mismatches and AUTO drift name the needed action or temper
         ['maxxfan',65,/cannot heat.*Use heat/],
         ['passive',75,/Cooling is needed.*maximum of 70°F/],
         ['passive',65,/Heat is needed.*minimum of 66°F/],
-        ['auto',71,/HEAT TO 66°F \/ COOL TO 70°F.*cooling begins near 72°F/],
-        ['auto',65,/HEAT TO 66°F \/ COOL TO 70°F.*heating begins near 64°F/]
+        ['auto',71,/HEAT TO 66°F \/ COOL TO 70°F.*cooling begins near 71°F/], // v6.7.1: 1°F gaps
+        ['auto',65,/HEAT TO 66°F \/ COOL TO 70°F.*heating begins near 65°F/]
     ]){
         const text=a.run(`temperatureIssue(candidate('${mode}',{suitable:false,endInBand:false,finalIndoor:${final}}),sp,end).text`);
         assert.match(text,expected);assert.doesNotMatch(text,/weighted|criteria|drift|floor compliance/);

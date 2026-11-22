@@ -1,6 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {app}=require('./helpers.cjs');
 const winterset=require('./fixtures/winterset-2026-10-23.json');
+// v6.7.1: the former 2°F gaps and 4°F minimum AUTO spread (installed until November 21, 2026). Used only where a
+// test exercises a code path (natural-recovery tie, partial-plan guidance) whose v6.7.0 input no longer produces it
+// at the installed 1°F gaps; the rule under test does not depend on the gap.
+const formerGaps=a=>a.run('EASYTOUCH.heatGap=2;EASYTOUCH.coolGap=2;EASYTOUCH.minAutoSpread=4');
 function setup(){
  const a=app();a.ctx.saved=structuredClone(winterset);a.setNow(winterset.request.start);
  a.run(`forecast.timeZone=saved.envelope.timeZone;state.dehumidifierEnabled=true;
@@ -57,7 +61,9 @@ test('current guidance chooses OFF when natural recovery matches the best target
  // natural recovery to match active heating. v6.6.27 (R1 refit: smaller air and mass storage)
  // warms the coach faster; 86F now overshoots and cooling wins, so the reconstructed
  // morning is 76F (74-82F scanned; only 76F reproduces the tie this test is about).
- const a=setup();a.run(`r.start=new Date('2026-10-23T12:30Z');r.reading=r.start;r.initial={temperature:[68,68],rh:[30,30]};
+ // v6.7.1: at the installed 1°F gaps and 2°F spread, AUTO FURNACE 69/71 Low tracks the 71°F target better than OFF
+ // here (it heats, then cools, within the 30 minutes), so the tie this test is about exists only at the former gaps.
+ const a=setup();formerGaps(a);a.run(`r.start=new Date('2026-10-23T12:30Z');r.reading=r.start;r.initial={temperature:[68,68],rh:[30,30]};
  state.temp=76;state.rh=25;state.wind=2;state.cloud=1;state.weatherMode='manual';e=makeEnvelope(r.start,planBounds(r.start).end,'Morning',300000);
  c=currentRecommendation(e,r,[])`);
  assert.equal(a.run('c.trials.every(t=>t.suitable)'),true);
@@ -81,7 +87,9 @@ test('currently-away guidance preserves the verified physical arrangement and av
 });
 test('Winterset evening gives verified current guidance when the complete plan fails',()=>{
  // Full window/fan search is exercised in browser CI; isolate closed-coach guidance here.
- const a=setup();a.run('shortlistVents=()=>[];result=runUnifiedPlan(r,e);html=renderPlan(result)');
+ // v6.7.1: at the installed 1°F gaps this saved evening has a complete plan (fixture report in the PR); the
+ // partial-plan path is exercised with the former 2°F gaps and 4°F spread, which reproduce the v6.7.0 shortfall.
+ const a=setup();formerGaps(a);a.run('shortlistVents=()=>[];result=runUnifiedPlan(r,e);html=renderPlan(result)');
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),false);
  assert.ok(a.run('result.current'));assert.equal(a.run('result.winner.trials.length'),32); // v6.6.21: 32 sampled conditions
  // The retained diagnostic may now fail nominally as well as in a sensitivity case.
@@ -101,7 +109,8 @@ test('Winterset evening gives verified current guidance when the complete plan f
  // v6.7.0 display: the current setting shows its mode, set point(s) and fan; the partial-plan line (approved item 3).
  assert.match(a.run('html'),/class="mode (cool|heat|gas|auto)"[\s\S]*<div class="k">(Set to|Heat to)<\/div><div class="v">\d+°<\/div>[\s\S]*<div class="k">Fan<\/div>/);
  assert.doesNotMatch(a.run('html'),/No complete plan/);
- assert.match(a.run('html'),/No setting works all night\.<\/b>None of the tested settings keeps the bedroom between 65–69°F until 7:00 AM without changes\. If you follow this plan into the night \(.+ from \d+:\d\d [AP]M\), .+ Rebuild the plan at \d+:\d\d [AP]M with fresh readings\./);
+ // v6.7.1 (owner decision 1a, option B): the line names the closest overnight setting and its shortfall.
+ assert.match(a.run('html'),/No setting works all night\.<\/b>None of the tested settings keeps the bedroom between 65–69°F until 7:00 AM without changes\. The closest overnight setting, AUTO (HEAT PUMP|FURNACE) at HEAT TO \d+°F \/ COOL TO \d+°F, fan \w+ from \d+:\d\d [AP]M, works in \d+ of 32 tested conditions; in \d+ the bedroom .+\. Rebuild the plan at \d+:\d\d [AP]M with fresh readings\./);
  assert.match(a.run('html'),/Recheck at \d+:\d\d [AP]M/);
 });
 test('a future extreme-cold shortfall still provides bounded current guidance',()=>{

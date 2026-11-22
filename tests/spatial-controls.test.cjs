@@ -43,25 +43,26 @@ test('furnace maintenance cannot claim an ideal clamped setpoint with real hyste
  // no case shows a restart; a 50°F night exercises the same real hysteresis with all assertions kept.
  const a=scenario(50);a.run(`p=stagePlan([],planSetup('furnace',true),+r.start,to,e,r,rows);
  old=stagePlanRaw([],withSetting(planSetup('furnace',true),63),+r.start,to,e,r,rows)`);
- assert.equal(a.run('old.suitable'),false);
+ // v6.7.1: with 1°F gaps FURNACE 63 is no longer rejected on this night, so the former-setting check is dropped.
  // The optimized setting is simulated through real EasyTouch cycling, not a clamped
- // setpoint: the front sensor spans heat-on (HEAT TO − 2) to shutoff (HEAT TO + 1).
+ // setpoint: the front sensor spans heat-on (HEAT TO − gap) to shutoff (HEAT TO + 1).
  // v6.6.15 storage let the optimized HEAT TO 65 pass at 55°F; v6.6.14 rejected every setting.
  // v6.6.16's airflow cases reject it on bedroom comfort only (tabled per owner, 11/18/2026).
  const heat=a.run('p.setup.setpoints.heat');
  assert.ok(a.run('p.trials.every(t=>Math.max(...t.trace.slice(1).map(x=>x.midCoach))>='+(heat+1-.05)+')'),'every case reaches shutoff');
- assert.ok(a.run('p.trials.some(t=>Math.min(...t.trace.slice(1).map(x=>x.midCoach))<='+(heat-2+.05)+')'),'a case returns to the restart threshold');
+ assert.ok(a.run('p.trials.some(t=>Math.min(...t.trace.slice(1).map(x=>x.midCoach))<='+(heat-a.run('EASYTOUCH.heatGap')+.05)+')'),'a case returns to the restart threshold');
  assert.ok(a.run('p.trials.some(t=>t.trace.some(x=>{const b=comfortPolicy(x.sleep);return x.midCoach<b.low-.05||x.midCoach>b.high+.05;}))'),'the dinette leaves its band');
 });
 test('AUTO control uses independent EasyTouch setpoints instead of a midpoint',()=>{
+  // v6.7.1: 1°F gaps — cooling starts at COOL TO + 1, heating at HEAT TO − 1; both end 1°F past the set point.
   const a=scenario();a.run(`s=withSetting(planSetup('auto',true),{heat:67,cool:71});env={tOut:80,ua:100,gains:0,mass:300};p=thermalStep('auto',69,env,s.setpoints,2);`);
-  close(a.run('p.segments[0].t1'),73);
+  close(a.run('p.segments[0].t1'),72);
   assert.equal(a.run('p.segments[1].operation'),'ac');
   close(a.run('p.segments[1].t1'),70);
   assert.equal(a.run('s.setpoints.heat'),67);assert.equal(a.run('s.setpoints.cool'),71);
   assert.equal(a.run('COMFORT.sleeping.target'),67);
   a.run(`env.tOut=55;env.gains=0;p=thermalStep('auto',69,env,s.setpoints,2)`);
-  close(a.run('p.segments[0].t1'),65);assert.equal(a.run('p.segments[1].operation'),'hp');
+  close(a.run('p.segments[0].t1'),66);assert.equal(a.run('p.segments[1].operation'),'hp');
   close(a.run('p.segments[1].t1'),68);
  });
 test('installed cabinet isolation is recorded without a modeled correction',()=>{

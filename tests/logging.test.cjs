@@ -222,7 +222,9 @@ test('a complete departure plan logs the winner count shown in its overnight box
     assertLoggedCountShown(a);
 });
 test('partial-run current guidance, whose count the page does not show, logs null (owner decision)',()=>{
-    const a=loggingApp();loggedRun(a,overnight([40,39,38,38,37])); // v6.6.28: colder night keeps it partial with the 1°F allowance
+    // v6.6.28: colder night keeps it partial with the 1°F allowance. v6.7.1: this night has a complete plan at the
+    // installed 1°F gaps, so the partial-run path is exercised with the former 2°F gaps and 4°F AUTO spread.
+    const a=loggingApp();loggedRun(a,'EASYTOUCH.heatGap=2;EASYTOUCH.coolGap=2;EASYTOUCH.minAutoSpread=4;'+overnight([40,39,38,38,37]));
     assert.equal(a.run('complete'),false);
     assert.equal(a.run('logged===result.current'),true);
     assert.equal(a.run('ev.run_status'),'partial');
