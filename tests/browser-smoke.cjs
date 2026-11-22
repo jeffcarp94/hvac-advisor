@@ -244,9 +244,11 @@ function weather(url){
   assert.match(await page.locator('#planCard').innerText(),/No setting works all night|Complete plan|Partial plan/);
   {
    const fixed=await page.evaluate(()=>Date.now()),reopened=await context.newPage();reopened.on('pageerror',e=>errors.push(e.message));
-   await reopened.clock.setFixedTime(new Date(fixed));await reopened.goto(base);
-   // Wide screen here (Inputs and Plan side by side); a reopened phone opens on the Plan tab.
+   await reopened.setViewportSize({width:390,height:950});await reopened.clock.setFixedTime(new Date(fixed));await reopened.goto(base);
+   // A reopened phone opens on the Plan tab with the restored plan.
    assert.equal(await reopened.locator('#tabPlan').getAttribute('aria-selected'),'true');
+   assert.equal(await reopened.locator('#planCard').isVisible(),true);assert.equal(await reopened.locator('#analyzeBtn').isVisible(),false);
+   await reopened.screenshot({path:path.join(screens,'reopened-phone-plan.png'),fullPage:true});
    const restored=await reopened.locator('#results').innerText();
    assert.match(restored,/Recheck time passed\./);assert.equal(restored.replace(/\s+/g,' '),(await page.locator('#results').innerText()).replace(/\s+/g,' '));
    assert.equal(await reopened.locator('#emptyPlan').isVisible(),false);
