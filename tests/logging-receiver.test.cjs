@@ -68,15 +68,32 @@ test('receiver guards formulas, writes missing values and validates schema and s
 
 // v6.6.22 (WP12 Phase A): comfort_metric_json is appended to the column list; an existing Sheet with the previous
 // header is extended in place and keeps its rows. Any other header still stops the write.
+// v6.8.0: the eleven checkpoint and simulation columns follow comfort_metric_json; the live Sheet's v6.6.22 header
+// (ending at comfort_metric_json) is extended in place the same way.
+const V680_COLUMNS=['data_source','plan_event_id','planned_setup_json','settings_match','predicted_json',
+  'forecast_at_checkpoint_json','observed_weather_json','checkpoint_tags','checkpoint_notes','checkpoint_source','built_plan_event_id'];
 test('an existing Sheet with the previous header gains the new column and keeps its rows',()=>{
   const columns=vm.runInContext('HVAC_LOG_COLUMNS',(()=>{const c={};vm.createContext(c);vm.runInContext(source,c);return c;})());
-  assert.equal(columns.at(-1),'comfort_metric_json');
-  const previous=columns.slice(0,-1),old=previous.map((_,i)=>i===1?'aaaaaaaa-1234-1234-1234-123456789abc':'x');
+  assert.deepEqual([...columns.slice(-V680_COLUMNS.length)],V680_COLUMNS);
+  assert.equal(columns.at(-V680_COLUMNS.length-1),'comfort_metric_json');
+  for(const cut of [V680_COLUMNS.length,V680_COLUMNS.length+1]){ // v6.6.22 header, and the pre-v6.6.22 header
+  const previous=columns.slice(0,-cut),old=previous.map((_,i)=>i===1?'aaaaaaaa-1234-1234-1234-123456789abc':'x');
   const r=receiver({initialRows:[previous,old]});
   const reply=r.post({token:TOKEN,event:event({comfort_metric_json:'{"v":1}'})});
   assert.equal(reply.ok,true);assert.equal(reply.row,3);
   assert.deepEqual([...r.rows[0]],[...columns]);assert.equal(r.rows[1].length,previous.length);
   assert.equal(r.rows[2][columns.indexOf('comfort_metric_json')],'{"v":1}');
+  }
+});
+test('a checkpoint event is accepted and fills the v6.8.0 columns',()=>{
+  const r=receiver();
+  const reply=r.post({token:TOKEN,event:event({event_type:'checkpoint',run_status:null,data_source:'simulation',settings_match:'match',
+    predicted_json:'{"bed_temp_f":67.2}',checkpoint_notes:'=cooking'})});
+  assert.equal(reply.ok,true);
+  const header=r.rows[0],row=r.rows[1];
+  assert.equal(row[header.indexOf('event_type')],'checkpoint');assert.equal(row[header.indexOf('data_source')],'simulation');
+  assert.equal(row[header.indexOf('predicted_json')],'{"bed_temp_f":67.2}');assert.equal(row[header.indexOf('checkpoint_notes')],"'=cooking");
+  assert.equal(r.post({token:TOKEN,event:event({event_id:'22345678-1234-1234-1234-123456789abc',event_type:'note'})}).code,'invalid_event');
 });
 test('a header that is not a prefix of the column list still stops the write',()=>{
   const c={};vm.createContext(c);vm.runInContext(source,c);const columns=vm.runInContext('HVAC_LOG_COLUMNS',c);

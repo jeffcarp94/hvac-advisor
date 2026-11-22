@@ -15,7 +15,11 @@ const HVAC_LOG_COLUMNS = [
   'occupancy', 'recommended_setup_json', 'prediction_30min_json',
   'prediction_2h_json', 'prediction_next_action_json', 'ensemble_pass_count',
   'coil_advisory', 'vote_bedroom', 'vote_front', 'vote_context', 'vote_time',
-  'comfort_metric_json'
+  'comfort_metric_json',
+  // v6.8.0: checkpoints (predicted vs measured) and the owner's simulation flag.
+  'data_source', 'plan_event_id', 'planned_setup_json', 'settings_match',
+  'predicted_json', 'forecast_at_checkpoint_json', 'observed_weather_json',
+  'checkpoint_tags', 'checkpoint_notes', 'checkpoint_source', 'built_plan_event_id'
 ];
 
 function initializeHvacLogging() {
@@ -57,7 +61,7 @@ function doPost(request) {
   if (!event || event.schema_version !== HVAC_LOG_SCHEMA ||
       typeof event.event_id !== 'string' ||
       !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(event.event_id) ||
-      !['plan', 'readings_only'].includes(event.event_type) ||
+      !['plan', 'readings_only', 'checkpoint'].includes(event.event_type) ||
       typeof event.event_utc !== 'string' || !Number.isFinite(Date.parse(event.event_utc)) ||
       (event.event_type === 'plan' && !['qualified', 'partial', 'none', 'error'].includes(event.run_status))) {
     return hvacLogReply_({ok: false, code: 'invalid_event'});

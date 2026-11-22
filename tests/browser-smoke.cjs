@@ -44,8 +44,8 @@ function weather(url){
   assert.equal(await page.locator('.period-toggle').count(),0);assert.equal(await page.locator('#awayOption').evaluate(e=>e.disabled),false);
   assert.equal(await page.locator('#remoteAccess').isChecked(),true);
   await page.locator('#parkingObservations > summary').click();
-  await page.locator('#logCalibration > summary').click(); // v6.7.0: comfort vote and logging sit under Log & calibration
-  await page.locator('#comfortObservations summary').click();
+  await page.locator('#logCalibration > summary').click(); // v6.7.0: logging sits under Log & calibration (v6.8.0: comfort vote moved to Checkpoints)
+  assert.equal(await page.locator('#logCalibration #voteBedroom').count(),0);
   await page.locator('#parkingHeading').selectOption('NW');
   await page.locator('#tree_driver').selectOption('Partial');
   await page.getByRole('button',{name:'Confirm parking details'}).click();
@@ -72,7 +72,6 @@ function weather(url){
   await page.emulateMedia({colorScheme:'light'});
   await page.locator('#loggingOptions summary').click();
   await page.locator('#parkingObservations > summary').click();
-  await page.locator('#comfortObservations summary').click();
   assert.equal(await page.locator('#thermostatIsolation').count(),0);
   assert.equal(await page.locator('#departureFields').isVisible(),false);
   await page.locator('#analyzeBtn').click();assert.match(await page.locator('#resultStatus').innerText(),/both indoor temperatures/);
@@ -166,6 +165,32 @@ function weather(url){
   await page.locator('#tabPlan').click();assert.equal(await page.locator('#tabPlan').getAttribute('aria-selected'),'true');
   await page.screenshot({path:path.join(screens,'v6-phone-plan.png'),fullPage:true});
   await page.emulateMedia({colorScheme:'dark'});await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-dark.png'),fullPage:true});
+  // v6.8.0: Checkpoints tab on the narrowest phone. Logging is off in this run, so the simulation box is hidden and the
+  // card says so; a checkpoint inside the saved plan shows predicted next to measured.
+  await page.emulateMedia({colorScheme:'light'});await page.setViewportSize({width:360,height:950});
+  await page.locator('#tabCheckpoints').click();assert.equal(await page.locator('#tabCheckpoints').getAttribute('aria-selected'),'true');
+  assert.equal(await page.locator('#cpSaveBtn').isVisible(),true);assert.equal(await page.locator('#analyzeBtn').isVisible(),false);assert.equal(await page.locator('#planCard').isVisible(),false);
+  assert.equal(await page.locator('#cpSimulation').isVisible(),false);assert.equal(await page.locator('#voteBedroom').isVisible(),true);
+  assert.match(await page.locator('#cpPlanLine').innerText(),/^Compared with the plan built |^No current plan\./);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
+  await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'checkpoints-phone.png'),fullPage:true});
+  const {inside,predicts}=await page.evaluate(()=>{const r=readCheckpointPlan(),t=r?Math.max(r.start,Math.min(Date.now(),r.end)):Date.now();
+    return {inside:inputDate(new Date(t)),predicts:!!r&&t>=r.start&&t<=r.end};});
+  console.log('CHECKPOINT plan saved',predicts);
+  for(const [id,v] of [['cpBedTemp','67.5'],['cpBedRH','40'],['cpFrontTemp','68.2'],['cpFrontRH','38'],['cpTime',inside],['cpEasyOutdoor','41']])await page.locator('#'+id).fill(v);
+  await page.locator('#voteBedroom').selectOption('Comfortable');await page.locator('#voteContext').selectOption('Awake elsewhere');
+  await page.locator('#cpSaveBtn').click();await page.locator('#cpResult .card').waitFor({timeout:30000});
+  const checkpointText=await page.locator('#cpResult').innerText();
+  assert.match(checkpointText,/Logging is off/);assert.match(checkpointText,/Bedroom measured\s+67\.5°F/);if(predicts)assert.match(checkpointText,/Bedroom predicted\s+\d+\.\d°F \(\d+\.\d–\d+\.\d\)/);
+  assert.equal(await page.locator('#cpBedTemp').inputValue(),'');assert.equal(await page.locator('#voteBedroom').inputValue(),'');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
+  await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'checkpoints-phone-result.png'),fullPage:true});
+  await page.emulateMedia({colorScheme:'dark'});await page.setViewportSize({width:390,height:950});await page.screenshot({path:path.join(screens,'checkpoints-dark.png'),fullPage:true});
+  // Wide screens: Inputs and Plan share one view; Checkpoints is its own view.
+  await page.emulateMedia({colorScheme:'light'});await page.setViewportSize({width:1024,height:950});
+  assert.equal(await page.locator('#tabPlan').isVisible(),false);assert.equal(await page.locator('#cpSaveBtn').isVisible(),true);
+  await page.locator('#tabInputs').click();assert.equal(await page.locator('#analyzeBtn').isVisible(),true);assert.equal(await page.locator('#planCard').isVisible(),true);
+  assert.equal(await page.locator('#cpSaveBtn').isVisible(),false);
   await page.setViewportSize({width:1024,height:950});await page.emulateMedia({colorScheme:'light'});
   // The owner's reported Winterset evening: real inputs, NWS parsing and Worker.
   wintersetWeather=true;await page.clock.setFixedTime(new Date(savedWinterset.request.start));
@@ -275,12 +300,12 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.7.1'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.8.0'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
   await oldContext.close();}
-  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.7.1','6.0.0 → 6.7.1'],errors},null,2));
+  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.8.0','6.0.0 → 6.8.0'],errors},null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
 

@@ -1,3 +1,18 @@
+# v6.8.0 — Checkpoints tab and the simulation flag
+
+Logging and display only (owner decisions, November 22, 2026). No model, comfort, ranking or control change.
+
+- **Checkpoints tab.** Enter the YoLink readings, the EasyTouch indoor and outdoor values, whether it is heating or cooling, the thermostat setting, windows and MaxxFans, dehumidifier, occupancy, a comfort vote and notes, whenever you like. The setting fields are pre-filled from the last plan.
+- **Predicted next to measured.** A checkpoint inside the last plan's period shows and logs the plan's predicted bedroom and front temperatures for that time (nominal, with the range across the tested conditions) next to the measured values, and whether your setting matches the plan. The app keeps the last plan's predictions on the phone (10-minute grid) so this works after the app is closed.
+- **Every plan build is also a checkpoint.** The readings entered for a new plan are first logged as a checkpoint against the previous plan (when they fall inside its period), then the new plan is saved for later comparisons. A new field on Inputs, "Thermostat, windows and MaxxFans now" (As the last plan says / Different / Not sure), records whether the previous plan was followed; it shows only while logging is on and a saved plan covers now, and resets to "As the last plan says" after each build.
+- **Wake-up grace.** A reading up to 30 minutes after a plan's last prediction (7:00 AM for a night plan) is compared with that last prediction; the row records how many minutes later the reading was, and the card labels the prediction with its time.
+- **Weather at the checkpoint.** Each checkpoint logs the weather the plan assumed for that time and the latest observation from the nearest NWS station, so a forecast miss can be told apart from a model miss. The EasyTouch outdoor reading is logged too.
+- **Comfort votes moved** from Log & calibration to Checkpoints. Plan rows no longer carry votes. **Log readings only** is replaced by checkpoints.
+- **Log as simulation (test).** Tick it on the Inputs tab (for a plan) or on Checkpoints. It is never automatic, never saved, starts unchecked and clears after each entry. Rows get `data_source` = `simulation` or `real`. The boxes show only while logging is on.
+- **Receiver update needed:** paste the new `tools/logging/Code.gs` and deploy a new version before saving the first checkpoint (eleven new columns and the `checkpoint` event type; see `tools/logging/README.md`).
+- **Fix:** the logged `app_version` had stayed at 6.6.28 since v6.7.0; it now follows the release version.
+- Wide screens (960 px and up): Inputs and Plan stay side by side; the tab bar shows Inputs and Checkpoints.
+
 # v6.7.1 — 1°F Heat and Cool gaps, 2°F AUTO spread, closest overnight setting
 
 Control logic (your approvals A1, A2, November 21) and one display change (1a, option B). Your EasyTouch now has 1°F Heat and 1°F Cool Temperature Differential Gaps and a −5°F Temperature Reading Adjustment.
