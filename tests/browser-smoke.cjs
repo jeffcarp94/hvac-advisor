@@ -227,7 +227,7 @@ function weather(url){
   assert.equal(wintersetAssessment.complete||wintersetAssessment.hasCurrent,true);
   assert.equal(wintersetAssessment.members&&wintersetAssessment.verified&&wintersetAssessment.mixed,true); // v6.6.21: 32 conditions
   if(!wintersetAssessment.complete)assert.match(wintersetText,/No setting works all night\./);
-  assert.equal(await page.evaluate(()=>resultContext.expires<=Date.now()+30*60000),true);
+  assert.equal(await page.evaluate(()=>resultContext.expires<=resultContext.windowEnd),true); // v6.8.1: no 30-minute clear
   await page.waitForFunction(()=>document.getElementById('planCard').getBoundingClientRect().top>=document.querySelector('.header').getBoundingClientRect().bottom);
   await page.screenshot({path:path.join(screens,'winterset-current-screen.png')});
   fs.writeFileSync(path.join(screens,'winterset-result.txt'),wintersetText);
@@ -237,7 +237,23 @@ function weather(url){
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
    await page.screenshot({path:path.join(screens,'winterset-'+scheme+'.png'),fullPage:true});
   }
-  await page.evaluate(()=>{resultContext.expires=Date.now();checkResultValidity();});assert.equal(await page.locator('#results').innerText(),'');
+  // v6.8.1 (owner decision): at the recheck time the plan is marked, not cleared; it survives the app being unloaded
+  // (a second page in the same browser profile stands in for reopening the PWA) and is cleared at the plan's end.
+  await page.evaluate(()=>{resultContext.expires=Date.now();checkResultValidity();});
+  assert.match(await page.locator('#results').innerText(),/Recheck time passed\.\s*Build a fresh plan with new readings\./);
+  assert.match(await page.locator('#planCard').innerText(),/No setting works all night|Complete plan|Partial plan/);
+  {
+   const fixed=await page.evaluate(()=>Date.now()),reopened=await context.newPage();reopened.on('pageerror',e=>errors.push(e.message));
+   await reopened.clock.setFixedTime(new Date(fixed));await reopened.goto(base);
+   await reopened.locator('#tabPlan').click();
+   const restored=await reopened.locator('#results').innerText();
+   assert.match(restored,/Recheck time passed\./);assert.equal(restored.replace(/\s+/g,' '),(await page.locator('#results').innerText()).replace(/\s+/g,' '));
+   assert.equal(await reopened.locator('#emptyPlan').isVisible(),false);
+   assert.equal(await reopened.locator('#weatherMode').inputValue(),'forecast');
+   assert.equal(await reopened.locator('#bedTemp').inputValue(),'','readings are never restored');
+   await reopened.close();
+  }
+  await page.evaluate(()=>{resultContext.windowEnd=Date.now();checkResultValidity();});assert.equal(await page.locator('#results').innerText(),'');
   // A synthetic cold overnight interval must qualify with a real surface warning.
   const moistureFixture=require('./fixtures/synthetic-surface-advisory.cjs');
   const advisoryResult=await page.evaluate(async job=>{
@@ -300,12 +316,12 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.8.0'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.8.1'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
   await oldContext.close();}
-  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.8.0','6.0.0 → 6.8.0'],errors},null,2));
+  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.8.1','6.0.0 → 6.8.1'],errors},null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
 

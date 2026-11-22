@@ -163,6 +163,29 @@ test('a plan build logs its readings as a checkpoint against the previous plan, 
     assert.equal(a.run('readCheckpointPlan().plan_event_id'),plan.event_id,'the new plan is saved for later checkpoints');
     assert.match(a.element('cpResult').innerHTML,/Checkpoint · 12:00 AM · plan build/);
     assert.equal(a.element('buildFollowed').value,'plan');
+    // v6.8.1: the plan row carries the build-time observation (offline here), and the checkpoint reuses it.
+    assert.deepEqual(JSON.parse(plan.observed_weather_json),{error:'offline'});assert.equal(cp.observed_weather_json,plan.observed_weather_json);
+});
+test('v6.8.1: a plan row logs the nearest station observation fetched during the build; projected starts do not',async()=>{
+    const a=loggingApp(),start=plannedNight(a),t=start+H;a.setNow(new Date(t).toISOString());
+    a.ctx.navigator.onLine=true;let calls=0;const seen=[];
+    a.ctx.fetch=async url=>{if(url.includes('script.google.com'))return {ok:true,json:async()=>({ok:false,code:'test'})};calls++;seen.push(url);const json=url.includes('/points/')?{properties:{observationStations:'https://api.weather.gov/gridpoints/DMX/1,1/stations'}}:
+        url.endsWith('/stations')?{features:[{id:'https://api.weather.gov/stations/KDSM',geometry:{coordinates:[-93.6531,41.534]},properties:{stationIdentifier:'KDSM',name:'Des Moines'}}]}:
+        {properties:{timestamp:'2026-11-12T04:54:00+00:00',temperature:{unitCode:'wmoUnit:degC',value:5.6},dewpoint:{unitCode:'wmoUnit:degC',value:-2.2},
+            relativeHumidity:{unitCode:'wmoUnit:percent',value:57.2},windSpeed:{unitCode:'wmoUnit:km_h-1',value:33.336},windGust:{unitCode:'wmoUnit:km_h-1',value:48.152},textDescription:'Mostly Clear',cloudLayers:[{amount:'FEW'}]}};
+        return {ok:true,json:async()=>json};};
+    a.run(`forecast._lat=41.3792;forecast._lon=-94.0016;readPlanRequest=()=>({occupancy:'staying',start:new Date(${t}),reading:new Date(${t}),initial:{temperature:[66.8,67.9],rh:[46,44]}});
+        calculateInWorker=async()=>structuredClone(result);Worker=class{};configureSolarScenarios=()=>{};`);
+    await a.run('analyze()');for(let i=0;i<5;i++)await new Promise(r=>setImmediate(r));
+    const plan=a.run('readLogQueue().map(x=>x.event).filter(e=>e.event_type==="plan").at(-1)'),w=JSON.parse(plan.observed_weather_json);
+    assert.equal(w.station_id,'KDSM');assert.equal(w.temperature_f,42.1);assert.equal(w.dew_point_f,28);assert.equal(w.rh_pct,57);
+    assert.equal(w.wind_mph,20.7);assert.equal(w.wind_gust_mph,29.9);assert.equal(w.distance_mi,21);
+    const cp=a.run('readLogQueue().map(x=>x.event).filter(e=>e.event_type==="checkpoint").at(-1)');
+    assert.equal(cp.observed_weather_json,plan.observed_weather_json);assert.equal(calls,3,'one observation fetch serves both rows: '+seen.join(' '));
+    a.run(`readPlanRequest=()=>({occupancy:'staying',future:true,start:new Date(${t+H}),reading:new Date(${t+H}),initial:{temperature:[66,67],rh:[46,44]}});`);
+    await a.run('analyze()');for(let i=0;i<5;i++)await new Promise(r=>setImmediate(r));
+    assert.equal(a.run('readLogQueue().map(x=>x.event).filter(e=>e.event_type==="plan").at(-1).observed_weather_json'),undefined);
+    assert.equal(calls,3);
 });
 test('plan-build checkpoints: Not sure logs unknown; a wake-up reading up to 30 minutes after the plan ends uses its last prediction',async()=>{
     const a=loggingApp(),start=plannedNight(a),end=a.run('record.end');

@@ -1,3 +1,12 @@
+# v6.8.1 — The plan and Inputs survive closing the app; plans log the observed weather
+
+Owner decisions, November 22, 2026. Display, state and logging only: no model, comfort, ranking or control change.
+
+- **The plan stays on screen until its own end** (7:00 AM for a night plan), including after the phone closes or unloads the app; reopening goes straight to it. Before, any plan was cleared 30 minutes after it was built (or at its recheck time), even with the app open.
+- **At the recheck time** the plan is marked "Recheck time passed. Build a fresh plan with new readings." instead of being cleared. Changing inputs still clears it.
+- **Inputs are kept:** weather source and location (the forecast is fetched again for that location on reopening), occupancy and departure/return, coach setup and manual weather. Before, everything reset, and the weather source fell back to Manual. Readings and their times, the projected-start choice and confirmations are never restored: they must be current.
+- **Plan rows log the observed weather.** Every plan built from current readings also logs the nearest NWS station's latest observation (`observed_weather_json`), fetched while the plan is computed; its plan-build checkpoint reuses it. No receiver change (the column exists since v6.8.0).
+
 # v6.8.0 — Checkpoints tab and the simulation flag
 
 Logging and display only (owner decisions, November 22, 2026). No model, comfort, ranking or control change.
