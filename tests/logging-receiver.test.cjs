@@ -68,10 +68,10 @@ test('receiver guards formulas, writes missing values and validates schema and s
 
 // v6.6.22 (WP12 Phase A): comfort_metric_json is appended to the column list; an existing Sheet with the previous
 // header is extended in place and keeps its rows. Any other header still stops the write.
-// v6.8.0: the nine checkpoint and simulation columns follow comfort_metric_json; the live Sheet's v6.6.22 header
+// v6.8.0: the eleven checkpoint and simulation columns follow comfort_metric_json; the live Sheet's v6.6.22 header
 // (ending at comfort_metric_json) is extended in place the same way.
 const V680_COLUMNS=['data_source','plan_event_id','planned_setup_json','settings_match','predicted_json',
-  'forecast_at_checkpoint_json','observed_weather_json','checkpoint_tags','checkpoint_notes'];
+  'forecast_at_checkpoint_json','observed_weather_json','checkpoint_tags','checkpoint_notes','checkpoint_source','built_plan_event_id'];
 test('an existing Sheet with the previous header gains the new column and keeps its rows',()=>{
   const columns=vm.runInContext('HVAC_LOG_COLUMNS',(()=>{const c={};vm.createContext(c);vm.runInContext(source,c);return c;})());
   assert.deepEqual([...columns.slice(-V680_COLUMNS.length)],V680_COLUMNS);

@@ -19,7 +19,7 @@ const HVAC_LOG_COLUMNS = [
   // v6.8.0: checkpoints (predicted vs measured) and the owner's simulation flag.
   'data_source', 'plan_event_id', 'planned_setup_json', 'settings_match',
   'predicted_json', 'forecast_at_checkpoint_json', 'observed_weather_json',
-  'checkpoint_tags', 'checkpoint_notes'
+  'checkpoint_tags', 'checkpoint_notes', 'checkpoint_source', 'built_plan_event_id'
 ];
 
 function initializeHvacLogging() {

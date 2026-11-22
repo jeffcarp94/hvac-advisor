@@ -143,6 +143,42 @@ test('an unedited checkpoint time is the save time; an edited one is kept, then 
     ev=await checkpoint(a,{cpMode:'passive'});assert.equal(ev.reading_utc,'2026-10-21T18:00:00.000Z');
     assert.equal(a.run('checkpointTimeEdited'),false);
 });
+// v6.8.0 (owner decision): the readings entered for a new plan are a checkpoint against the previous plan.
+test('a plan build logs its readings as a checkpoint against the previous plan, then saves the new plan',async()=>{
+    const a=loggingApp(),start=plannedNight(a),previousId=a.run('ev.event_id');
+    const t=start+2*H;a.setNow(new Date(t).toISOString());
+    a.element('easyLogTemp').value='70';a.element('easyLogOutdoor').value='50';
+    // Second build at midnight: the Worker is stubbed with the first result (the comparison only needs the saved plan).
+    a.run(`readPlanRequest=()=>({occupancy:'staying',start:new Date(${t}),reading:new Date(${t}),initial:{temperature:[66.8,67.9],rh:[46,44]}});
+        calculateInWorker=async()=>structuredClone(result);Worker=class{};configureSolarScenarios=()=>{};`);
+    a.element('buildFollowed').value='plan';
+    await a.run('analyze()');await new Promise(r=>setImmediate(r));
+    const events=a.run('JSON.stringify(readLogQueue().map(x=>x.event))'),list=JSON.parse(events);
+    const cp=list.find(e=>e.event_type==='checkpoint'),plan=list.filter(e=>e.event_type==='plan').at(-1);
+    assert.ok(cp,'a plan-build checkpoint is logged');
+    assert.equal(cp.checkpoint_source,'plan_build');assert.equal(cp.plan_event_id,previousId);assert.equal(cp.built_plan_event_id,plan.event_id);
+    assert.equal(cp.settings_match,'match');assert.equal(cp.bed_temp_f,66.8);assert.equal(cp.front_temp_f,67.9);
+    assert.equal(cp.easytouch_display_f,70);assert.equal(cp.easytouch_outdoor_f,50);assert.equal(cp.reading_utc,new Date(t).toISOString());
+    const p=JSON.parse(cp.predicted_json);assert.equal(p.valid_time,new Date(t).toISOString());assert.equal(p.minutes_after_prediction,0);
+    assert.equal(a.run('readCheckpointPlan().plan_event_id'),plan.event_id,'the new plan is saved for later checkpoints');
+    assert.match(a.element('cpResult').innerHTML,/Checkpoint · 12:00 AM · plan build/);
+    assert.equal(a.element('buildFollowed').value,'plan');
+});
+test('plan-build checkpoints: Not sure logs unknown; a wake-up reading up to 30 minutes after the plan ends uses its last prediction',async()=>{
+    const a=loggingApp(),start=plannedNight(a),end=a.run('record.end');
+    const build=(t,answer)=>{a.element('buildFollowed').value=answer;
+        return a.run(`prepareBuildCheckpoint({occupancy:'staying',start:new Date(${t}),reading:new Date(${t}),initial:{temperature:[65.2,66.1],rh:[48,47]}},false)`);};
+    let prepared=build(start+H,'unsure');
+    assert.equal(prepared.match,'unknown');assert.equal(prepared.input.setting.type,null);assert.equal(a.element('buildFollowed').value,'plan');
+    prepared=build(end+20*60000,'plan');
+    assert.equal(+prepared.predicted.t,end);
+    await a.run(`logBuildCheckpoint(prepareBuildCheckpoint({occupancy:'staying',start:new Date(${end+20*60000}),reading:new Date(${end+20*60000}),initial:{temperature:[65.2,66.1],rh:[48,47]}},false),null)`);
+    const cp=a.run('readLogQueue().at(-1).event');
+    assert.equal(JSON.parse(cp.predicted_json).minutes_after_prediction,20);
+    assert.match(a.element('cpResult').innerHTML,/Bedroom predicted \(7:00 AM\)/);
+    assert.equal(build(end+40*60000,'plan'),null);
+    assert.equal(a.run(`prepareBuildCheckpoint({future:true,occupancy:'staying',start:new Date(${start+H})},false)`),null,'projected readings are not measurements');
+});
 test('the logged app version follows the release version',()=>{
     const a=app();
     const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8'),sw=fs.readFileSync(path.join(__dirname,'..','sw.js'),'utf8');

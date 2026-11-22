@@ -206,6 +206,7 @@
         </div>
         <label class="field">Read at<input id="easyLogTime" type="datetime-local" onchange="updateEasyLogTimeHint()"></label>
         <p class="hint" id="easyLogTimeHint">Blank = the YoLink reading time.</p>
+        <label class="field" id="buildFollowedField" hidden>Thermostat, windows and MaxxFans now<select id="buildFollowed"><option value="plan">As the last plan says</option><option value="different">Different</option><option value="unsure">Not sure</option></select></label>
     </div>
 
     <div class="input-section">
@@ -4759,7 +4760,7 @@ function showView(view){
     for(const [id,name] of [['tabInputs','inputs'],['tabPlan','plan'],['tabCheckpoints','checkpoints']]){
         const tab=document.getElementById(id);if(tab?.setAttribute)tab.setAttribute('aria-selected',String(view===name||wide&&name==='inputs'&&view==='plan'));
     }
-    if(view==='checkpoints')showCheckpointPlan();
+    if(view==='checkpoints')showCheckpointPlan();else try{updateBuildFollowedField();}catch{}
 }
 function updatePeriodSublabels(){updatePlanUI();}
 function equipmentInputsChanged(){state.dehumidifierEnabled=document.getElementById('dehumidifierMode').value==='enabled';planInputsChanged();}
@@ -4869,6 +4870,7 @@ function fillLogSettings(settings){
     document.getElementById('logEnabled').checked=settings.enabled;
     // v6.8.0: the simulation boxes appear only while logging is on; they are never saved and start unchecked.
     for(const box of document.querySelectorAll('.sim-check'))box.hidden=!settings.enabled;
+    if(typeof updateBuildFollowedField==='function')try{updateBuildFollowedField();}catch{}
     document.getElementById('logEndpoint').value=settings.url;
     document.getElementById('logToken').value=settings.token;
     document.getElementById('logChanged').textContent=settings.changed?
@@ -5266,7 +5268,7 @@ function saveCheckpointPlan(result,envelope,eventId,simulated){
         const record=checkpointPlanRecord(result,envelope,eventId,simulated);
         if(record){saveLogStorage(CHECKPOINT_PLAN_KEY,record);prefillCheckpoint(record);}
     }catch{}
-    showCheckpointPlan();
+    showCheckpointPlan();updateBuildFollowedField();
 }
 function readCheckpointPlan(){
     try{const record=loadLogStorage(CHECKPOINT_PLAN_KEY,null);return record?.version===1&&Array.isArray(record.series)?record:null;}catch{return null;}
@@ -5283,10 +5285,19 @@ function interpolateSeries(series,time){
     return Object.fromEntries(Object.keys(b).map(k=>[k,k==='t'?time:k==='n'?Math.min(a.n,b.n):
         Number.isFinite(a[k])&&Number.isFinite(b[k])?+(a[k]+(b[k]-a[k])*f).toFixed(1):b[k]??a[k]??null]));
 }
+// The plan's predictions end at its last modeled time (7:00 AM for a night plan). A reading up to 30 minutes later
+// (for example a wake-up build at 7:20) is compared with that last prediction; predicted_json records both times.
+const CHECKPOINT_GRACE_MS=30*60000;
+function checkpointComparison(record,time){
+    if(!record||time<record.start||time>record.end+CHECKPOINT_GRACE_MS)return null;
+    const at=Math.min(time,record.end);
+    return {planned:plannedSetupAt(record,at),predicted:interpolateSeries(record.series,at),assumed:interpolateSeries(record.weather,at),
+        offsetMin:Math.round((time-at)/60000)};
+}
 function showCheckpointPlan(){
     const line=document.getElementById('cpPlanLine'),record=readCheckpointPlan();
     if(!checkpointTimeEdited||!document.getElementById('cpTime').value){checkpointTimeEdited=false;document.getElementById('cpTime').value=inputDate(new Date());}
-    if(!record||Date.now()>record.end){line.textContent='No current plan. Checkpoints are logged without a prediction.';return;}
+    if(!record||Date.now()>record.end+CHECKPOINT_GRACE_MS){line.textContent='No current plan. Checkpoints are logged without a prediction.';return;}
     line.textContent='Compared with the plan built '+formatTime(new Date(record.saved_utc))+(record.data_source==='simulation'?' (simulation)':'')+'.';
 }
 function prefillCheckpoint(record){
@@ -5363,7 +5374,7 @@ async function fetchObservedWeather(lat,lon){
             cloud_layers:(obs.cloudLayers||[]).map(l=>l.amount).filter(Boolean).join(' ')||null};
     }catch{return {error:'unavailable'};}
 }
-function checkpointEvent(input,record,planned,predicted,assumed,observed,simulated){
+function checkpointEvent(input,record,planned,predicted,assumed,observed,simulated,source='manual',match=null,builtPlanId=null){
     const now=new Date();let adjustment='unknown';try{adjustment=easyLogAdjustment();}catch{}
     const s=input.setting,lat=record?.lat??forecast._lat??parkingLogLocation()?.lat??null,lon=record?.lon??forecast._lon??parkingLogLocation()?.lon??null;
     return {schema_version:1,event_id:crypto.randomUUID(),event_type:'checkpoint',event_utc:now.toISOString(),
@@ -5373,34 +5384,35 @@ function checkpointEvent(input,record,planned,predicted,assumed,observed,simulat
         bed_temp_f:input.temperature[0],bed_rh:input.rh[0],front_temp_f:input.temperature[1],front_rh:input.rh[1],
         easytouch_display_f:input.easyTemp,easytouch_time:input.easyTemp===null?null:input.reading.toISOString(),
         easytouch_adjustment:adjustment,bias_obs_f:input.easyTemp===null?null:Number((input.easyTemp-input.temperature[1]).toFixed(2)),
-        easytouch_outdoor_f:input.easyOutdoor,actual_mode:s.type,actual_heat_to:s.heat,actual_cool_to:s.type==='maxxfan'?s.fan_set:s.cool,
+        easytouch_outdoor_f:input.easyOutdoor,...(input.easyFields||{}),actual_mode:s.type,actual_heat_to:s.heat,actual_cool_to:s.type==='maxxfan'?s.fan_set:s.cool,
         actual_fan:s.fan,active_call:input.call,
         windows_vents_json:JSON.stringify(input.openings==='plan'&&planned?{as_plan:true,config:planned.config}:{as_plan:false}),
-        dehumidifier:input.dehumidifier,occupancy:input.occupancy,
+        dehumidifier:input.dehumidifier,occupancy:input.occupancy,checkpoint_source:source,built_plan_event_id:builtPlanId,
         vote_bedroom:input.vote?.bedroom??null,vote_front:input.vote?.front??null,vote_context:input.vote?.context??null,
         vote_time:input.vote?now.toISOString():null,
         data_source:simulated?'simulation':'real',plan_event_id:planned?record.plan_event_id:null,
-        planned_setup_json:planned?JSON.stringify(planned):null,settings_match:checkpointSettingsMatch(planned,s,input.openings),
-        predicted_json:predicted?JSON.stringify({valid_time:new Date(predicted.t).toISOString(),plan_built_utc:new Date(record.start).toISOString(),
+        planned_setup_json:planned?JSON.stringify(planned):null,settings_match:match??checkpointSettingsMatch(planned,s,input.openings),
+        predicted_json:predicted?JSON.stringify({valid_time:new Date(predicted.t).toISOString(),minutes_after_prediction:Math.round((+input.reading-predicted.t)/60000),plan_built_utc:new Date(record.start).toISOString(),
             plan_data_source:record.data_source,plan_complete:record.complete,members:predicted.n,
             bed_temp_f:predicted.bed,front_temp_f:predicted.front,bed_rh:predicted.bed_rh,front_rh:predicted.front_rh,
             bed_range_f:[predicted.bed_lo,predicted.bed_hi],front_range_f:[predicted.front_lo,predicted.front_hi]}):null,
         forecast_at_checkpoint_json:assumed?JSON.stringify({source:record.weather_source,...assumed,t:undefined,valid_time:new Date(assumed.t).toISOString()}):null,
         observed_weather_json:JSON.stringify(observed),checkpoint_tags:input.tags.join(', ')||null,checkpoint_notes:input.notes};
 }
-function checkpointResultHTML(input,predicted,planned,match,assumed,observed,logged,simulated){
+function checkpointResultHTML(input,predicted,planned,match,assumed,observed,logged,simulated,source='manual'){
     const f=v=>Number.isFinite(v)?(+v).toFixed(1)+'°F':'—',row=(k,v)=>'<div class="prow"><span class="k">'+escapeHTML(k)+'</span><span class="v">'+escapeHTML(v)+'</span></div>';
     const chip=logged?chipHTML(simulated?'Logged as simulation':'Logged','ok'):chipHTML(readLogSettings().enabled?'Not logged':'Logging is off','warn');
     const span=(lo,hi)=>Number.isFinite(lo)&&Number.isFinite(hi)?' ('+lo.toFixed(1)+'–'+hi.toFixed(1)+')':'';
     let rows=row('Bedroom measured',f(input.temperature[0]));
-    if(predicted)rows+=row('Bedroom predicted',f(predicted.bed)+span(predicted.bed_lo,predicted.bed_hi));
+    const at=predicted&&+input.reading-predicted.t>=60000?' ('+formatTime(new Date(predicted.t))+')':'';
+    if(predicted)rows+=row('Bedroom predicted'+at,f(predicted.bed)+span(predicted.bed_lo,predicted.bed_hi));
     rows+=row('Front measured',f(input.temperature[1]));
-    if(predicted)rows+=row('Front predicted',f(predicted.front)+span(predicted.front_lo,predicted.front_hi));
+    if(predicted)rows+=row('Front predicted'+at,f(predicted.front)+span(predicted.front_lo,predicted.front_hi));
     if(Number.isFinite(input.easyOutdoor))rows+=row('Outdoor (EasyTouch)',input.easyOutdoor+'°F');
     if(Number.isFinite(observed?.temperature_f))rows+=row('Outdoor observed ('+(observed.station_id||'NWS')+(observed.obs_utc?', '+formatTime(new Date(observed.obs_utc)):'')+')',f(observed.temperature_f));
     if(Number.isFinite(assumed?.temperature_f))rows+=row('Outdoor in the plan',f(assumed.temperature_f));
-    const note=planned&&match==='differs'?'<p class="hint">Settings differ from the plan.</p>':'';
-    return '<div class="card"><div class="when">Checkpoint · '+formatTime(input.reading)+'</div><div class="status">'+chip+'</div>'+
+    const note=planned&&match==='differs'?'<p class="hint">Settings differ from the plan.</p>':planned&&match==='unknown'?'<p class="hint">Settings not confirmed.</p>':'';
+    return '<div class="card"><div class="when">Checkpoint · '+formatTime(input.reading)+(source==='plan_build'?' · plan build':'')+'</div><div class="status">'+chip+'</div>'+
         '<div class="pred" style="margin-top:10px">'+rows+'</div>'+note+'</div>';
 }
 function clearCheckpointEntry(){
@@ -5415,10 +5427,8 @@ async function saveCheckpoint(){
     checkpointBusy=true;const button=document.getElementById('cpSaveBtn');button.disabled=true;button.textContent='Saving…';
     checkpointStatus('');
     try{
-        const record=readCheckpointPlan(),time=+input.reading;
-        const inPlan=record&&time>=record.start&&time<=record.end;
-        const planned=inPlan?plannedSetupAt(record,time):null,predicted=inPlan?interpolateSeries(record.series,time):null;
-        const assumed=inPlan?interpolateSeries(record.weather,time):null;
+        const record=readCheckpointPlan(),time=+input.reading,c=checkpointComparison(record,time);
+        const planned=c?.planned??null,predicted=c?.predicted??null,assumed=c?.assumed??null;
         const observed=await fetchObservedWeather(record?.lat??forecast._lat??parkingLogLocation()?.lat,record?.lon??forecast._lon??parkingLogLocation()?.lon);
         const match=checkpointSettingsMatch(planned,input.setting,input.openings);
         let logged=false;
@@ -5430,7 +5440,43 @@ async function saveCheckpoint(){
     }catch(error){checkpointStatus(error?.message||'Could not save the checkpoint.');}
     finally{checkpointBusy=false;button.disabled=false;button.textContent='Save checkpoint';}
 }
+// v6.8.0 (owner decision, November 22, 2026): a plan built from current readings first logs those readings as a
+// checkpoint against the previous saved plan (when the reading time is inside that plan's period), then saves the new
+// plan for later comparisons. Whether the previous plan was followed comes from the owner ("Not sure" logs unknown).
+function updateBuildFollowedField(){
+    const field=document.getElementById('buildFollowedField');
+    try{const record=readCheckpointPlan();field.hidden=!(readLogSettings().enabled&&record&&Date.now()>=record.start&&Date.now()<=record.end+CHECKPOINT_GRACE_MS);}
+    catch{field.hidden=true;}
+}
+function prepareBuildCheckpoint(request,simulated){
+    try{
+        const followed=document.getElementById('buildFollowed');const answer=followed.value||'plan';followed.value='plan'; // not sticky
+        if(!readLogSettings().enabled||request.future||!request.reading)return null;
+        const record=readCheckpointPlan(),time=+request.reading,c=checkpointComparison(record,time);
+        if(!c)return null;
+        const planned=c.planned;
+        let easyFields={};try{easyFields=easyLogFields(request);}catch{}
+        const actual=request.actual?checkpointSetup(request.actual):null;
+        const setting=answer==='plan'?{...planned}:answer==='different'&&actual?actual:{type:null,heat:null,cool:null,fan_set:null,fan:null};
+        const match=answer==='plan'?'match':answer==='different'?'differs':'unknown';
+        const input={reading:new Date(time),temperature:request.initial.temperature.slice(),rh:request.initial.rh.slice(),setting,
+            easyTemp:easyFields.easytouch_display_f??null,easyOutdoor:easyFields.easytouch_outdoor_f??null,easyFields,call:null,
+            openings:answer==='plan'?'plan':'different',dehumidifier:state.dehumidifierEnabled,
+            occupancy:request.occupancy==='away'?'away':'in_coach',vote:null,tags:[],notes:null};
+        return {input,record,planned,predicted:c.predicted,assumed:c.assumed,match,simulated};
+    }catch{return null;}
+}
+async function logBuildCheckpoint(prepared,builtPlanId){
+    if(!prepared)return;
+    try{
+        const {input,record,planned,predicted,assumed,match,simulated}=prepared;
+        const observed=await fetchObservedWeather(record.lat??forecast._lat,record.lon??forecast._lon);
+        const logged=enqueueLogEvent(checkpointEvent(input,record,planned,predicted,assumed,observed,simulated,'plan_build',match,builtPlanId));
+        document.getElementById('cpResult').innerHTML=checkpointResultHTML(input,predicted,planned,match,assumed,observed,logged,simulated,'plan_build');
+    }catch{logStatus('Could not log the plan-build checkpoint.');}
+}
 function initializeCheckpoints(){
+    updateBuildFollowedField();
     const record=readCheckpointPlan();
     if(record)prefillCheckpoint(record);else{document.getElementById('cpDehumidifier').value=state.dehumidifierEnabled?'on':'off';checkpointModeChanged();}
     document.getElementById('cpSimulation').checked=false;document.getElementById('planSimulation').checked=false;
@@ -5538,6 +5584,8 @@ async function analyze(){
     let logEvent;
     // v6.8.0 (owner decision): the simulation box is never sticky; it is read once per build and cleared.
     const simBox=document.getElementById('planSimulation'),simulated=!!simBox.checked;simBox.checked=false;
+    // v6.8.0 (owner decision): the readings entered for a new plan are also a checkpoint against the previous plan.
+    const buildCheckpoint=prepareBuildCheckpoint(request,simulated);
     planBusy=true;const button=document.getElementById('analyzeBtn');button.disabled=true;button.textContent='Building…';
     invalidateResults('Checking the connected daytime and overnight plan…');const revision=planRevision;
     const sensorPrior=readSensorPrior(request);
@@ -5559,9 +5607,10 @@ async function analyze(){
         resultRecorded(envelope,Math.min(...futureActions),request);
         offerSensorComparison(sensorPrior,request,envelope,result);
         finishRunLog(logEvent,result,Math.min(...futureActions));
+        void logBuildCheckpoint(buildCheckpoint,logEvent?.event_id??null);
         saveCheckpointPlan(result,envelope,logEvent?.event_id??null,simulated);
         showView('plan');scrollTo({top:0,behavior:'smooth'});
-    }catch(error){if(revision===planRevision){finishRunLog(logEvent||prepareRunLog(request,null,simulated),null);showAnalysisError(error);}}
+    }catch(error){if(revision===planRevision){const failed=logEvent||prepareRunLog(request,null,simulated);finishRunLog(failed,null);void logBuildCheckpoint(buildCheckpoint,failed?.event_id??null);showAnalysisError(error);}}
     finally{planBusy=false;button.disabled=false;button.textContent='Build plan';}
 }
 function initializePlan(){
