@@ -43,7 +43,7 @@ test('reported cold readings produce real heat at 70°F and a review before over
   assert.ok(a.run('action'));assert.equal(a.run('action.setup.setpoints.heat'),70);
   assert.ok(a.run('action.trials.every(t=>t.heatMinutes>0&&t.finalIndoor>58)'));
   assert.ok(a.run('action.reviewAt>+r.start&&action.reviewAt<=to'));
-  assert.match(a.run('recoveryActionHTML(action)'),/70°F/);
+  assert.match(a.run('recoveryActionHTML(action)'),/<div class="v">70°<\/div>/); // v6.7.0 set-point tile
   assert.doesNotMatch(a.run('recoveryActionHTML(action)'),/Select HEAT PUMP at 58°F/);
  }
 });
@@ -61,5 +61,5 @@ test('fixed source output is independent of a higher setpoint while both call co
 });
 test('ready=false cannot render an approved full plan even when temperature trajectory is suitable',()=>{
  const a=scene();a.run(`p=evaluatePlan([{time:+r.start,setup:planSetup('furnace',false)}],e,r,rows);p.suitable=true;p.ready=false;p.reason='Not ready at bedtime';result={winner:p,bounds:planBounds(r.start,r),request:r,envelope:e};html=renderPlan(result)`);
- assert.match(a.run('html'),/No suitable current setup/);
+ assert.match(a.run('html'),/No complete plan/);
 });

@@ -104,8 +104,8 @@ test('real end-to-end overnight planning has no unsafe prescription and keeps it
  assert.ok(a.run('result.plans.length')>=5);
  assert.equal(a.run('result.winner.phases.length'),1);
  assert.equal(a.run('result.winner.trials.every(t=>t.segments.every(s=>s.mode===result.winner.nightSetup.type))'),true);
- assert.match(a.run('html'),/Your HVAC plan/);assert.match(a.run('html'),/Other viable overnight options/);assert.match(a.run('html'),/Unsuitable overnight modes/);
- if(!a.run('result.winner.suitable')&&!a.run('result.current'))assert.doesNotMatch(a.run('html'),/Select FURNACE at|Select COOL at|Use the .*MaxxFan in AUTO/);
+ assert.match(a.run('html'),/id="planCard"/);assert.match(a.run('html'),/Other modes for overnight/); // v6.7.0 display
+ if(!a.run('result.winner.suitable')&&!a.run('result.current'))assert.doesNotMatch(a.run('html'),/class="setting-card/);
 });
 test('a scheduled action expires the displayed plan and remote capability is off by default',()=>{
  const a=scenario();a.setNow('2026-10-24T02:00Z');a.run(`resultRecorded({windowEnd:new Date('2026-10-24T12:00Z')},Date.parse('2026-10-24T02:10Z'));`);a.element('results').innerHTML='old';
@@ -155,6 +155,6 @@ test('full-night search verifies bedtime and the entire night after passive cool
  const heat=a.run('result.winner.nightSetup.setpoints.heat');assert.ok(heat>=63&&heat<=69,'HEAT TO '+heat);
  // Within 30 min of bedtime with a cooling-capable first stage, the app shows its
  // bedtime-recovery card, which also states the predicted bedroom at 10 PM.
- assert.match(a.run('renderPlan(result)'),/Bedroom at 10 PM|bedroom is projected to be [0-9.–]+°F at 10 PM/);
+ assert.match(a.run('renderPlan(result)'),/Bedroom at 10:00 PM|Predicted Internal Temperature at 10:00 PM|bedroom is projected to be [0-9.–]+°F at 10 PM/);
 });
 

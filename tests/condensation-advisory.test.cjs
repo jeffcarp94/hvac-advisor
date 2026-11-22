@@ -22,11 +22,10 @@ test('closed-coach whole-plan selection, ranking, preparation and trajectories a
  assert.ok(a.run('base.winner.trials.every(t=>t.suitable&&+t.trace.at(-1).time===Date.parse(job.end))'));
  a.run(`surfaceAssessment=()=>({surface:100,margin:100,surfaceRH:0,condensation:false});quiet=calculate()`);
  assert.equal(decision(a.run('quiet')),expected);
- assert.equal(a.run("surfaceOutlook(quiet.winner.trials)"),'');
+ assert.doesNotMatch(a.run('renderPlan(quiet)'),/window moisture|condensation/i); // v6.7.0: surface advisory dropped from the UI (owner item 7)
  a.run(`surfaceAssessment=()=>({surface:0,margin:-100,surfaceRH:500,condensation:true});loud=calculate()`);
  assert.equal(decision(a.run('loud')),expected);
- assert.match(a.run('surfaceOutlook(loud.winner.trials)'),/advisory only/);
- assert.doesNotMatch(a.run('surfaceOutlook(loud.winner.trials)'),/500%|mold develops/);
+ assert.doesNotMatch(a.run('renderPlan(loud)'),/window moisture|condensation|500%|mold/i);
 });
 test('air saturation retains mass/latent bookkeeping and warning without stopping or vetoing',()=>{
  const a=app();a.run(`forecast.timeZone='America/Chicago';state.indoorRH=100;state.dehumidifierEnabled=false;

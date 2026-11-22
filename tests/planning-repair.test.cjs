@@ -93,6 +93,7 @@ test('planner searches separate COOL preparation followed by an overnight heatin
  assert.equal(a.run('result.winner.suitable&&result.winner.ready'),true);
  assert.equal(a.run("result.plans.some(p=>p.suitable&&p.ready&&p.phases.length===3&&p.phases[1].setup.type==='ac'&&['hp','furnace'].includes(p.nightType))"),true);
  assert.equal(a.run('result.winner.trials.every(t=>+t.trace.at(-1).time===+e.windowEnd)'),true);
- assert.match(a.run('html'),/without manual changes\. AUTO HEAT PUMP can use LP furnace backup below 42°F/);
+ assert.match(a.run('html'),/No changes needed until 7:00 AM\./); // v6.7.0 display
+ assert.equal((a.run('html').match(/class="card setting-card"/g)||[]).length,3,'one card per setting change');
 });
 

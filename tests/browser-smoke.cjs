@@ -35,7 +35,7 @@ function weather(url){
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base=`http://127.0.0.1:${server.address().port}/hvac-advisor/`;
  const browser=await chromium.launch({executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
  try{
-  const context=await browser.newContext({viewport:{width:448,height:950},timezoneId:'America/Los_Angeles',colorScheme:'light'});
+  const context=await browser.newContext({viewport:{width:1024,height:950},timezoneId:'America/Los_Angeles',colorScheme:'light'}); // v6.7.0: two-column width for the input flow; phone views are checked below
   await context.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css'}));let requests=0;
   await context.route(/https:\/\/(api.weather.gov|api.zippopotam.us)\//,r=>{requests++;return r.fulfill({json:weather(r.request().url()),headers:{'Access-Control-Allow-Origin':'*'}});});
   const page=await context.newPage(),errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error('PAGE ERROR:',e.message);});
@@ -43,7 +43,8 @@ function weather(url){
   await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-initial.png'),fullPage:true});console.log('INITIAL',await page.evaluate(()=>({remote:document.getElementById('remoteAccess')?.checked,away:document.getElementById('awayOption')?.disabled,heading:document.getElementById('indoorHeading')?.textContent,loaded:typeof initializePlan})));assert.deepEqual(errors,[]);
   assert.equal(await page.locator('.period-toggle').count(),0);assert.equal(await page.locator('#awayOption').evaluate(e=>e.disabled),false);
   assert.equal(await page.locator('#remoteAccess').isChecked(),true);
-  await page.locator('#parkingObservations summary').click();
+  await page.locator('#parkingObservations > summary').click();
+  await page.locator('#logCalibration > summary').click(); // v6.7.0: comfort vote and logging sit under Log & calibration
   await page.locator('#comfortObservations summary').click();
   await page.locator('#parkingHeading').selectOption('NW');
   await page.locator('#tree_driver').selectOption('Partial');
@@ -65,27 +66,27 @@ function weather(url){
   await page.locator('#easyLogAdjustment').selectOption('unknown');
   for(const theme of ['light','dark']){
    await page.emulateMedia({colorScheme:theme});
-   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth),448);
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
    await page.screenshot({path:path.join(screens,'logging-'+theme+'.png'),fullPage:true});
   }
   await page.emulateMedia({colorScheme:'light'});
   await page.locator('#loggingOptions summary').click();
-  await page.locator('#parkingObservations summary').click();
+  await page.locator('#parkingObservations > summary').click();
   await page.locator('#comfortObservations summary').click();
   assert.equal(await page.locator('#thermostatIsolation').count(),0);
   assert.equal(await page.locator('#departureFields').isVisible(),false);
   await page.locator('#analyzeBtn').click();assert.match(await page.locator('#resultStatus').innerText(),/both indoor temperatures/);
   for(const id of ['bedTemp','frontTemp'])await page.locator('#'+id).fill('68');for(const id of ['bedRH','frontRH'])await page.locator('#'+id).fill('35');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:PLAN_WAIT});
-  assert.match(await page.locator('#results').innerText(),/Your HVAC plan/i);assert.match(await page.locator('#resultStatus').innerText(),/Manual weather/);
-  await page.locator('#sensorComparison summary').click();
+  assert.equal(await page.locator('#planCard .status').count(),1);assert.match(await page.locator('#resultStatus').innerText(),/Manual weather/);
+  await page.locator('#logCalibration').evaluate(e=>e.open=true);await page.locator('#sensorComparison summary').click();
   assert.match(await page.locator('#sensorPrior').innerText(),/cannot change your live recommendation/);
   assert.equal(await page.locator('#sensorLag').inputValue(),'5');
   await page.locator('#sensorComparison summary').click();
   await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-manual-light.png'),fullPage:true});
   const before=await page.locator('#readingTime').inputValue();
   await page.locator('#zipInput').fill('50273');await page.locator('#retrieveBtn').click();await page.waitForFunction(()=>forecast.fetched&&!weatherLoading);
-  assert.match(await page.locator('#weatherContext').innerText(),/America\/Chicago/);
+  assert.match(await page.locator('#weatherContext').innerText(),/^NWS forecast · .+ · issued /); // approved item 4
   assert.notEqual(await page.locator('#readingTime').inputValue(),before,'measurement timestamp preserves its instant across location zones');
   assert.equal(requests,4);
   // v6.6.18 (WP8, owner decision B): a plan window with daylight needs a confirmed heading. The earlier
@@ -106,7 +107,7 @@ function weather(url){
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:PLAN_WAIT});
   assert.match(await page.locator('#resultStatus').innerText(),/NWS forecast.*Projected/);
   assert.match(await page.locator('#indoorHeading').innerText(),/Projected/i);
-  assert.match(await page.locator('#results').innerText(),/Other viable overnight options/i);
+  assert.match(await page.locator('#results').innerText(),/Other modes for overnight/i);
   assert.equal(await page.locator('#results details').first().getAttribute('open'),null);
   await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-forecast-plan.png'),fullPage:true});
   await page.locator('#occupancyMode').selectOption('leaving');assert.equal(await page.locator('#departureFields').isVisible(),true);assert.equal(await page.locator('#returnFields').isVisible(),true);
@@ -117,12 +118,10 @@ function weather(url){
   await page.locator('#departureTime').fill('2026-10-22T21:15');await page.locator('#returnTime').fill('2026-10-22T23:30');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:PLAN_WAIT});
   const departureText=await page.locator('#results').innerText();
-  for(const title of ['Recommended current mode','Recommended departure mode','Recommended overnight mode'])assert.match(departureText,new RegExp(title));
   assert.equal(await page.locator('[data-stage]').count(),3);
   assert.equal(await page.locator('[data-stage] details[open]').count(),0);
-  assert.match(departureText,/sleeping 67°F/);assert.match(departureText,/awake or unoccupied 71°F/);
   assert.equal(await page.evaluate(()=>lastPlan.winner.trials.every(t=>t.segments.every(s=>s.occupied!==0||!s.sleeping))),true);
-  assert.match(departureText,/11:30 PM/);assert.match(departureText,/Predicted conditions at return/);
+  assert.match(departureText,/11:30 PM/);assert.match(departureText,/Predicted Internal Temperature at 11:30 PM \(back\)/);
   assert.equal(await page.evaluate(()=>{
     const {request,winner,stages}=lastPlan;
     const remote=winner.phases.filter(p=>p.time>+request.departure&&p.time<+request.returnTime);
@@ -133,7 +132,7 @@ function weather(url){
   await page.locator('#returnTime').fill('2026-10-23T07:00');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:PLAN_WAIT});
   assert.equal(await page.locator('[data-stage="overnight"]').count(),0);
-  assert.match(await page.locator('#results').innerText(),/No overnight recommendation/);
+  assert.match(await page.locator('#results').innerText(),/No overnight plan/);
   await page.locator('#futureStart').fill('2026-10-22T06:45');
   await page.locator('#departureTime').fill('2026-10-22T06:50');await page.locator('#returnTime').fill('2026-10-22T08:30');
   await page.locator('#remoteAccess').check();assert.equal(await page.locator('#awayOption').evaluate(e=>e.disabled),false);
@@ -146,22 +145,28 @@ function weather(url){
   await page.locator('#weatherMode').selectOption('manual');await context.setOffline(true);await page.reload();
   await page.locator('#analyzeBtn').click();assert.match(await page.locator('#resultStatus').innerText(),/both indoor temperatures/);
   for(const id of ['bedTemp','frontTemp'])await page.locator('#'+id).fill('68');for(const id of ['bedRH','frontRH'])await page.locator('#'+id).fill('35');
-  await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:PLAN_WAIT});assert.match(await page.locator('#results').innerText(),/Your HVAC plan/i);
+  await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:PLAN_WAIT});assert.equal(await page.locator('#planCard .status').count(),1);
   await context.setOffline(false);
   // Real evening calculation: no 9 PM target switch, selected thermostat settings,
   // a computed preparation time or an explicit complete-plan failure.
   await page.clock.setFixedTime(new Date('2026-10-22T04:30Z'));
   await page.evaluate(()=>{step('temp',-18);step('rh',-45);step('wind',-3);state.cloud=0;freshReadings();});
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:PLAN_WAIT});
-  assert.match(await page.locator('#setpointDisplay').innerText(),/Bed-area targets: awake\/away 71°F/);
   assert.equal(await page.evaluate(()=>!lastPlan.winner.suitable||lastPlan.winner.trials.every(t=>t.trace.every(p=>p.bedroom>=64-1e-6))),true,'accepted plans enforce the 64°F floor (65°F less the v6.6.28 1°F allowance) at every point');
   // v6.6.15: with the calibrated storage this evening can instead show the computed
   // bedtime-recovery card (a timed preparation with the predicted 10 PM bedroom).
-  const text=await page.locator('#results').innerText();assert.match(text,/Next action|No suitable current setup|Recovery before bed[\s\S]*(bedroom is projected to be [0-9.–]+°F at 10 PM|Keep this setup through morning)/i); // v6.6.28: with the 1°F allowance the verified card (switch at 10 PM) is also validassert.doesNotMatch(text,/Preparing for Sleep from 9|Not chosen|weighted/);
+  const text=await page.locator('#results').innerText();assert.match(text,/No changes needed until|Rebuild at|No complete plan|Bedtime plan|Rebuild after|Rebuild from/); // v6.7.0 next-step card
   await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-evening-plan.png'),fullPage:true});
-  const widths=[];for(const width of [390,448,480]){await page.setViewportSize({width,height:950});widths.push(await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})));}
+  const widths=[];for(const width of [360,390,448,480,768,1024,1440]){await page.setViewportSize({width,height:950});widths.push(await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})));}
   assert.ok(widths.every(x=>x.width===x.scroll),JSON.stringify(widths));
+  // v6.7.0 phone views: the plan shows after a build; the Inputs tab brings the form back.
+  await page.setViewportSize({width:390,height:950});
+  assert.equal(await page.locator('#analyzeBtn').isVisible(),false);assert.equal(await page.locator('#planCard').isVisible(),true);
+  await page.locator('#tabInputs').click();assert.equal(await page.locator('#analyzeBtn').isVisible(),true);assert.equal(await page.locator('#planCard').isVisible(),false);
+  await page.locator('#tabPlan').click();assert.equal(await page.locator('#tabPlan').getAttribute('aria-selected'),'true');
+  await page.screenshot({path:path.join(screens,'v6-phone-plan.png'),fullPage:true});
   await page.emulateMedia({colorScheme:'dark'});await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.screenshot({path:path.join(screens,'v6-dark.png'),fullPage:true});
+  await page.setViewportSize({width:1024,height:950});await page.emulateMedia({colorScheme:'light'});
   // The owner's reported Winterset evening: real inputs, NWS parsing and Worker.
   wintersetWeather=true;await page.clock.setFixedTime(new Date(savedWinterset.request.start));
   await page.locator('#planningOptions').evaluate(e=>e.open=true);
@@ -172,10 +177,8 @@ function weather(url){
   await page.locator('#readingTime').fill('2026-10-23T18:47');
   await page.locator('#analyzeBtn').click();await page.locator('#results.visible').waitFor({timeout:PLAN_WAIT});
   const wintersetText=await page.locator('#results').innerText();
-  assert.match(wintersetText,/Select (COOL|HEAT PUMP|FURNACE) at \d+°F|Select AUTO (HEAT PUMP|FURNACE); set HEAT TO \d+°F and COOL TO \d+°F/);
-  assert.match(wintersetText,/Bed-area comfort takes priority/);
-  assert.match(await page.locator('#planCard').textContent(),/70% rear \/ 30% front/);
-  assert.doesNotMatch(wintersetText,/No suitable current setup/);
+  assert.match(wintersetText,/(COOL|HEAT PUMP|FURNACE)\s+Set to\s+\d+°|AUTO (HEAT PUMP|FURNACE)\s+Heat to\s+\d+°\s+Cool to\s+\d+°/);
+  assert.doesNotMatch(wintersetText,/No complete plan|70% rear|Bed-area comfort takes priority/);
   const wintersetAssessment=await page.evaluate(()=>{
    const complete=lastPlan.winner.suitable&&lastPlan.winner.ready;
    const prescribed=complete?lastPlan.winner:lastPlan.current;
@@ -188,7 +191,7 @@ function weather(url){
   console.log('WINTERSET',wintersetAssessment);
   assert.equal(wintersetAssessment.complete||wintersetAssessment.hasCurrent,true);
   assert.equal(wintersetAssessment.members&&wintersetAssessment.verified&&wintersetAssessment.mixed,true); // v6.6.21: 32 conditions
-  if(!wintersetAssessment.complete)assert.match(wintersetText,/Overnight needs reassessment|complete overnight setup has not been verified/i);
+  if(!wintersetAssessment.complete)assert.match(wintersetText,/No setting works all night\./);
   assert.equal(await page.evaluate(()=>resultContext.expires<=Date.now()+30*60000),true);
   await page.waitForFunction(()=>document.getElementById('planCard').getBoundingClientRect().top>=document.querySelector('.header').getBoundingClientRect().bottom);
   await page.screenshot({path:path.join(screens,'winterset-current-screen.png')});
@@ -217,9 +220,7 @@ function weather(url){
   assert.equal(advisoryResult.suitable,true);assert.equal(advisoryResult.ready,true);assert.equal(advisoryResult.full,true);assert.equal(advisoryResult.warning,true);
   await page.locator('#planCard').waitFor({state:'visible'});
   const advisoryText=await page.locator('#results').innerText();
-  assert.match(advisoryText,/Possible window moisture — advisory only/i);assert.match(advisoryText,/dew point/);
-  assert.match(advisoryText,/does not change HVAC selection or timing/);
-  assert.doesNotMatch(advisoryText,/Condensation margin fails/);
+  assert.doesNotMatch(advisoryText,/window moisture|Condensation margin fails/i); // v6.7.0: surface advisory dropped from the UI (owner item 7)
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
   await page.screenshot({path:path.join(screens,'condensation-advisory-plan.png'),fullPage:true});
   // A complete preparation case must render every action selected by the Worker.
@@ -240,10 +241,9 @@ function weather(url){
    return {suitable:p.suitable,ready:p.ready,phases:p.phases.length,night:p.nightType,full:p.trials.every(t=>t.suitable&&+t.trace.at(-1).time===+end),targetRank:p.targetRank,actions:p.phases.filter((phase,i)=>i===0||!sameSetup(p.phases[i-1].setup,phase.setup)).length};
   },preparationJob);
   assert.equal(preparationResult.suitable,true,JSON.stringify(preparationResult));assert.equal(preparationResult.ready,true);assert.equal(preparationResult.full,true);assert.ok(Number.isFinite(preparationResult.targetRank));
-  assert.ok(await page.locator('#planCard .plan-step').count()>=preparationResult.actions);
+  assert.equal(await page.locator('#planCard .setting-card').count(),preparationResult.actions);
   const preparationText=await page.locator('#results').innerText();
-  assert.match(preparationText,/sleeping 67°F/);assert.match(preparationText,/awake or unoccupied 71°F/);
-  assert.match(preparationText,/without manual changes\. AUTO HEAT PUMP can use LP furnace backup below 42°F/);
+  assert.match(preparationText,/No changes needed until/);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth),true);
   await page.screenshot({path:path.join(screens,'cooling-preparation-heat-pump.png'),fullPage:true});
   // WP13 Search: a running ensemble plan in the Worker is cancelled when inputs change (scope v3, Search item 2).
@@ -265,12 +265,12 @@ function weather(url){
   // v5 itself reloads on controllerchange; wait for the new document rather than
   // keeping an evaluation pending in a destroyed execution context.
   await oldPage.evaluate(()=>navigator.serviceWorker.getRegistration().then(r=>r.update()));
-  await oldPage.waitForFunction(()=>document.title.includes('v6.6.28'),{timeout:30000});
+  await oldPage.waitForFunction(()=>document.title.includes('v6.7.0'),{timeout:30000});
   assert.equal(await oldPage.locator('.period-toggle').count(),0);assert.ok(await oldPage.evaluate(async()=>(await caches.keys()).includes('unrelated-app-cache')));
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':5.0.0'))),false);
   assert.equal(await oldPage.evaluate(async()=>(await caches.keys()).some(k=>k.endsWith(':6.0.0'))),false);
   await oldContext.close();}
-  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.6.28','6.0.0 → 6.6.28'],errors},null,2));
+  console.log(JSON.stringify({passed:true,weatherRequests:requests,widths,offline:true,winterset:true,upgrade:['5.0.0 → 6.7.0','6.0.0 → 6.7.0'],errors},null,2));
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
 

@@ -49,7 +49,8 @@ test('cold runs start 1°F below the band; the floor is 65°F less the 1°F allo
     const deep=drift(a,30,66,1);assert.equal(deep.floor,true);assert.ok(deep.trace.some(p=>p.b<64-1e-6));
 });
 
-test('the comfort policy text states the tolerance and the hard floor',()=>{
-    const text=app().run('comfortPolicyText()');
-    assert.match(text,/Checks pass within 1°F of each limit\. A comfort failure needs the bedroom more than 1°F outside the allowed range for over 30 minutes, or more than 2°F above it for 15 minutes; the hard floor is 64°F \(65°F less the allowance\)/);
+test('v6.7.0: the allowance and floor are unchanged; the comfort-policy text is no longer shown',()=>{
+    const a=app();
+    assert.equal(a.run('M.comfortAllowanceF'),1);assert.equal(a.run('M.comfortRunEdgeF'),1);assert.equal(a.run('C.comfortFloor'),65);
+    assert.equal(a.run('typeof comfortPolicyText'),'undefined');
 });

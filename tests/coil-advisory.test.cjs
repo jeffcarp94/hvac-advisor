@@ -128,13 +128,12 @@ test('advisory wording: non-blocking, no damage wording, no WP9 gap statement, i
  const base=`{flagged:true,alternativesChecked:2,alternative:null,check:{cases:9,cooling:9,flagged:9,stagedFlagged:7,autoAssumed:true,flagMinutes:40,minSurfaceF:20.1,peakFrostMm:.6,clamped:false,
    first:{time:Date.parse('2026-07-18T20:00Z'),fan:'Auto',assessedFan:'Low',minSurfaceF:23.1,returnF:74,outdoorF:73,indoorDewPointF:54}}}`;
  const html=a.run(`wp7CoilAdvisoryHTML(${base},{})`);
- assert.match(html,/The coil model predicts ice building up on the cooling coil at this fan setting\. The current cooling check permits this setup\./);
- assert.match(html,/Ice that melts between runs is not flagged/);
+ // v6.7.0 (approved item 6): one line, only when flagged, with the icing response.
+ assert.match(html,/AC coil may ice up<\/b>Flagged in 9 of 9 tested conditions from \d+:\d\d [AP]M\./);
  assert.doesNotMatch(html,/unsafe|danger|damage/i);
  assert.doesNotMatch(html,/Not yet modeled|re-evaporation penalty|\(WP9\)/);
- assert.match(html,/stop cooling, check the filter and vents, run FAN ONLY until the ice clears, then resume at a warmer setting/);
- assert.match(html,/No evaluated alternative passes both checks \(checked 2\)/);
- assert.match(html,/flags in 7 of 9/);
+ assert.match(html,/If you see ice, run FAN ONLY until it clears, then cool at a warmer setting\./);
+ assert.doesNotMatch(html,/avoids it/);
  assert.equal(a.run('wp7CoilAdvisoryHTML(null,{})'),'');assert.equal(a.run('wp7CoilAdvisoryHTML({flagged:false},{})'),'');
 });
 
@@ -151,7 +150,7 @@ test('an alternative is offered only if evaluated, executable (suitable and read
   adv=wp7CoilAdvisory({winner,plans:[winner,rejected,stillFlagged,clear],bounds:{end:new Date('2026-07-18T23:00Z')}},{},r);`);
  assert.equal(a.run('adv.flagged'),true);assert.equal(a.run('adv.alternativesChecked'),2);
  assert.equal(a.run('adv.alternative.check.flagged'),0);
- assert.match(a.run('wp7CoilAdvisoryHTML(adv,r)'),/Evaluated alternative that passes both checks/);
+ assert.match(a.run('wp7CoilAdvisoryHTML(adv,r)'),/COOL at 72°F from \d+:\d\d [AP]M avoids it\./);
  a.run(`adv2=wp7CoilAdvisory({winner:{...winner,suitable:false},current:{...winner},plans:[winner,clear]},{},r);`);
  assert.equal(a.run('adv2.flagged'),true);assert.equal(a.run('adv2.alternative'),null);
 });

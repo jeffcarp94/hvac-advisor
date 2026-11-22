@@ -51,7 +51,7 @@ test('furnace maintenance cannot claim an ideal clamped setpoint with real hyste
  const heat=a.run('p.setup.setpoints.heat');
  assert.ok(a.run('p.trials.every(t=>Math.max(...t.trace.slice(1).map(x=>x.midCoach))>='+(heat+1-.05)+')'),'every case reaches shutoff');
  assert.ok(a.run('p.trials.some(t=>Math.min(...t.trace.slice(1).map(x=>x.midCoach))<='+(heat-2+.05)+')'),'a case returns to the restart threshold');
- assert.match(a.run('frontOutlook(p.trials,+r.start,to)'),/Dinette comfort differs/);
+ assert.ok(a.run('p.trials.some(t=>t.trace.some(x=>{const b=comfortPolicy(x.sleep);return x.midCoach<b.low-.05||x.midCoach>b.high+.05;}))'),'the dinette leaves its band');
 });
 test('AUTO control uses independent EasyTouch setpoints instead of a midpoint',()=>{
   const a=scenario();a.run(`s=withSetting(planSetup('auto',true),{heat:67,cool:71});env={tOut:80,ua:100,gains:0,mass:300};p=thermalStep('auto',69,env,s.setpoints,2);`);
@@ -65,7 +65,7 @@ test('AUTO control uses independent EasyTouch setpoints instead of a midpoint',(
   close(a.run('p.segments[1].t1'),68);
  });
 test('installed cabinet isolation is recorded without a modeled correction',()=>{
- const a=scenario();assert.equal(a.run('state.thermostatIsolated'),undefined);assert.match(a.run('spatialModelText(true)'),/Cabinet-void isolation is installed/);
+ const a=scenario();assert.equal(a.run('state.thermostatIsolated'),undefined);
  a.run(`before=simulatePlan([{time:+r.start,setup:withSetting(planSetup('furnace',true),63)}],e,r,AIR_SCENARIOS[0],rows);state.thermostatIsolated=true;after=simulatePlan([{time:+r.start,setup:withSetting(planSetup('furnace',true),63)}],e,r,AIR_SCENARIOS[0],rows)`);
  assert.deepEqual(a.run('before.finalZones'),a.run('after.finalZones'));
 });

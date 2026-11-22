@@ -1,3 +1,19 @@
+# v6.7.0 — UI overhaul: settings first, short reasons, adapts to any screen
+
+Presentation only. The model, ranking, eligibility, comfort checks, control logic and logging are unchanged (fixture before/after comparison in the PR).
+
+- **Each setting change is one card.** Mode, set point(s) and fan in large type, the windows and MaxxFans line, a one-line **Why**, and the predicted bedroom range. Later cards start with **Predicted Internal Temperature at [time]**; the first shows the measured bedroom.
+- **Other modes for each card.** "Works, but ranked lower" and "Ruled out", one plain reason each (your A–D decisions, November 21):
+  - Reasons describe what happens (temperature, time, conditions), not engineering causes.
+  - "Practically a tie" when the difference is under 5 degree-minutes (averaged over the 32 conditions) and the bedroom ranges are within 0.5°F.
+  - Modes with the same result share one row; heating modes are hidden when only cooling is needed, and the reverse.
+- **Text you approved stays; the rest is gone.**
+  - Kept: "Works in X of 32 tested conditions" (with "misses run cold/warm" below 32), the recheck time, the "No setting works all night" line, the weather source line (NWS · place · issued time), the old-readings note (over 10 minutes), and a one-line coil-icing warning when flagged.
+  - Removed: comfort-policy and methodology text, the Forecast & calculation details panel, the condition-by-condition failure list, the window-moisture advisory, the AC airflow line and the footer.
+- **Inputs.** Weather, Inside the coach now (humidity labeled "Humidity % (YoLink)"; EasyTouch display fields stay beside the readings), Today, then collapsed Coach setup, Parking, and Log & calibration (YoLink update times, comfort vote, Sheets logging, sensor comparison).
+- **Look.** System fonts (no web-font download), one accent color plus a color per mode, follows the phone's light/dark setting. Phones show Inputs and Plan tabs and switch to Plan after a build; screens 960 px and wider show both side by side. The 480 px maximum width is retired.
+- **Kept as one short line when it applies:** "Not every setup was checked" for a budget-limited absence search.
+
 # v6.6.28 — refrigeration-cycle AC model, coil-ice advisory on the same model, faster moisture buffering, 1°F comfort allowance
 
 - **One AC model (your WP14 approval).** Plan cooling capacity and the coil-icing advisory now come from the same vapor-compression cycle model of the rooftop unit (compressor, capillary tube, coil, condenser). The coil's evaporating temperature is solved from the equipment instead of read off capacity curves. Plan capacities are within about 1–4% of v6.6.27 (for example 15,117 vs 15,142 BTU/h total on a 95°F afternoon at High).

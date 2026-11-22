@@ -38,7 +38,7 @@ for(const [type,initial,setting] of [['furnace',58,66],['ac',77,68]]){
         assert.equal(a.run('outcome.switchAt'),a.run("+clockAt('21:40')"));
         assert.equal(a.run(`outcome.night.setpoints.${type==='ac'?'cool':'heat'}`),setting);
         assert.equal(a.run('outcome.verified'),true);
-        assert.match(a.run('bedtimeRecoveryHTML(outcome)'),new RegExp(setting+'°F'));
+        assert.match(a.run('bedtimeRecoveryHTML(outcome)'),new RegExp('<div class="v">'+setting+'°</div>')); // v6.7.0 set-point tile
         assert.equal(a.run('trials.slice(1).every(phases=>phases.at(-1).time===outcome.switchAt)'),true);
     });
 }

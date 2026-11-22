@@ -38,10 +38,10 @@ test('projected alternatives retain identical preparation and exact carried bedt
  assert.equal(a.run(`records.filter(p=>p.phases.at(-1).time===+result.bounds.bedtime).every(p=>p.trials.every((t,i)=>JSON.stringify(t.atBedtime)===JSON.stringify(result.winner.trials[i].atBedtime)))`),true);
  assert.ok(a.run('records.some(p=>p.phases.at(-1).time===+result.bounds.bedtime)'));
  assert.equal(a.run('comparisons.night.options.every(p=>typeof p.front===\"string\"&&!p.front.includes(\"undefined\"))'),true);
- assert.match(a.run('html'),/projected overnight options/);assert.match(a.run('html'),/same predicted sleep-start conditions/);
+ assert.match(a.run('html'),/Other modes for overnight/);assert.match(a.run('html'),/Predicted Internal Temperature at 10:00 PM/); // v6.7.0 display
  // Comparison summaries survive the exact worker payload pruning.
  a.run(`trimPlanResult(result);serialized=structuredClone(result);workerHTML=renderPlan(serialized)`); // v6.6.21: the Worker's own trimming
- assert.match(a.run('workerHTML'),/projected overnight options/);
+ assert.match(a.run('workerHTML'),/Other modes for overnight/);
 });
 test('daytime alternatives cannot borrow an early AC switch; idle heaters are unnecessary',()=>{
  const a=scenario('2026-10-23T17:00Z');a.run(`r.initial.temperature=[72,72];state.temp=80;e=makeEnvelope(r.start,planBounds(r.start).end,'Test',300000);
@@ -56,11 +56,11 @@ test('night run compares remaining overnight period with no daytime or future-ni
  const a=scenario('2026-10-24T03:00Z');a.run('result=runUnifiedPlan(r,e);html=renderPlan(result)');
  assert.equal(a.run('result.comparisons.day'),null);assert.equal(a.run('result.comparisons.night.projected'),false);
  assert.equal(a.run('result.comparisons.night.from'),a.run('+r.start'));
- assert.match(a.run('html'),/Other viable overnight options/);assert.doesNotMatch(a.run('html'),/Other viable daytime|projected overnight options/);
+ assert.match(a.run('html'),/Other modes for overnight/);assert.doesNotMatch(a.run('html'),/Other modes until|Predicted Internal Temperature at/); // v6.7.0: one overnight card
 });
 test('an absence past 7 AM is covered through return without inventing an overnight stage',()=>{
  const a=scenario();a.run(`r.occupancy='leaving';r.departure=new Date('2026-10-24T02:55Z');r.returnTime=new Date('2026-10-24T13:00Z');r.remote=false;
  e=makeEnvelope(r.start,planBounds(r.start,r).end,'Test',300000);result=runUnifiedPlan(r,e);html=renderPlan(result)`);
  assert.equal(a.run('result.bounds.hasSleep'),false);assert.equal(a.run('result.stages.night'),null);
- assert.match(a.run('html'),/No overnight recommendation/);
+ assert.match(a.run('html'),/No overnight plan\./);
 });
