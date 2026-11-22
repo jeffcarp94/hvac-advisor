@@ -104,9 +104,13 @@ test('forecast expires at two hours; stale or missing issue time blocks analysis
     fixture(a);a.run('forecast.issuedAt=NaN');assert.throws(()=>a.run('buildEnvelope(false)'),/issue time/);
 });
 
-test('a visible plan is cleared when weather expires or its next action arrives',()=>{
-    const a=app();fixture(a);a.run('resultRecorded(buildEnvelope(false))');a.element('results').innerHTML='old';
-    a.setNow('2026-10-21T19:00Z');a.run('checkResultValidity()');assert.equal(a.element('results').innerHTML,'');
+// v6.8.1 (owner decision, November 22, 2026): a stale forecast no longer clears the displayed plan; it only blocks a
+// new build. The plan is cleared at its own end.
+test('a visible plan stays when the forecast goes stale and is cleared at the plan end',()=>{
+    const a=app();fixture(a);a.run('env=buildEnvelope(false);resultRecorded(env)');a.element('results').innerHTML='old';
+    a.setNow('2026-10-21T19:00Z');a.run('checkResultValidity()');assert.equal(a.element('results').innerHTML,'old');
+    assert.match(a.run('forecastProblem()'),/more than two hours old/);
+    a.setNow(new Date(a.run('+env.windowEnd')).toISOString());a.run('checkResultValidity()');assert.equal(a.element('results').innerHTML,'');
 });
 
 test('the unified planner rejects missing measured inputs without a runtime error',async()=>{

@@ -107,9 +107,13 @@ test('real end-to-end overnight planning has no unsafe prescription and keeps it
  assert.match(a.run('html'),/id="planCard"/);assert.match(a.run('html'),/Other modes for overnight/); // v6.7.0 display
  if(!a.run('result.winner.suitable')&&!a.run('result.current'))assert.doesNotMatch(a.run('html'),/class="setting-card/);
 });
-test('a scheduled action expires the displayed plan and remote capability is off by default',()=>{
+// v6.8.1 (owner decision, November 22, 2026): a scheduled action marks the displayed plan ("Recheck time passed")
+// instead of clearing it; the plan is cleared at its own end.
+test('a scheduled action marks the displayed plan, its end clears it, and remote capability is off by default',()=>{
  const a=scenario();a.setNow('2026-10-24T02:00Z');a.run(`resultRecorded({windowEnd:new Date('2026-10-24T12:00Z')},Date.parse('2026-10-24T02:10Z'));`);a.element('results').innerHTML='old';
- a.setNow('2026-10-24T02:10Z');a.run('checkResultValidity()');assert.equal(a.element('results').innerHTML,'');
+ let note='';a.element('planCard').insertAdjacentHTML=(where,html)=>{note=html;};
+ a.setNow('2026-10-24T02:10Z');a.run('checkResultValidity()');assert.equal(a.element('results').innerHTML,'old');assert.match(note,/Recheck time passed/);
+ a.setNow('2026-10-24T12:00Z');a.run('checkResultValidity()');assert.equal(a.element('results').innerHTML,'');
  assert.equal(a.element('awayOption').disabled,true);
 });
 test('form times preserve their actual instant when NWS changes the location timezone',()=>{

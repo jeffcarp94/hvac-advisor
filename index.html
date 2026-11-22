@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#F5F6F8" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0F1216" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.8.0 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.8.1 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <style>
@@ -128,7 +128,7 @@
 </head>
 <body>
 <div class="app">
-    <header class="header"><div class="header-title">HVAC Advisor</div><span class="header-version">v6.8.0</span></header>
+    <header class="header"><div class="header-title">HVAC Advisor</div><span class="header-version">v6.8.1</span></header>
     <nav class="view-tabs" role="tablist" aria-label="View">
         <button type="button" role="tab" id="tabInputs" aria-selected="true" onclick="showView('inputs')">Inputs</button>
         <button type="button" role="tab" id="tabPlan" aria-selected="false" onclick="showView('plan')">Plan</button>
@@ -762,7 +762,7 @@ async function fetchNWS(lat,lon,placeName,request){
         _lat:lat,_lon:lon,timeZone:p.timeZone,fetchedAt:Date.now(),issuedAt:Math.min(...issues)};
     weatherLoading=false;const problem=forecastProblem();if(problem)throw new Error(problem);
     document.getElementById('weatherLocation').textContent=forecast.location;document.getElementById('weatherLocation').style.display='block';
-    finishWeatherRequest(request);showStatus('Forecast retrieved from NWS.',false);updatePeriodSublabels();applyForecast(state.period);
+    finishWeatherRequest(request);showStatus('Forecast retrieved from NWS.',false);updatePeriodSublabels();applyForecast(state.period);scheduleSessionSave();
 }
 function periodAt(time){return forecast.periods.find(p=>p.start<=time&&time<p.end);}
 function forecastPeriodsFor(start,end){
@@ -4765,7 +4765,9 @@ function showView(view){
 function updatePeriodSublabels(){updatePlanUI();}
 function equipmentInputsChanged(){state.dehumidifierEnabled=document.getElementById('dehumidifierMode').value==='enabled';planInputsChanged();}
 function invalidateResults(message='Inputs changed. Build a fresh plan.'){
+    if(sessionRestoring)return; // v6.8.1: restoring the saved session must not clear the restored plan
     resultContext=null;lastPlan=null;comparisonBase=null;planRevision++;cancelPlanWorker?.();
+    try{clearPlanView();}catch{}
     document.getElementById('sensorComparison').hidden=true;
     const c=document.getElementById('results');c.replaceChildren();c.classList.remove('visible');
     const shown=message==='Inputs changed. Build a fresh plan.'?'':message;document.getElementById('resultStatus').textContent=shown;setBuildStatus(shown);
@@ -4773,14 +4775,40 @@ function invalidateResults(message='Inputs changed. Build a fresh plan.'){
 }
 function setBuildStatus(message){const e=document.getElementById('buildStatus');if(e)e.textContent=message;}
 function resultRecorded(envelope,nextAction=null,request=null){
-    resultContext={mode:state.weatherMode,windowEnd:+envelope.windowEnd,expires:Math.min(nextAction||Infinity,+envelope.windowEnd,Date.now()+30*60000),request};
+    // v6.8.1 (owner decision, November 22, 2026): the plan stays on screen until its own end. At its next action or
+    // recheck time it is marked "Recheck time passed" instead of being cleared (it was cleared after 30 minutes).
+    resultContext={mode:state.weatherMode,windowEnd:+envelope.windowEnd,expires:Math.min(nextAction||Infinity,+envelope.windowEnd),request};
     setBuildStatus('');
     document.getElementById('resultStatus').textContent=weatherSourceLine()+' · built '+formatTime(new Date())+(request?.future?' · Projected start':'');
 }
 function checkResultValidity(){
     updatePlanUI();updateWeatherContext();if(!resultContext)return;
-    const problem=resultContext.mode==='forecast'?forecastProblem():'';
-    if(problem||Date.now()>=resultContext.expires)invalidateResults(problem||'The next action time has arrived or the plan needs refreshed readings. Build a fresh plan.');
+    if(Date.now()>=resultContext.windowEnd){invalidateResults('This plan has ended. Build a fresh plan.');return;}
+    if(Date.now()>=resultContext.expires)markRecheckPassed();
+}
+// v6.8.1: the shown plan survives the app being closed (a phone PWA is often unloaded in the background).
+const PLAN_VIEW_KEY='hvac-advisor-plan-view-v1',SESSION_KEY='hvac-advisor-session-v1';
+let sessionRestoring=false;
+function markRecheckPassed(){
+    const card=document.getElementById('planCard');if(!card||resultContext.recheckMarked)return;
+    resultContext.recheckMarked=true;card.insertAdjacentHTML?.('afterbegin','<div id="recheckNote">'+noteHTML('Recheck time passed. ','Build a fresh plan with new readings.','warn')+'</div>');
+    savePlanView();
+}
+function savePlanView(){
+    try{
+        if(!resultContext)return;
+        saveLogStorage(PLAN_VIEW_KEY,{version:1,html:document.getElementById('results').innerHTML,status:document.getElementById('resultStatus').textContent,
+            windowEnd:resultContext.windowEnd,expires:resultContext.expires,mode:resultContext.mode,saved:Date.now()});
+    }catch{}
+}
+function clearPlanView(){try{localStorage.removeItem(PLAN_VIEW_KEY);}catch{}}
+function restorePlanView(){
+    let view=null;try{view=loadLogStorage(PLAN_VIEW_KEY,null);}catch{}
+    if(!view||view.version!==1||typeof view.html!=='string'||!(Date.now()<view.windowEnd)){clearPlanView();return false;}
+    const c=document.getElementById('results');c.innerHTML=view.html;c.classList.add('visible');document.getElementById('emptyPlan').hidden=true;
+    document.getElementById('resultStatus').textContent=view.status||'';
+    resultContext={mode:view.mode,windowEnd:view.windowEnd,expires:view.expires,request:null,restored:true,recheckMarked:view.html.includes('id="recheckNote"')};
+    return true;
 }
 // The plan result the Worker posts: only what the page renders and logs. Checkpoints are dropped; plans other
 // than the winner keep no trajectories. With the WP13 ensemble, each sampled member of the plans shown
@@ -4835,7 +4863,7 @@ self.postMessage({result});}catch(error){self.postMessage({error:error.message})
     });
 }
 // v6.8.0: one version constant for the log (LOG_APP_VERSION was left at 6.6.28 in v6.7.0 and v6.7.1).
-const APP_VERSION='6.8.0',LOG_APP_VERSION=APP_VERSION;
+const APP_VERSION='6.8.1',LOG_APP_VERSION=APP_VERSION;
 const LOG_SETTINGS_KEY='hvac-advisor-log-settings-v1';
 const LOG_QUEUE_KEY='hvac-advisor-log-queue-v1';
 const EASY_LOG_ADJUSTMENT_KEY='hvac-advisor-log-easytouch-adjustment-v1';
@@ -5466,11 +5494,20 @@ function prepareBuildCheckpoint(request,simulated){
         return {input,record,planned,predicted:c.predicted,assumed:c.assumed,match,simulated};
     }catch{return null;}
 }
-async function logBuildCheckpoint(prepared,builtPlanId){
+// v6.8.1: the plan row waits for the build-time observation (it was started with the build), then is queued; the
+// plan-build checkpoint reuses the same observation.
+async function finishBuildLogs(event,result,nextAction,prepared,observedPromise){
+    let observed=null;
+    try{observed=observedPromise?await observedPromise:null;}catch{observed={error:'unavailable'};}
+    if(event&&observed)event.observed_weather_json=JSON.stringify(observed);
+    finishRunLog(event,result,nextAction);
+    await logBuildCheckpoint(prepared,event?.event_id??null,observed);
+}
+async function logBuildCheckpoint(prepared,builtPlanId,known=null){
     if(!prepared)return;
     try{
         const {input,record,planned,predicted,assumed,match,simulated}=prepared;
-        const observed=await fetchObservedWeather(record.lat??forecast._lat,record.lon??forecast._lon);
+        const observed=known??await fetchObservedWeather(record.lat??forecast._lat,record.lon??forecast._lon);
         const logged=enqueueLogEvent(checkpointEvent(input,record,planned,predicted,assumed,observed,simulated,'plan_build',match,builtPlanId));
         document.getElementById('cpResult').innerHTML=checkpointResultHTML(input,predicted,planned,match,assumed,observed,logged,simulated,'plan_build');
     }catch{logStatus('Could not log the plan-build checkpoint.');}
@@ -5586,6 +5623,10 @@ async function analyze(){
     const simBox=document.getElementById('planSimulation'),simulated=!!simBox.checked;simBox.checked=false;
     // v6.8.0 (owner decision): the readings entered for a new plan are also a checkpoint against the previous plan.
     const buildCheckpoint=prepareBuildCheckpoint(request,simulated);
+    // v6.8.1 (owner decision, November 22, 2026): every plan built from current readings also logs the nearest NWS
+    // station observation at build time (observed_weather_json), fetched while the plan is computed.
+    const savedPlan=readCheckpointPlan();
+    const observedPromise=readLogSettings().enabled&&!request.future?fetchObservedWeather(Number(forecast._lat??savedPlan?.lat),Number(forecast._lon??savedPlan?.lon)):null;
     planBusy=true;const button=document.getElementById('analyzeBtn');button.disabled=true;button.textContent='Building…';
     invalidateResults('Checking the connected daytime and overnight plan…');const revision=planRevision;
     const sensorPrior=readSensorPrior(request);
@@ -5604,22 +5645,78 @@ async function analyze(){
         if(revision!==planRevision)return;lastPlan=result;
         const container=document.getElementById('results');container.innerHTML=renderPlan(result);container.classList.add('visible');document.getElementById('emptyPlan').hidden=true;
         const futureActions=[...(result.bedtimeRecovery?.switchAt?[result.bedtimeRecovery.verified?result.bedtimeRecovery.switchAt:result.bedtimeRecovery.bedtime]:[]),...(result.recoveryAction?[result.recoveryAction.reviewAt]:[]),...(result.current?[result.current.reviewAt]:result.winner.phases.slice(1).map(p=>p.time)),request.departure&&+request.departure,request.returnTime&&+request.returnTime].filter(t=>t>Date.now());
-        resultRecorded(envelope,Math.min(...futureActions),request);
+        resultRecorded(envelope,Math.min(...futureActions),request);savePlanView();
         offerSensorComparison(sensorPrior,request,envelope,result);
-        finishRunLog(logEvent,result,Math.min(...futureActions));
-        void logBuildCheckpoint(buildCheckpoint,logEvent?.event_id??null);
+        void finishBuildLogs(logEvent,result,Math.min(...futureActions),buildCheckpoint,observedPromise);
         saveCheckpointPlan(result,envelope,logEvent?.event_id??null,simulated);
         showView('plan');scrollTo({top:0,behavior:'smooth'});
-    }catch(error){if(revision===planRevision){const failed=logEvent||prepareRunLog(request,null,simulated);finishRunLog(failed,null);void logBuildCheckpoint(buildCheckpoint,failed?.event_id??null);showAnalysisError(error);}}
+    }catch(error){if(revision===planRevision){const failed=logEvent||prepareRunLog(request,null,simulated);void finishBuildLogs(failed,null,undefined,buildCheckpoint,observedPromise);showAnalysisError(error);}}
     finally{planBusy=false;button.disabled=false;button.textContent='Build plan';}
 }
+// v6.8.1 (owner decision, November 22, 2026): the Inputs setup survives the app being closed: weather source and
+// location (the forecast is fetched again for it), occupancy and departure/return, coach setup and manual weather.
+// Readings, their times, the projected-start choice and confirmations are never restored: they must be current.
+const SESSION_CHECKBOXES=new Set(['remoteAccess']);
+const SESSION_FIELDS=['zipInput','occupancyMode','departureTime','returnTime','dehumidifierMode','remoteAccess',
+    'actualMode','actualSetpoint','actualHeatSetpoint','actualCoolSetpoint','actualFan','actualVent'];
+function sessionFieldIds(){return [...SESSION_FIELDS,...WINDOW_SECTIONS.map((_,i)=>'actualWindow'+i)];}
+function saveSession(){
+    if(sessionRestoring)return;
+    try{
+        const fields={};
+        for(const id of sessionFieldIds()){const e=document.getElementById(id);if(e)fields[id]=SESSION_CHECKBOXES.has(id)?!!e.checked:e.value;}
+        let previous=null;try{previous=loadLogStorage(SESSION_KEY,null);}catch{}
+        const location=forecast.fetched?{lat:forecast._lat,lon:forecast._lon,place:forecast.location}:weatherLoading?previous?.location??null:null;
+        saveLogStorage(SESSION_KEY,{version:1,saved:Date.now(),fields,weatherMode:state.weatherMode,location,
+            manual:{temp:state.temp,rh:state.rh,cloud:state.cloud,wind:state.wind,precip:state.precip}});
+    }catch{}
+}
+let sessionSaveTimer=null;
+function scheduleSessionSave(){clearTimeout(sessionSaveTimer);sessionSaveTimer=setTimeout(saveSession,0);}
+async function restoreWeather(location){
+    weatherAbort?.abort();weatherAbort=new AbortController();weatherLoading=true;
+    const request={id:++weatherRequestId,signal:weatherAbort.signal};state.weatherMode='forecast';updateWeatherContext();
+    try{await fetchNWS(location.lat,location.lon,location.place,request);}
+    catch(error){
+        if(request.id!==weatherRequestId)return;
+        weatherLoading=false;forecast=emptyForecast();setBtnLoad('retrieveBtn',false);showStatus(error.message,true);updateWeatherContext();
+    }
+}
+function restoreSession(){
+    let saved=null;try{saved=loadLogStorage(SESSION_KEY,null);}catch{}
+    sessionRestoring=true;
+    try{
+        if(saved?.version===1){
+            for(const [id,value] of Object.entries(saved.fields||{})){
+                const e=document.getElementById(id);if(!e)continue;
+                if(SESSION_CHECKBOXES.has(id))e.checked=!!value;else e.value=value;
+            }
+            state.dehumidifierEnabled=document.getElementById('dehumidifierMode').value==='enabled';
+            const m=saved.manual||{};
+            for(const k of ['temp','rh','wind'])if(Number.isFinite(m[k])){state[k]=m[k];const e=document.getElementById(k+'Value');if(e)e.textContent=m[k];}
+            if(Number.isFinite(m.cloud))state.cloud=m.cloud;if(['none','rain','snow'].includes(m.precip))state.precip=m.precip;
+            for(const [group,value] of [['cloudGroup',String(state.cloud.toFixed?state.cloud.toFixed(1):state.cloud)],['precipGroup',state.precip]]){
+                const g=document.getElementById(group);if(!g?.querySelectorAll)continue;
+                for(const chip of g.querySelectorAll('.selector-chip'))chip.classList.toggle('active',chip.dataset.val===value);
+            }
+            const mode=saved.weatherMode==='forecast'&&saved.location&&Number.isFinite(saved.location.lat)?'forecast':'manual';
+            state.weatherMode=mode;document.getElementById('weatherMode').value=mode;
+            updatePlanUI();
+            if(mode==='forecast')void restoreWeather(saved.location);
+        }
+        if(restorePlanView())showView('plan'); // reopen on the plan that is still in force
+    }finally{sessionRestoring=false;}
+    updateWeatherContext();checkResultValidity();
+}
+for(const type of ['change','input','click'])document.addEventListener?.(type,scheduleSessionSave);
+document.addEventListener?.('visibilitychange',()=>{if(document.hidden)saveSession();});
 function initializePlan(){
     document.getElementById('readingTime').value=inputDate(new Date());
     document.getElementById('actualWindows').innerHTML=WINDOW_SECTIONS.map((s,i)=>'<label class="field">'+escapeHTML(s.name)+'<select id="actualWindow'+i+'" onchange="planInputsChanged()"><option value="0">Closed</option><option value="2">Half open (2″)</option><option value="4">Fully open (4″)</option></select></label>').join('');
     updatePlanUI();
 }
 initializePlan();
-if(window.location.protocol!=='worker:'){initializeLogging();initializeCheckpoints();}
+if(window.location.protocol!=='worker:'){initializeLogging();initializeCheckpoints();restoreSession();}
 
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBanner').style.display='block';});
