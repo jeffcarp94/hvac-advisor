@@ -1,0 +1,19 @@
+{"fixture":"preparation-synthetic","heading":"N","phases":["02:00 maxxfan 68 Auto","03:00 auto_furnace 65/67 Low"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":20.6,"peakFrostMm":0.027,"frostCases":32}}
+{"fixture":"october-saved","phases":["23:48 ac 69 Auto","03:00 auto_furnace 65/67 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":26,"peakFrostMm":0.121,"frostCases":32}}
+{"fixture":"preparation-synthetic","heading":"E","phases":["02:00 ac 69 High","03:00 auto_furnace 65/67 Medium"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":24.7,"peakFrostMm":0.031,"frostCases":32}}
+{"fixture":"preparation-synthetic","heading":"W","phases":["02:00 ac 69 High","03:00 auto_furnace 65/67 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":25.8,"peakFrostMm":0.029,"frostCases":32}}
+{"fixture":"march-historical","phases":["02:00 auto 69/72 Low","03:00 auto 66/68 High"],"coil":{"cases":32,"cooling":15,"flagged":0,"staged":0,"minSurfaceF":22.3,"peakFrostMm":0.02,"frostCases":15}}
+{"fixture":"preparation-synthetic","heading":"S","phases":["02:00 ac 69 High","03:00 auto_furnace 65/67 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":25.4,"peakFrostMm":0.03,"frostCases":32}}
+{"fixture":"winterset-2026-05-08","heading":"S","phases":["02:00 ac 68 Auto","03:00 auto 66/68 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":25.1,"peakFrostMm":0.054,"frostCases":32}}
+{"fixture":"hot-synthetic","heading":"S","phases":["18:00 auto 65/72 High","03:00 ac 67 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":27.5,"peakFrostMm":0.108,"frostCases":32}}
+{"fixture":"hot-synthetic","heading":"W","phases":["18:00 auto 65/72 High","03:00 ac 67 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":27.7,"peakFrostMm":0.066,"frostCases":32}}
+{"fixture":"winterset-2026-05-08","heading":"W","phases":["02:00 maxxfan 68 Auto","03:00 auto 65/67 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":25.6,"peakFrostMm":0.024,"frostCases":32}}
+{"fixture":"winterset-2026-05-08","heading":"E","phases":["02:00 ac 68 Auto","03:00 auto_furnace 65/67 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":25,"peakFrostMm":0.056,"frostCases":32}}
+{"fixture":"hot-synthetic","heading":"N","phases":["18:00 auto 65/72 High","03:00 ac 67 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":27.7,"peakFrostMm":0.045,"frostCases":32}}
+{"fixture":"hot-synthetic","heading":"E","phases":["18:00 auto 65/72 High","03:00 ac 67 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":27.7,"peakFrostMm":0.048,"frostCases":32}}
+{"fixture":"winterset-2025-10-01","phases":["02:00 ac 70 High","03:00 auto 65/67 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":27.1,"peakFrostMm":0.037,"frostCases":32}}
+{"fixture":"away-return-wifi","phases":["06:00 hp 67 Low","08:00 auto 65/67 Medium"],"coil":{"cases":32,"cooling":0,"flagged":0,"staged":0,"minSurfaceF":null,"peakFrostMm":0,"frostCases":0}}
+{"fixture":"rising-synthetic","phases":["04:00 auto 65/69 Low"],"coil":{"cases":32,"cooling":0,"flagged":0,"staged":0,"minSurfaceF":null,"peakFrostMm":0,"frostCases":0}}
+{"fixture":"falling-synthetic","phases":["04:00 auto_furnace 64/69 High"],"coil":{"cases":32,"cooling":0,"flagged":0,"staged":0,"minSurfaceF":null,"peakFrostMm":0,"frostCases":0}}
+{"fixture":"surface-synthetic","phases":["10:30 auto 65/68 Auto"],"coil":{"cases":32,"cooling":15,"flagged":0,"staged":0,"minSurfaceF":25.5,"peakFrostMm":0.025,"frostCases":15}}
+{"fixture":"winterset-2026-05-08","heading":"N","phases":["02:00 ac 68 Auto","03:00 auto 66/68 High"],"coil":{"cases":32,"cooling":32,"flagged":0,"staged":0,"minSurfaceF":25,"peakFrostMm":0.054,"frostCases":32}}

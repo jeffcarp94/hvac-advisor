@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#F5F6F8" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0F1216" media="(prefers-color-scheme: dark)">
-    <title>HVAC Advisor v6.7.0 — Platinum III 250 DT</title>
+    <title>HVAC Advisor v6.7.1 — Platinum III 250 DT</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
     <style>
@@ -125,7 +125,7 @@
 </head>
 <body>
 <div class="app">
-    <header class="header"><div class="header-title">HVAC Advisor</div><span class="header-version">v6.7.0</span></header>
+    <header class="header"><div class="header-title">HVAC Advisor</div><span class="header-version">v6.7.1</span></header>
     <nav class="view-tabs" role="tablist" aria-label="View">
         <button type="button" role="tab" id="tabInputs" aria-selected="true" onclick="showView('inputs')">Inputs</button>
         <button type="button" role="tab" id="tabPlan" aria-selected="false" onclick="showView('plan')">Plan</button>
@@ -1024,13 +1024,16 @@ function condLoad(tOut,tIn,wind){const ua=UA_BASE*(1+0.02*wind);return{q:Math.ro
 // heating call is below this setting; independent Furnace mode never requests a heat pump.
 // Dometic CCC2 also documents outdoor-sensor changeover hysteresis; the exact adjustable
 // return threshold is unverified, so this model approximates the transition at 42°F.
-// Owner-confirmed 2026-11-15: EasyTouch RV 350 Temperature Differential Gap
-// HEAT = 2°F, COOL = 2°F. No gap UI; these are installed-equipment constants.
-// Micro-Air documents the heat cycle OFF at heat setpoint +1°F; cooling OFF at
-// cool setpoint -1°F is a symmetric engineering assumption, not an OEM example.
-// A conservative 4°F setpoint separation is used for candidate generation;
-// the manufacturer's exact minimum programmable separation is unverified.
-const EASYTOUCH={heatGap:2,coolGap:2,cycleEndOffset:1,minAutoSpread:4};
+// v6.7.1 (owner decision, 2026-11-21): EasyTouch RV 350 Temperature Differential Gap
+// HEAT = 1°F, COOL = 1°F (separate Heat and Cool gaps on the screen; 2°F/2°F from 2026-11-15
+// until this change). No gap UI; these are installed-equipment constants.
+// Micro-Air's on-screen example (heat set point 68, gap 3: on at 65, off at 69) gives heat ON at
+// set point − gap and OFF at set point +1°F; cooling OFF at set point −1°F is a symmetric
+// engineering assumption, not an OEM example.
+// Minimum AUTO spread 2°F: owner observation 2026-11-21 (the EasyTouch accepts HEAT TO 64 /
+// COOL TO 67 and 2°F appears to be the narrowest pair it allows). With 1°F gaps a 2°F spread
+// keeps the call regions apart: heat ends at HEAT TO+1 = COOL TO−1, cooling starts at COOL TO+1.
+const EASYTOUCH={heatGap:1,coolGap:1,cycleEndOffset:1,minAutoSpread:2};
 const isAutoMode=mode=>mode==='auto'||mode==='auto_furnace';
 function validDualSetpoints(sp){
     return Number.isInteger(sp.heat)&&Number.isInteger(sp.cool)&&sp.heat>=40&&sp.cool<=90&&sp.cool>=55&&sp.cool-sp.heat>=EASYTOUCH.minAutoSpread;
@@ -1891,7 +1894,7 @@ function settingValues(setup){
     const policy=comfortPolicy(setup.sleepComfort);
     if(isAutoMode(setup.type)){
         // Bounded search over independent integer controls, not a CCC2 midpoint.
-        // The four-degree spacing is conservative; firmware minimum is unverified.
+        // Spacing follows EASYTOUCH.minAutoSpread (2°F firmware minimum, owner observation).
         const values=[],seen=new Set(),h0=setup.setpoints.heat,c0=setup.setpoints.cool;
         const heats=[h0,h0-1,h0+1,h0-2,h0+2,policy.target-5,policy.target-4,policy.target-3,policy.target-2,policy.target];
         const cools=[c0,c0-1,c0+1,c0-2,c0+2,policy.target-1,policy.target,policy.target+2,policy.target+4];
@@ -3203,7 +3206,7 @@ function readPlanRequest(){
         const actual=planSetup(type,planBounds(start,request).sleep,config,value('actualFan')),sp=number('actualSetpoint');
         if(isAutoMode(type)){
             const heat=number('actualHeatSetpoint'),cool=number('actualCoolSetpoint');
-            if(!validDualSetpoints({heat,cool}))throw new Error('Enter actual AUTO HEAT TO / COOL TO in whole degrees, with cooling at least 4°F above heating.');
+            if(!validDualSetpoints({heat,cool}))throw new Error('Enter actual AUTO HEAT TO / COOL TO in whole degrees, with cooling at least '+EASYTOUCH.minAutoSpread+'°F above heating.');
             actual.setpoints={heat,cool,fan:cool};actual.key+='|actual|'+heat+'|'+cool;
         }else{
             const minimum=['hp','furnace'].includes(type)?40:55;
@@ -4472,14 +4475,33 @@ function wp7CoilAdvisoryHTML(advisory,request){
     const altText=alt?' '+alt.phases.filter((p,i)=>i===0||!sameSetup(alt.phases[i-1].setup,p.setup)).map(p=>settingPhrase(p.setup)+' from '+formatTime(new Date(p.time))).join(', then ')+' avoids it.':'';
     return '<div class="note bad" id="coilAdvisory" role="note"><b>AC coil may ice up</b>Flagged in '+c.flagged+' of '+c.cases+' tested conditions'+(f?' from '+escapeHTML(formatTime(new Date(f.time))):'')+'.'+escapeHTML(altText)+' If you see ice, run FAN ONLY until it clears, then cool at a warmer setting.</div>';
 }
-// Approved item 3: the partial-plan line, built from the carried-forward outlook.
-function partialNoteHTML(current,bounds,request){
+// v6.7.1 (owner decision 1a, option B, November 21, 2026): with a night in the horizon, the line names the
+// planner's closest overnight setting (the best non-qualifying plan's setting in effect at bedtime, or at the start
+// when already asleep) and its shortfall. Display only: it reuses the computed winner and its ensemble result.
+function closestNightText(winner,bounds){
+    const x=winner?.ensemble;if(!x||!winner.phases?.length||!x.failing?.length)return '';
+    const at=bounds.bedtime?+bounds.bedtime:+bounds.start;
+    const phases=winner.phases.filter((ph,i)=>i===0||!sameSetup(winner.phases[i-1].setup,ph.setup));
+    const night=phases.filter(ph=>+ph.time<=at).at(-1)||phases[0],setup=night.setup;
+    const fan=setup.fan&&['ac','hp','furnace','auto','auto_furnace'].includes(setup.type)?', fan '+setup.fan:'';
+    const hasTime=f=>f.time!=null&&Number.isFinite(+f.time);
+    const first=x.failing.filter(hasTime).sort((a,b)=>+a.time-+b.time)[0]||x.failing[0];
+    const body=plainReason(first.reason).replace(/\.$/,'').replace(/^Too \w+\. /,'').replace(/^The bedroom falls /,'The bedroom drops ');
+    const what=body.charAt(0).toLowerCase()+body.slice(1),when=hasTime(first)?' after '+formatTime(new Date(+first.time)):'';
+    return 'The closest overnight setting, '+settingPhrase(setup)+fan+' from '+formatTime(new Date(+night.time))+', works in '+x.passes+' of '+x.members+
+        ' tested conditions; in '+x.failing.length+' '+what+when+'. ';
+}
+// Approved item 3: the partial-plan line, built from the carried-forward outlook (no night in the horizon, or
+// no ensemble result for the closest overnight plan).
+function partialNoteHTML(current,bounds,request,winner=null){
     const p=current.outlook,review=formatTime(new Date(current.reviewAt));
     const nightBand=comfortPolicy(true),endText=formatTime(new Date(+bounds.end)),hasNight=!!(bounds.bedtime||bounds.sleep);
     const title=hasNight?'No setting works all night.':'No setting works through '+endText+'.';
     const bandText=hasNight?nightBand.low+'–'+nightBand.high+'°F':comfortPolicy(false).low+'–'+comfortPolicy(false).high+'°F';
     const lead='None of the tested settings keeps the bedroom between '+bandText+' until '+endText+' without changes. ';
     const tail=request.occupancy==='leaving'&&current.reviewAt===+request.departure?'Rebuild the plan before you leave at '+review+' with fresh readings.':'Rebuild the plan at '+review+' with fresh readings.';
+    const closest=hasNight?closestNightText(winner,bounds):'';
+    if(closest)return noteHTML(title,lead+closest+tail);
     if(!p)return noteHTML(title,lead+tail);
     const assumed=p.phases.filter((ph,i)=>i===0||!sameSetup(p.phases[i-1].setup,ph.setup)).at(-1);
     const from=bounds.bedtime?+bounds.bedtime:+bounds.start,ext=p.extremes||traceExtremes(p,from,+bounds.end);
@@ -4550,7 +4572,7 @@ function renderPlan(result){
         const plan={...current,phases:[{time:+bounds.start,setup:current.setup}]};
         html+='<div class="cards">'+stayingCards({...result,comparisons:{day:result.comparisons?.day}},plan,{end:current.reviewAt,recoveryInfo:current.recoveryInfo}).join('')+'</div>';
         if(overnightEta)html+=noteHTML('Bedroom reaches 65–69°F',overnightEta,'info');
-        html+=partialNoteHTML(current,bounds,request);
+        html+=partialNoteHTML(current,bounds,request,p);
         const leaving=request.occupancy==='leaving'&&current.reviewAt===+request.departure;
         html+=nextCardHTML(leaving?'Rebuild before you leave at '+review:'Rebuild at '+review,'Take fresh bedroom and front readings first.','Rebuild');
     }else{

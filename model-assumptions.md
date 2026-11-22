@@ -1,3 +1,50 @@
+# v6.7.1 — 1°F installed gaps, 2°F minimum AUTO spread, closest overnight setting
+
+## Owner configuration and decisions (November 21, 2026)
+
+- **Temperature Differential Gap.** The EasyTouch RV 350 screen has separate Heat and Cool gaps (owner photo, 6:45 PM). Jeff set both to 1°F (2°F/2°F since November 15) because he dislikes the swing, given the front–rear temperature difference. `EASYTOUCH.heatGap` and `coolGap` = 1 (approval A1). The screen's example (heat set point 68, gap 3: on at 65, off at 69) matches the modeled heating law (on at set point − gap, off at set point + 1). Cooling off at set point − 1 remains an engineering assumption.
+- **Minimum AUTO spread.** Owner observation: the EasyTouch accepts HEAT TO 64 / COOL TO 67, and 2°F appears to be the minimum. `EASYTOUCH.minAutoSpread` = 2 (approval A2), replacing the 4°F planning rule. With 1°F gaps a 2°F pair has no overlapping call region (heat off at HEAT TO + 1 = COOL TO − 1; cooling on at COOL TO + 1). The candidate grid in `settingValues` is unchanged; it simply admits narrower pairs. The actual-setting validation message uses the constant.
+- **Short calls (A3, owner decision).** Accepted unless they cause coil icing or equipment damage. Protection relied on: the Dometic CCC 2 compressor time delay of about 2 minutes (3314080, Special Features L; EasyTouch RV 350 manual rev. 1.4 puts the hourglass delay in the control board); not modeled and not yet observed on this coach. The WP3 test (`tests/easytouch-comparison.test.cjs`) is unchanged and passes: its fixtures are a single heat-pump warm-up (shortest completed call 3.27 min at both gap settings) and an AC pull-down (6.1 min at 1°F, 8.9 min at 2°F, zero lag). It does not cover steady cycling, where the v6.7.0 handoff analysis found calls of about 2–3.5 min at 1°F gaps.
+- **Temperature Reading Adjustment −5°F** (was −4°F). Idle garage evidence: YoLink front 67.6°F / rear 67.5°F; EasyTouch 69°F at −4°F, 68°F at −5°F (raw about +5.4°F ± 0.5°F over the front YoLink, against +6.6 to +7.7°F in the garage tests; unexplained). The single heat-pump warm-up sample (raw about +3.7°F) would display about 1.3°F below the front at −5°F. The live model senses front air exactly, so no model input changes.
+
+## Display (1a, option B)
+
+With a night in the horizon, the "No setting works all night" line names the closest overnight setting: the best non-qualifying plan's phase in effect at bedtime (or at the start when already asleep), its "works in X of 32" count and the earliest failing condition's outcome and time. It reuses the computed winner; ranking is unchanged. Without a night, or without an ensemble result, the v6.7.0 wording is kept.
+
+## Fixtures
+
+Search mode `auto` (`tools/analysis/wp13-search-gate.cjs`, Node 22 locally), dehumidifier on; `reports/v671-fixtures.jsonl` against `reports/v6628-fixtures.jsonl` (v6.7.0 was presentation only). Mean = mean degree-minutes outside the band over the 32 conditions (warm × 2). Phase times UTC.
+
+| Fixture | v6.7.0 | v6.7.1 | v6.7.1 plan | Mean |
+|---|---|---|---|---|
+| surface-synthetic | qualifies (32/32) | qualifies (32/32) | 10:30 auto 65/68 Auto | 0.0 → 0.0 |
+| rising-synthetic | qualifies (29/32) | qualifies (29/32) | 04:00 auto 65/69 Low | 247.9 → 241.8 |
+| falling-synthetic | fails (24/32) | qualifies (31/32) | 04:00 auto_furnace 64/69 High | 324.5 → 130.3 |
+| away-return-wifi | qualifies (32/32) | qualifies (32/32) | 06:00 hp 67 Low → 08:00 auto 65/67 Medium | 106.8 → 47.2 |
+| winterset-2025-10-01 | qualifies (32/32) | qualifies (32/32) | 02:00 ac 70 High → 03:00 auto 65/67 High | 1.7 → 1.1 |
+| hot-synthetic N | fails (0/32) | qualifies (31/32) | 18:00 auto 65/72 High → 03:00 ac 67 High | 510.8 → 159.9 |
+| hot-synthetic S | qualifies (32/32) | qualifies (32/32) | 18:00 auto 65/72 High → 03:00 ac 67 High | 198.1 → 188.6 |
+| winterset-2026-05-08 N | qualifies (32/32) | qualifies (32/32) | 02:00 ac 68 Auto → 03:00 auto 66/68 High | 20.4 → 4.6 |
+| october-saved | fails (29/32) | qualifies (32/32) | 23:48 ac 69 Auto → 03:00 auto_furnace 65/67 High | 42.3 → 1.7 |
+| hot-synthetic E | fails (8/32) | qualifies (31/32) | 18:00 auto 65/72 High → 03:00 ac 67 High | 570.9 → 174.8 |
+| winterset-2026-05-08 S | qualifies (32/32) | qualifies (32/32) | 02:00 ac 68 Auto → 03:00 auto 66/68 High | 25.7 → 4.3 |
+| hot-synthetic W | qualifies (32/32) | qualifies (32/32) | 18:00 auto 65/72 High → 03:00 ac 67 High | 174.2 → 185.6 |
+| winterset-2026-05-08 E | qualifies (29/32) | qualifies (32/32) | 02:00 ac 68 Auto → 03:00 auto_furnace 65/67 High | 82.9 → 8.0 |
+| preparation-synthetic E | qualifies (31/32) | qualifies (32/32) | 02:00 ac 69 High → 03:00 auto_furnace 65/67 Medium | 28.7 → 3.1 |
+| winterset-2026-05-08 W | qualifies (32/32) | qualifies (32/32) | 02:00 maxxfan 68 Auto → 03:00 auto 65/67 High | 29.5 → 10.9 |
+| march-historical | qualifies (32/32) | qualifies (32/32) | 02:00 auto 69/72 Low → 03:00 auto 66/68 High | 16.9 → 3.3 |
+| preparation-synthetic N | qualifies (32/32) | qualifies (32/32) | 02:00 maxxfan 68 Auto → 03:00 auto_furnace 65/67 Low | 27.4 → 6.0 |
+| preparation-synthetic S | qualifies (32/32) | qualifies (32/32) | 02:00 ac 69 High → 03:00 auto_furnace 65/67 High | 13.7 → 2.2 |
+| preparation-synthetic W | qualifies (31/32) | qualifies (32/32) | 02:00 ac 69 High → 03:00 auto_furnace 65/67 High | 50.8 → 2.8 |
+
+Qualifying fixtures: 15 → 19 of 19. Hot synthetic N and E (the v6.6.28 search-path misses, paused by the owner) now qualify; the underlying one-phase-at-a-time search limitation is not fixed and can recur.
+
+Coil-ice advisory (live cycle model, 32 conditions, on each winner; `tools/analysis/coil-winners.cjs`, `reports/v671-coil.jsonl`): no v6.7.1 winner is flagged in any condition, and none was at v6.7.0. Peak modeled ice is 0.121 mm (Oct 23 saved evening, COOL 69 Auto; v6.7.0 winner 0.092 mm) against the 0.43 mm flag; the coldest coil region reaches 20.6–27.7°F while running, as at v6.7.0 (20.9–26.9°F). On this evidence the shorter calls raise no coil-icing concern in the model. Equipment wear from more starts is not modeled.
+
+## Tests changed
+
+Threshold assertions moved to the 1°F law (`control-qc`, `easytouch-auto`, `easytouch-comparison`, `explanations`, `spatial-controls`, `thermal`; `methodology` uses HEAT TO 66 / COOL TO 72 to keep its 65°F heating trigger). Three tests whose v6.7.0 inputs no longer reach the path they test at 1°F gaps run with the former 2°F gaps and 4°F spread, labeled in the test: the natural-recovery OFF tie (`current-guidance`), the Winterset partial-plan guidance (`current-guidance`, now asserting the option B line) and the partial-run logging rule (`logging`). The furnace hysteresis test drops its "FURNACE 63 is rejected" precondition, which no longer holds at 1°F gaps.
+
 # v6.6.28 — WP14 refrigeration-cycle model, coil-ice advisory, fast moisture layer, 1°F comfort allowance
 
 Owner direction and approvals, November 20, 2026: one model for plan capacity and the coil advisory, with real (thermodynamically defensible) icing flags; WP14 scope approved with airflows from the best available estimate; critique of the cycle model against the Gulf Shores ground truth; step 1 (moisture balance) approved; Gulf Shores handled as a historical validation; Reference updated.
@@ -1082,7 +1129,7 @@ Owner-approved November 15, 2026: initial cold/hot conditions are recoverable st
 
 Recovery timing and progress are evaluated across all sensitivity scenarios. Completed recovery ranks ahead of unfinished recovery; faster completed recovery, or greater progress over a common unfinished interval, ranks ahead of steady-state preferences. The UI distinguishes a recovery trajectory from guaranteed comfort. A separate limited-action fallback compares equipment-eligible HVAC against HVAC off when no current plan qualifies. It does not certify departure or overnight comfort. No heat-transfer, capacity, solar, or thermal-mass constants changed.
 
-# v6.6.0 — EasyTouch RV 350 dual-temperature AUTO controls (current policy)
+# v6.6.0 — EasyTouch RV 350 dual-temperature AUTO controls (superseded for gaps and spacing by v6.7.1)
 
 **Actual owner settings confirmed November 15, 2026:** Auto Gas Changeover Outside Temperature Setpoint 42°F; Temperature Differential Gap HEAT 2°F and COOL 2°F. These are constants, with no user-adjustable gap UI.
 

@@ -92,7 +92,9 @@ test('AUTO does not earn dual-mode preference for brief calls or unnecessary reh
 });
 test('AUTO resolves the 65°F heating trigger without a numerical step below the floor',()=>{
     const a=setup({temp:50,rh:15,indoorRH:15,hours:3});
-    a.run(`state.dehumidifierEnabled=false;C.metaSleep=0;sp={heat:67,cool:71};
+    // v6.7.1: 1°F gaps; HEAT TO 66 keeps the heating trigger at 65°F, and COOL TO 72 keeps the 72°F start below
+    // the cooling trigger (73°F), as HEAT TO 67 / COOL TO 71 did at 2°F gaps.
+    a.run(`state.dehumidifierEnabled=false;C.metaSleep=0;sp={heat:66,cool:72};
         s=zoneProfile('auto',e,true,sp,0,72,{checkEquipment:false});`);
     assert.ok(a.run('Math.min(...s.trace.map(p=>p.bedroom))')>=65-1e-6);
     assert.equal(a.run('s.didHeat'),true);assert.equal(a.run('s.didCool'),false);

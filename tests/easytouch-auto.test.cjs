@@ -2,31 +2,36 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const {app}=require('./helpers.cjs');
 
-test('installed gaps remain 2°F for both modes and dual controls reject invalid pairs',()=>{
+// v6.7.1 (owner decision, November 21, 2026): 1°F Heat and Cool gaps; 2°F firmware minimum AUTO spread
+// (owner observation: HEAT TO 64 / COOL TO 67 accepted, 2°F appears to be the minimum).
+test('installed gaps are 1°F for both modes and dual controls reject invalid pairs',()=>{
  const a=app();
- assert.equal(a.run('EASYTOUCH.heatGap'),2);
- assert.equal(a.run('EASYTOUCH.coolGap'),2);
- assert.equal(a.run('EASYTOUCH.minAutoSpread'),4);
+ assert.equal(a.run('EASYTOUCH.heatGap'),1);
+ assert.equal(a.run('EASYTOUCH.coolGap'),1);
+ assert.equal(a.run('EASYTOUCH.minAutoSpread'),2);
  assert.equal(a.run('validDualSetpoints({heat:68,cool:72})'),true);
- for(const p of [{heat:68,cool:71},{heat:70.5,cool:75},{heat:39,cool:70},{heat:68,cool:91}])
+ assert.equal(a.run('validDualSetpoints({heat:65,cool:67})'),true);
+ for(const p of [{heat:68,cool:69},{heat:68,cool:68},{heat:70.5,cool:75},{heat:39,cool:70},{heat:68,cool:91}])
    assert.equal(a.run('validDualSetpoints('+JSON.stringify(p)+')'),false);
  assert.equal(a.run("settingValues(planSetup('auto',true)).every(validDualSetpoints)"),true);
 });
 
-test('AUTO heat hysteresis begins at HEAT TO minus 2 and stops at HEAT TO plus 1',()=>{
+test('AUTO heat hysteresis begins at HEAT TO minus 1 and stops at HEAT TO plus 1',()=>{
  const a=app();
  a.run("env={tOut:55,ua:100,gains:0,mass:300};sp={heat:68,cool:72};control={phase:'off'}");
- assert.equal(a.run("thermalDemand('auto',66,env,sp,control)"),'hp');
+ assert.equal(a.run("thermalDemand('auto',67.01,env,sp,control)"),'off');
+ assert.equal(a.run("thermalDemand('auto',67,env,sp,control)"),'hp');
  assert.equal(a.run('control.phase'),'hp');
  assert.equal(a.run("thermalDemand('auto',68,env,sp,control)"),'hp');
  assert.equal(a.run("thermalDemand('auto',69,env,sp,control)"),'off');
  assert.equal(a.run('control.phase'),'off');
 });
 
-test('AUTO cooling begins at COOL TO plus 2 and ends at COOL TO minus 1',()=>{
+test('AUTO cooling begins at COOL TO plus 1 and ends at COOL TO minus 1',()=>{
  const a=app();
  a.run("env={tOut:90,ua:100,gains:0,mass:300};sp={heat:68,cool:72};control={phase:'off'}");
- assert.equal(a.run("thermalDemand('auto',74,env,sp,control)"),'ac');
+ assert.equal(a.run("thermalDemand('auto',72.99,env,sp,control)"),'off');
+ assert.equal(a.run("thermalDemand('auto',73,env,sp,control)"),'ac');
  assert.equal(a.run("thermalDemand('auto',72,env,sp,control)"),'ac');
  assert.equal(a.run("thermalDemand('auto',71,env,sp,control)"),'off');
  assert.equal(a.run('control.phase'),'off');
@@ -56,8 +61,8 @@ test('the planner stores and compares both AUTO setpoints and never changes fixe
  assert.equal(a.run('newSetup.setpoints.cool'),75);
  assert.equal(a.run('sameSetup(base,newSetup)'),false);
  assert.equal(a.run("sameSetup(newSetup,withSetting(base,{heat:69,cool:75}))"),true);
- assert.equal(a.run('EASYTOUCH.heatGap'),2);
- assert.equal(a.run('EASYTOUCH.coolGap'),2);
+ assert.equal(a.run('EASYTOUCH.heatGap'),1);
+ assert.equal(a.run('EASYTOUCH.coolGap'),1);
 });
 
 test('AUTO search includes lower independent controls for bedroom cooling preparation',()=>{
@@ -82,6 +87,6 @@ test('away AUTO entries and remote actions preserve both independently entered s
   assert.equal(a.run('r.actual.setpoints.cool'),73);
   assert.match(a.run('planActionText({time:+r.start,setup:r.actual},r)'),/HEAT TO 66°F and COOL TO 73°F/);
  }
- a.element('actualCoolSetpoint').value='68';
- assert.throws(()=>a.run('readPlanRequest()'),/at least 4°F/);
+ a.element('actualCoolSetpoint').value='67'; // v6.7.1: 2°F minimum spread
+ assert.throws(()=>a.run('readPlanRequest()'),/at least 2°F/);
 });
